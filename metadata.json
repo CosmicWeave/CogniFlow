@@ -1,0 +1,6 @@
+{
+  "name": "CogniFlow: PWA 2",
+  "description": "An intelligent flashcard application using a spaced repetition system (SRS) to help you learn and retain information more effectively. Create your own decks, import from JSON, and study cards that are due for review.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
