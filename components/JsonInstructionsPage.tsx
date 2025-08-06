@@ -1,7 +1,6 @@
 
-
-import React from 'react';
-import Icon from './ui/Icon';
+import React, { useState } from 'react';
+import Icon, { IconName } from './ui/Icon';
 import Button from './ui/Button';
 import { useToast } from '../hooks/useToast';
 
@@ -11,9 +10,69 @@ const CodeBlock = ({ children }: { children: React.ReactNode }) => (
   </pre>
 );
 
+const AccordionItem = ({ title, iconName, children, defaultOpen = false }: { title: string, iconName?: IconName, children: React.ReactNode, defaultOpen?: boolean }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex justify-between items-center text-left p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+        aria-expanded={isOpen}
+      >
+        <div className="flex items-center">
+          {iconName && <Icon name={iconName} className="w-6 h-6 mr-3 text-gray-500 dark:text-gray-400" />}
+          <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200">{title}</h3>
+        </div>
+        <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-gray-500`}/>
+      </button>
+      {isOpen && (
+        <div className="p-6 bg-white dark:bg-gray-800 animate-fade-in">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const FieldDefinitionTable = ({ fields }: { fields: Array<{field: string, type: string, description: string, required: boolean}> }) => (
+    <div className="overflow-x-auto">
+    <table className="w-full text-left border-collapse mt-4 min-w-[500px]">
+      <thead>
+        <tr>
+          <th className="border-b-2 dark:border-gray-600 p-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Field</th>
+          <th className="border-b-2 dark:border-gray-600 p-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Type</th>
+          <th className="border-b-2 dark:border-gray-600 p-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Required</th>
+          <th className="border-b-2 dark:border-gray-600 p-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {fields.map(({ field, type, description, required }) => (
+            <tr key={field} className="border-b dark:border-gray-700/50">
+                <td className="p-2 align-top"><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">{field}</code></td>
+                <td className="p-2 align-top text-gray-600 dark:text-gray-400">{type}</td>
+                <td className="p-2 align-top">{required ? <Icon name="check-circle" className="text-green-500" /> : 'No'}</td>
+                <td className="p-2 align-top text-gray-600 dark:text-gray-400">{description}</td>
+            </tr>
+        ))}
+      </tbody>
+    </table>
+    </div>
+);
+
+
 const JsonInstructionsPage: React.FC = () => {
   const { addToast } = useToast();
+  const [outlineTopic, setOutlineTopic] = useState('');
+  const [outlineLevel, setOutlineLevel] = useState('Beginner');
+  const [seriesTopic, setSeriesTopic] = useState('');
+  const [quizTopic, setQuizTopic] = useState('');
+  const [seriesLevel, setSeriesLevel] = useState('Beginner');
+  const [quizLevel, setQuizLevel] = useState('Beginner');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const understandingLevels = ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Expert', 'Mastery'];
+  
   const flashcardJson = `[
   {
     "front": "What is the capital of France?",
@@ -33,129 +92,475 @@ const JsonInstructionsPage: React.FC = () => {
       "questionType": "multipleChoice",
       "questionText": "Which planet is known as the Red Planet?",
       "tags": ["astronomy", "planets"],
-      "detailedExplanation": "Mars is often called the Red Planet because of its reddish appearance, which is due to iron oxide (rust) on its surface.",
+      "detailedExplanation": "Mars is often called the Red Planet...",
       "options": [
-        {
-          "id": "opt1",
-          "text": "Venus"
-        },
-        {
-          "id": "opt2",
-          "text": "Mars"
-        },
-        {
-          "id": "opt3",
-          "text": "Jupiter",
-          "explanation": "Jupiter is a gas giant, the largest planet in our solar system."
-        }
+        { "id": "opt1", "text": "Venus" },
+        { "id": "opt2", "text": "Mars" },
+        { "id": "opt3", "text": "Jupiter", "explanation": "Jupiter is a gas giant..." }
       ],
       "correctAnswerId": "opt2"
     }
   ]
 }`;
+const quizFields = [
+    { field: 'name', type: 'string', required: true, description: 'The title of the quiz deck.' },
+    { field: 'description', type: 'string', required: true, description: 'A brief summary of the deck\'s content.' },
+    { field: 'questions', type: 'Array<Question>', required: true, description: 'An array containing all question objects for the deck.' },
+    { field: 'questionType', type: 'string', required: true, description: 'Must be "multipleChoice" for now.' },
+    { field: 'questionText', type: 'string', required: true, description: 'The question being asked.' },
+    { field: 'tags', type: 'Array<string>', required: false, description: 'An array of keywords for organization.' },
+    { field: 'detailedExplanation', type: 'string', required: true, description: 'The full explanation shown after answering.' },
+    { field: 'options', type: 'Array<Option>', required: true, description: 'An array of possible answers.' },
+    { field: 'correctAnswerId', type: 'string', required: true, description: 'The `id` of the correct option.' },
+    { field: 'options[].id', type: 'string', required: true, description: 'A unique identifier for this option within the question.' },
+    { field: 'options[].text', type: 'string', required: true, description: 'The answer text shown to the user.' },
+    { field: 'options[].explanation', type: 'string', required: false, description: 'A brief explanation for why this specific option is right or wrong.' },
+];
 
-  const aiPrompt = `Please generate a JSON object for a multiple-choice quiz on the topic of [YOUR TOPIC HERE].
 
-Follow these instructions exactly:
-1.  Create exactly 5 high-quality questions on the specified topic.
-2.  The content must be accurate and educational. For each question, provide one correct answer and several plausible but incorrect options (distractors).
-3.  Provide clear and concise explanations for the correct answer.
-4.  The final output must be ONLY the raw JSON object. Do not include any surrounding text, explanations, or markdown code fences like \`\`\`json.
+  const seriesJsonExample = `{
+  "seriesName": "Intro to Web Development",
+  "seriesDescription": "A progressive series covering the fundamentals of web development.",
+  "levels": [
+    {
+      "title": "Level 1: The Foundation",
+      "decks": [
+        {
+          "name": "Deck 1.1: HTML Basics",
+          "description": "The building blocks of the web.",
+          "questions": [
+            {
+              "questionType": "multipleChoice",
+              "questionText": "What does HTML stand for?",
+              "tags": ["html", "basics"],
+              "detailedExplanation": "HTML stands for HyperText Markup Language...",
+              "options": [
+                { "id": "1", "text": "HyperText Markup Language" },
+                { "id": "2", "text": "High-Level Text Machine Language" }
+              ],
+              "correctAnswerId": "1"
+            }
+          ]
+        },
+        { "name": "Deck 1.2: CSS Fundamentals", "description": "...", "questions": [] }
+      ]
+    }
+  ]
+}`;
+const seriesFields = [
+    { field: 'seriesName', type: 'string', required: true, description: 'The title for the entire series.' },
+    { field: 'seriesDescription', type: 'string', required: true, description: 'A brief summary of what the whole series covers.' },
+    { field: 'levels', type: 'Array<Level>', required: true, description: 'An array containing all the levels in the series.' },
+    { field: 'levels[].title', type: 'string', required: true, description: 'The heading for a group of decks (e.g., "Level 1: Core Concepts").' },
+    { field: 'levels[].decks', type: 'Array<QuizDeck>', required: true, description: 'An array of quiz decks for that level. The schema for each deck is the same as the Single Quiz Deck format.' },
+];
 
-**JSON Schema:**
+const outlineAiPromptTemplate = `Please act as a world-class instructional designer and subject matter expert. Your task is to generate a comprehensive, detailed, and world-class TEXT outline for a learning path. The output must be plain text, not a JSON object.
 
-The root object must contain:
-- \`name\`: (string) The title of the deck.
-- \`description\`: (string) A brief description of the deck's content.
-- \`questions\`: (array) A list of question objects.
+**Topic:** [YOUR TOPIC HERE]
+**User's Current Level:** [USER'S LEVEL HERE]
 
-Each object within the \`questions\` array must contain:
-- \`questionType\`: (string) Must be the exact value "multipleChoice".
-- \`questionText\`: (string) The text of the question.
-- \`tags\`: (array of strings) A list of 1-2 relevant lowercase keywords.
-- \`detailedExplanation\`: (string) A thorough explanation of why the correct answer is correct.
-- \`options\`: (array of option objects) Each object represents an answer and must contain:
-    - \`id\`: (string) A unique identifier for the option (e.g., "q1-opt1").
-    - \`text\`: (string) The answer text.
-    - \`explanation\`: (string, optional) A short explanation for this specific option.
-- \`correctAnswerId\`: (string) The \`id\` of the correct option from the \`options\` array.
+The goal is to create a structured and progressive learning path that guides the user towards mastery, similar in quality and detail to the provided example structure.
 
-**Important Rules:**
-- Do NOT include \`id\` or other SRS fields (like \`dueDate\`, \`interval\`) on the main question objects; they are generated automatically by the app.
-- Ensure every \`correctAnswerId\` perfectly matches one of the \`id\`s within its corresponding \`options\` array.
-- The output must be a single, raw JSON object starting with \`{\` and ending with \`}\`.
+**INSTRUCTIONS & REQUIREMENTS:**
 
-Now, generate the complete JSON deck for the topic: [YOUR TOPIC HERE]`;
+1.  **Learning Path Structure:**
+    -   Organize the learning path into logical "Levels" (e.g., Level 1, Level 2, up to Level 4 or 5). Each level must have a title and represent a significant step up in knowledge.
+    -   Each Level should contain one or more related "Decks".
+    -   The name of each deck must reflect this structure, e.g., "Deck 1.1: Foundations of X", "Deck 1.2: Core Concepts of Y", "Deck 2.1: Advanced Techniques in Z".
 
-  const handleCopyToClipboard = (text: string) => {
+2.  **High-Quality Content (Crucial):**
+    -   **Series Name & Description:** Create a compelling and descriptive name (e.g., "Topic Mastery Path: The Contextual Approach") and a comprehensive summary for the entire learning path.
+    -   **Level Goal & Focus:** For each Level, provide a clear "Goal" and "Focus".
+    -   **Deck Topics:** For each Deck, provide a detailed, itemized list of specific "Topics" to be covered.
+    -   **Progressive Difficulty:** The path must be logically sequenced, starting with foundational definitions and historical context, moving to practical applications, then to assessment and planning, and finally to interdisciplinary challenges.
+    -   **Context-Specific:** If the user's topic has a specific context (e.g., a geographical location, a particular framework), embed that context deeply into the entire outline.
+    -   **Approximate Question Count:** Suggest an approximate number of questions for each deck.
+
+**EXAMPLE STRUCTURE:**
+Ecological Sustainable Forestry Mastery Path: The Scanian Approach
+This learning path provides a deep understanding of...
+Level 1: Core Principles & Historical Context in Skåne
+Goal: Define ecological sustainable forestry...
+Focus: Shifting from purely extractive forestry...
+Deck 1.1: Foundations of Sustainable Forest Management (SFM) in Skåne
+Topics: Definitional evolution of forestry...
+Approx. Questions: 30-40
+
+---
+
+Now, based on all the above requirements, generate the complete text outline.
+`;
+
+  const deckFromOutlinePromptTemplate = `You are an expert content creator. I have provided a text outline for a learning path. Your task is to generate the JSON for the **first deck (e.g., Deck 1.1)** from that outline.
+
+**PRIMARY INSTRUCTIONS:**
+
+1.  **Source Material:** Use ONLY the text outline I've provided as your source.
+2.  **Question Quantity:** Generate the approximate number of questions specified in the outline for this first deck.
+3.  **Content Generation:** Create world-class questions and answers based *only* on the "Topics" listed for this specific deck in the outline.
+
+**CRITICAL CONTENT QUALITY REQUIREMENTS:**
+- **Factual Accuracy:** This is paramount. The correct answer and all parts of the explanation must be unequivocally correct and verifiable.
+- **Relevance & Practical Application:** Frame questions in real-world scenarios to help a user apply the information. Questions must be relevant to the deck's topics.
+- **Clarity & Simplicity:** Questions must be easy to understand, unambiguous, and free of jargon (unless the jargon is the learning objective). Test only one core concept per question.
+- **Problem-Solving Focus:** Design questions that require applying knowledge, not just recalling facts. Avoid trivial pursuit and focus on genuinely useful information. For practical topics, ask skill-based questions that test the ability to perform a task or make a decision.
+- **High-Quality Explanations:** The \`detailedExplanation\` is crucial. It must explain the reasoning, principles, or facts behind the correct answer. Provide additional context, examples, or connections to related concepts to deepen understanding. If applicable, cite sources for complex information.
+- **Engaging Content:** While factual, make the questions and explanations as engaging as possible to maintain learner interest.
+
+**JSON OUTPUT FORMAT:**
+- The final output MUST be ONLY a single, raw JSON object, starting with \`{\` and ending with \`}\`. Do not include any surrounding text, explanations, or markdown formatting.
+- The JSON object must follow this exact schema:
+{
+  "name": "The exact name for the deck from your outline, e.g., 'Deck 1.1: Foundations...'",
+  "description": "A concise description of this specific deck's content, based on its topics.",
+  "questions": [
+    {
+      "questionType": "multipleChoice",
+      "questionText": "The text of the first question...",
+      "tags": ["relevant", "tags"],
+      "detailedExplanation": "A thorough explanation that meets all quality requirements.",
+      "options": [
+        { "id": "q1_opt1", "text": "First answer option" },
+        { "id": "q1_opt2", "text": "Second answer option" }
+      ],
+      "correctAnswerId": "q1_opt2"
+    }
+  ]
+}
+
+Now, based on the text outline I provided, please generate the JSON for the **first deck**.`;
+
+  const seriesAiPromptTemplate = `Please act as an expert instructional designer and generate a complete, structured Deck Series in a single JSON object.
+
+**Topic:** [YOUR TOPIC HERE]
+**User's Current Level:** [USER'S LEVEL HERE]
+
+The goal is to create a learning path that takes the user from their current level towards Mastery.
+
+**CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
+-   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
+-   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
+-   **Clarity:** Questions must be easy to understand and unambiguous.
+
+**FINAL JSON OUTPUT FORMAT:**
+The final output MUST be ONLY a single, raw JSON object without any surrounding text or markdown. The root object must have this exact schema:
+{
+  "seriesName": "A descriptive name for the whole series",
+  "seriesDescription": "A brief description of what the series covers.",
+  "levels": [
+    {
+      "title": "Level 1: The Basics",
+      "decks": [
+        {
+          "name": "Deck 1.1: Deck Name",
+          "description": "Description of this deck's content.",
+          "questions": [
+            {
+              "questionType": "multipleChoice",
+              "questionText": "...",
+              "tags": ["tag1", "tag2"],
+              "detailedExplanation": "...",
+              "options": [ { "id": "q1_opt1", "text": "..." }, { "id": "q1_opt2", "text": "..." } ],
+              "correctAnswerId": "q1_opt2"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+Now, generate the complete JSON object based on all the above requirements.`;
+  
+  const aiPromptForQuizTemplate = `Please generate a JSON object for a single multiple-choice quiz.
+
+**Topic:** [YOUR TOPIC HERE]
+**Designed for Level:** [USER'S LEVEL HERE]
+
+**CONTENT REQUIREMENTS:**
+-   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
+-   **Relevance:** Questions must be directly pertinent to the chosen topic and appropriate for the specified level.
+-   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
+-   **Question Quantity:** Generate 10-100 high-quality questions. Do not include multiple questions that are essentially asking the same thing.
+-   **Clarity:** Questions must be easy to understand and unambiguous.
+-   **Problem-Solving Focus:** Prioritize questions that require applying knowledge to solve a problem.
+-   **Explanation Quality:** The \`detailedExplanation\` must explain the reasoning behind the correct answer and provide additional context.
+
+**JSON SCHEMA & RULES:**
+-   The final output must be ONLY the raw JSON object, starting with \`{\` and ending with \`}\`.
+-   The root object must contain \`name\`, \`description\`, and \`questions\` (array).
+-   Each question object must contain \`questionType\` ("multipleChoice"), \`questionText\`, \`tags\` (array), \`detailedExplanation\`, \`options\` (array), and \`correctAnswerId\`.
+-   Each option object must contain a unique \`id\` and \`text\`.
+-   Do NOT include top-level SRS fields like \`id\` or \`dueDate\` on the questions.
+
+Now, generate the complete JSON deck based on all the above requirements.`;
+
+  const handleCopyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text).then(() => {
       addToast('Prompt copied to clipboard!', 'success');
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000); // Reset after 2 seconds
     }).catch(err => {
       addToast('Failed to copy prompt.', 'error');
       console.error('Could not copy text: ', err);
     });
   };
+  
+  const handleCopyOutlinePrompt = () => {
+    const topic = outlineTopic.trim() || '[YOUR TOPIC HERE]';
+    const finalPrompt = outlineAiPromptTemplate
+        .replace('[YOUR TOPIC HERE]', topic)
+        .replace("[USER'S LEVEL HERE]", outlineLevel);
+    handleCopyToClipboard(finalPrompt, 'outline-prompt');
+  };
+
+  const handleCopyDeckFromOutlinePrompt = () => {
+    handleCopyToClipboard(deckFromOutlinePromptTemplate, 'deck-from-outline-prompt');
+  };
+
+  const handleCopySeriesPrompt = () => {
+    const topic = seriesTopic.trim() || '[YOUR TOPIC HERE]';
+    const finalPrompt = seriesAiPromptTemplate
+        .replace('[YOUR TOPIC HERE]', topic)
+        .replace("[USER'S LEVEL HERE]", seriesLevel);
+    handleCopyToClipboard(finalPrompt, 'series-prompt');
+  };
+
+  const handleCopyQuizPrompt = () => {
+    const topic = quizTopic.trim() || '[YOUR TOPIC HERE]';
+    const finalPrompt = aiPromptForQuizTemplate
+        .replace('[YOUR TOPIC HERE]', topic)
+        .replace("[USER'S LEVEL HERE]", quizLevel);
+    handleCopyToClipboard(finalPrompt, 'quiz-prompt');
+  };
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in space-y-10 pb-10">
+    <div className="max-w-4xl mx-auto animate-fade-in space-y-6 pb-10">
       <div>
-        <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100">JSON Import Guide</h1>
+        <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100">AI & JSON Import Guide</h1>
         <p className="mt-2 text-lg text-gray-500 dark:text-gray-400">
-          Follow these formats to import your own decks using JSON. You can import either simple flashcards or more complex quiz decks.
+          Use this expert-led workflow to generate high-quality learning content with AI, or follow the formats to import your own data.
         </p>
       </div>
 
-      <section className="space-y-4">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700 pb-2">Format 1: Simple Flashcard Deck</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          For basic front-and-back flashcards, provide a JSON array. Each object in the array must have a <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">front</code> and a <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">back</code> key, both with string values.
+      <AccordionItem title="Step 1: Generate Learning Outline (Text)" iconName="list" defaultOpen>
+         <div className="space-y-4 bg-green-900/10 dark:bg-green-900/20 p-6 rounded-lg border border-green-500/20">
+            <p className="text-green-800/90 dark:text-green-200/90">
+              Begin by generating a high-level, human-readable outline for your learning path. This allows you to review and approve the structure before generating the full content. The AI will generate plain text, not JSON.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label htmlFor="outline-topic-input" className="block text-sm font-medium text-green-700 dark:text-green-300">
+                        Enter Topic
+                    </label>
+                    <input 
+                        id="outline-topic-input"
+                        type="text" 
+                        value={outlineTopic} 
+                        onChange={e => setOutlineTopic(e.target.value)} 
+                        className="w-full p-2 mt-1 bg-green-50 dark:bg-gray-900 border border-green-300 dark:border-green-700 rounded-md focus:ring-2 focus:ring-green-500 focus:outline-none"
+                        placeholder="e.g., The History of Ancient Rome"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="outline-level-select" className="block text-sm font-medium text-green-700 dark:text-green-300">
+                        My Current Level Is
+                    </label>
+                    <select
+                        id="outline-level-select"
+                        value={outlineLevel}
+                        onChange={e => setOutlineLevel(e.target.value)}
+                        className="w-full p-2 mt-1 bg-green-50 dark:bg-gray-900 border border-green-300 dark:border-green-700 rounded-md focus:ring-2 focus:ring-green-500 focus:outline-none"
+                    >
+                        {understandingLevels.map(level => (
+                            <option key={level} value={level}>{level}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            <p className="text-xs text-green-600/80 dark:text-green-400/80 mt-1">
+                Your topic and level will be inserted into the prompt.
+            </p>
+            <div className="relative">
+                <CodeBlock>{outlineAiPromptTemplate}</CodeBlock>
+                <Button
+                  variant="secondary"
+                  className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200/50 dark:bg-gray-900/50 border border-gray-300 dark:border-gray-600"
+                  onClick={handleCopyOutlinePrompt}
+                >
+                  {copiedKey === 'outline-prompt' ? <><Icon name="check-circle" className="w-4 h-4 mr-1"/> Copied!</> : <><Icon name="download" className="w-4 h-4 mr-1"/> Copy Prompt</>}
+                </Button>
+            </div>
+        </div>
+      </AccordionItem>
+      
+      <AccordionItem title="Step 2: Generate Individual Decks (JSON)" iconName="zap">
+         <div className="space-y-4 bg-blue-900/10 dark:bg-blue-900/20 p-6 rounded-lg border border-blue-500/20">
+            <p className="text-blue-800/90 dark:text-blue-200/90">
+              After the AI generates your text outline, use this prompt to generate the JSON for the <strong>first deck</strong>. Copy your text outline and paste it into the AI chat first, then copy this prompt. After the first deck is generated, you can copy the prompt again, edit it to ask for the next deck (e.g., "second deck (Deck 1.2)"), and continue the process.
+            </p>
+            <div className="relative">
+                <CodeBlock>{deckFromOutlinePromptTemplate}</CodeBlock>
+                <Button
+                  variant="secondary"
+                  className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200/50 dark:bg-gray-900/50 border border-gray-300 dark:border-gray-600"
+                  onClick={handleCopyDeckFromOutlinePrompt}
+                >
+                  {copiedKey === 'deck-from-outline-prompt' ? <><Icon name="check-circle" className="w-4 h-4 mr-1"/> Copied!</> : <><Icon name="download" className="w-4 h-4 mr-1"/> Copy Prompt</>}
+                </Button>
+            </div>
+            <p className="text-sm text-blue-700/90 dark:text-blue-300/90">
+             To import, use the main "Create / Import" modal, paste the JSON, and a new deck will be created. You can then add it to a series.
+            </p>
+        </div>
+      </AccordionItem>
+
+      <AccordionItem title="Alternative: Generate Full Series at Once (JSON)" iconName="zap">
+         <div className="space-y-4 bg-purple-900/10 dark:bg-purple-900/20 p-6 rounded-lg border border-purple-500/20">
+            <p className="text-purple-700/90 dark:text-purple-300/90">
+             For a faster, one-shot approach, use this powerful prompt to generate a complete, structured learning path on any topic. This is less controlled but much quicker.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label htmlFor="series-topic-input" className="block text-sm font-medium text-purple-700 dark:text-purple-300">
+                        Enter Topic
+                    </label>
+                    <input 
+                        id="series-topic-input"
+                        type="text" 
+                        value={seriesTopic} 
+                        onChange={e => setSeriesTopic(e.target.value)} 
+                        className="w-full p-2 mt-1 bg-purple-50 dark:bg-gray-900 border border-purple-300 dark:border-purple-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                        placeholder="e.g., Quantum Physics"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="series-level-select" className="block text-sm font-medium text-purple-700 dark:text-purple-300">
+                        My Current Level Is
+                    </label>
+                    <select
+                        id="series-level-select"
+                        value={seriesLevel}
+                        onChange={e => setSeriesLevel(e.target.value)}
+                        className="w-full p-2 mt-1 bg-purple-50 dark:bg-gray-900 border border-purple-300 dark:border-purple-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    >
+                        {understandingLevels.map(level => (
+                            <option key={level} value={level}>{level}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            <p className="text-xs text-purple-600/80 dark:text-purple-400/80 mt-1">
+                Your topic and level will be inserted into the prompt.
+            </p>
+            <div className="relative">
+                <CodeBlock>{seriesAiPromptTemplate}</CodeBlock>
+                <Button
+                  variant="secondary"
+                  className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200/50 dark:bg-gray-900/50 border border-gray-300 dark:border-gray-600"
+                  onClick={handleCopySeriesPrompt}
+                >
+                  {copiedKey === 'series-prompt' ? <><Icon name="check-circle" className="w-4 h-4 mr-1"/> Copied!</> : <><Icon name="download" className="w-4 h-4 mr-1"/> Copy Prompt</>}
+                </Button>
+            </div>
+        </div>
+      </AccordionItem>
+
+      <AccordionItem title="Alternative: Generate a Single Quiz Deck" iconName="zap">
+        <div className="space-y-4 bg-blue-900/10 dark:bg-blue-900/20 p-6 rounded-lg border border-blue-500/20">
+            <p className="text-blue-700/90 dark:text-blue-300/90">
+            Use this prompt to generate a single quiz deck on any topic, tailored to a specific difficulty level.
+            </p>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label htmlFor="quiz-topic-input" className="block text-sm font-medium text-blue-700 dark:text-blue-300">
+                        Enter Topic
+                    </label>
+                    <input 
+                        id="quiz-topic-input"
+                        type="text" 
+                        value={quizTopic} 
+                        onChange={e => setQuizTopic(e.target.value)} 
+                        className="w-full p-2 mt-1 bg-blue-50 dark:bg-gray-900 border border-blue-300 dark:border-blue-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        placeholder="e.g., The Roman Empire"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="quiz-level-select" className="block text-sm font-medium text-blue-700 dark:text-blue-300">
+                        Deck Difficulty Level
+                    </label>
+                    <select
+                        id="quiz-level-select"
+                        value={quizLevel}
+                        onChange={e => setQuizLevel(e.target.value)}
+                        className="w-full p-2 mt-1 bg-blue-50 dark:bg-gray-900 border border-blue-300 dark:border-blue-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                        {understandingLevels.map(level => (
+                            <option key={level} value={level}>{level}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            <div className="relative">
+                <CodeBlock>{aiPromptForQuizTemplate}</CodeBlock>
+                <Button
+                  variant="secondary"
+                  className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200/50 dark:bg-gray-900/50 border border-gray-300 dark:border-gray-600"
+                  onClick={handleCopyQuizPrompt}
+                >
+                  {copiedKey === 'quiz-prompt' ? <><Icon name="check-circle" className="w-4 h-4 mr-1"/> Copied!</> : <><Icon name="download" className="w-4 h-4 mr-1"/> Copy Prompt</>}
+                </Button>
+            </div>
+        </div>
+      </AccordionItem>
+      
+      <AccordionItem title="Format 1: Full Deck Series (JSON)" iconName="list">
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
+          To import an entire learning path at once, provide a single JSON object containing the series details and a `levels` array. Each level has a title and contains its own array of decks.
+        </p>
+        <CodeBlock>{seriesJsonExample}</CodeBlock>
+        <h4 className="text-lg font-semibold mt-6 mb-2">Field Definitions</h4>
+        <FieldDefinitionTable fields={seriesFields} />
+      </AccordionItem>
+
+       <AccordionItem title="Format 2: Single Quiz Deck (JSON)" iconName="help-circle">
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
+          For a single multiple-choice quiz, provide a JSON object with a name, description, and an array of question objects. See the field definitions below for more details.
+        </p>
+        <CodeBlock>{quizJson}</CodeBlock>
+        <h4 className="text-lg font-semibold mt-6 mb-2">Field Definitions</h4>
+        <FieldDefinitionTable fields={quizFields} />
+      </AccordionItem>
+      
+      <AccordionItem title="Format 3: Simple Flashcard Deck (JSON)" iconName="laptop">
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
+          For basic front-and-back flashcards, provide a JSON array. Each object in the array must have a <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">front</code> and a <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">back</code> key, both with string values. This format is ideal for quick, manual creation or for exporting from other simple flashcard apps.
         </p>
         <CodeBlock>{flashcardJson}</CodeBlock>
-      </section>
+      </AccordionItem>
 
-      <section className="space-y-4">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700 pb-2">Format 2: Quiz Deck</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          For multiple-choice quizzes, provide a single JSON object with the following structure:
-        </p>
-        <ul className="list-disc list-inside space-y-2 text-gray-600 dark:text-gray-400 pl-4">
-          <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">name</code>: (String) The title of your quiz deck.</li>
-          <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">description</code>: (String) A brief summary of the deck's content.</li>
-          <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">questions</code>: (Array) A list of question objects.</li>
-        </ul>
-        <p className="text-gray-600 dark:text-gray-400">Each question object within the array must contain:</p>
-         <ul className="list-disc list-inside space-y-2 text-gray-600 dark:text-gray-400 pl-4">
-            <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">questionType</code>: (String) Must be exactly "multipleChoice".</li>
-            <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">questionText</code>: (String) The question itself.</li>
-            <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">options</code>: (Array) A list of possible answers. Each option object needs a unique <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">id</code> and the answer <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">text</code>. An optional <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">explanation</code> can be added.</li>
-            <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">correctAnswerId</code>: (String) The <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">id</code> of the correct option.</li>
-            <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">detailedExplanation</code>: (String) An explanation shown after you answer.</li>
-            <li><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">tags</code>: (Array of Strings) Tags to categorize the question.</li>
-        </ul>
-        <CodeBlock>{quizJson}</CodeBlock>
-      </section>
-      
-      <section className="space-y-4 bg-blue-900/10 dark:bg-blue-900/20 p-6 rounded-lg border border-blue-500/20">
-        <h2 className="text-2xl font-bold text-blue-800 dark:text-blue-300">Generate a Quiz Deck with AI</h2>
-        <p className="text-blue-700/90 dark:text-blue-300/90">
-          You can use an AI chat service (like ChatGPT, Claude, Gemini, etc.) to quickly generate quiz content. Copy the prompt below, replace the placeholder, and paste it into the chat. The AI should provide a valid JSON object that you can paste directly into the import field.
-        </p>
-        <p className="text-sm text-blue-600/80 dark:text-blue-400/80">
-          <strong>Note:</strong> Always double-check AI-generated content for accuracy.
-        </p>
-        <div className="relative">
-            <CodeBlock>{aiPrompt}</CodeBlock>
-            <Button
-              variant="secondary"
-              className="absolute top-2 right-2 px-2 py-1 text-xs"
-              onClick={() => handleCopyToClipboard(aiPrompt)}
-            >
-              <Icon name="download" className="w-4 h-4 mr-1" />
-              Copy Prompt
-            </Button>
-        </div>
-      </section>
-
+       <AccordionItem title="General Tips & Troubleshooting" iconName="settings">
+         <ul className="space-y-4 list-disc list-inside text-gray-600 dark:text-gray-400">
+            <li>
+                <strong>Validate Your JSON:</strong> Before importing, it's a good idea to paste your JSON into an online validator to check for syntax errors. A common mistake is a trailing comma after the last item in an array or object.
+                <br/>
+                <code>[ { "key": "value" }, ] &larr; Invalid Trailing Comma</code>
+            </li>
+            <li>
+                <strong>Check Your Quotes:</strong> All keys and string values in JSON must be enclosed in double quotes ("). Single quotes (') are not valid.
+            </li>
+            <li>
+                <strong>Schema Mismatches:</strong> Ensure your JSON structure matches one of the three formats above. For example, pasting an array of flashcards into the "Bulk Add" modal inside a quiz deck will fail. The main "Import" modal is more flexible and can detect the format automatically.
+            </li>
+             <li>
+                <strong>Unique IDs:</strong> When creating quiz questions, ensure the `id` for each option within a single question is unique. You can use simple strings like "opt1", "opt2", or a UUID.
+            </li>
+             <li>
+                <strong>AI-Generated Content:</strong> Always review content generated by an AI for factual accuracy before studying it. The prompts are designed to request accuracy, but AI can still make mistakes.
+            </li>
+         </ul>
+       </AccordionItem>
     </div>
   );
 };

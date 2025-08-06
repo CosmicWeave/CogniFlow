@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { DeckSeries } from '../types';
 import Link from './ui/Link';
@@ -15,7 +16,7 @@ interface SeriesListItemProps {
 }
 
 const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount, dueCount, onStartSeriesStudy, masteryLevel }) => {
-    const totalCount = series.deckIds.length;
+    const totalCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
     const isCompleted = completedCount >= totalCount && totalCount > 0;
 
     return (

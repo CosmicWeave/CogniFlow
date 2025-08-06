@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress } from './types';
 import * as db from './services/db';
@@ -15,6 +16,7 @@ import FolderModal from './components/FolderModal';
 import EditSeriesModal from './components/EditSeriesModal';
 import { onDataChange } from './services/syncService';
 import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
+import { parseAnkiPkg } from './services/ankiImportService';
 
 import { useAppReducer } from './hooks/useAppReducer';
 import { useDataManagement } from './hooks/useDataManagement';
@@ -82,6 +84,7 @@ const App: React.FC = () => {
     setFolderToEdit: (folder) => { openModal(setFolderToEdit as any); setFolderToEdit(folder); },
     setSeriesToEdit: (series) => { openModal(setSeriesToEdit as any); setSeriesToEdit(series); }
   });
+  const { handleAddDecks } = dataHandlers;
 
   const loadData = useCallback(async (isInitialLoad = false) => {
     if (isInitialLoad) {
@@ -185,6 +188,37 @@ const App: React.FC = () => {
     return () => { unsubscribeDB(); window.removeEventListener('storage', handleStorageChange); };
   }, [loadData, loadLocalSettings]);
 
+  useEffect(() => {
+    // File Handling API for "Open with..." PWA feature
+    const launchQueue = (window as any).launchQueue;
+    if (!launchQueue) return;
+
+    launchQueue.setConsumer(async (launchParams: { files?: any[] }) => {
+      if (!launchParams.files || launchParams.files.length === 0) return;
+      
+      const fileHandle = launchParams.files[0];
+      try {
+        const file = await fileHandle.getFile();
+
+        if (file.name.toLowerCase().endsWith('.apkg')) {
+          addToast(`Importing ${file.name}...`, 'info');
+          const buffer = await file.arrayBuffer();
+          const decks = await parseAnkiPkg(buffer);
+          
+          if (decks.length > 0) {
+            await handleAddDecks(decks);
+            addToast(`Successfully imported ${decks.length} deck(s) from ${file.name}.`, 'success');
+          } else {
+            addToast('No valid decks found in the Anki package.', 'info');
+          }
+        }
+      } catch (error) {
+        console.error("Failed to process launched file:", error);
+        addToast(`An error occurred: ${error instanceof Error ? error.message : "Unknown error"}`, 'error');
+      }
+    });
+  }, [handleAddDecks, addToast]);
+
   const handleToggleFolder = useCallback((folderId: string) => {
     setOpenFolderIds(prevOpenIds => {
         const newOpenIds = new Set(prevOpenIds);
@@ -207,7 +241,8 @@ const App: React.FC = () => {
       if (seriesId) {
           const series = state.deckSeries.find(s => s.id === seriesId);
           if (series) {
-              const deckIndex = series.deckIds.indexOf(activeDeck.id);
+              const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+              const deckIndex = flatDeckIds.indexOf(activeDeck.id);
               if (deckIndex > -1) {
                   const completedInSeries = seriesProgress.get(series.id)?.size || 0;
                   const isLocked = deckIndex > completedInSeries;
@@ -285,7 +320,7 @@ const App: React.FC = () => {
         </main>
       </div>
       <OfflineIndicator />
-      {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={() => closeModal(setImportModalOpen)} onAddDecks={dataHandlers.handleAddDecks} />}
+      {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={() => closeModal(setImportModalOpen)} onAddDecks={dataHandlers.handleAddDecks} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
       {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={() => closeModal(setRestoreModalOpen)} onRestore={dataHandlers.handleRestoreData} />}
       {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={() => closeModal(setResetProgressModalOpen)} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}
       {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={() => closeModal(setConfirmModalOpen)} {...confirmModalProps} />}

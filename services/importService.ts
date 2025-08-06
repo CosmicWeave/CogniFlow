@@ -1,6 +1,5 @@
 
-
-import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries } from '../types';
+import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
 export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[], folders: Folder[], deckSeries: DeckSeries[] } => {
@@ -28,8 +27,8 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
         }
       }
        for (const series of deckSeries) {
-        if (typeof series.id !== 'string' || typeof series.name !== 'string' || !Array.isArray(series.deckIds)) {
-          throw new Error("Invalid deck series structure in backup file.");
+        if (typeof series.id !== 'string' || typeof series.name !== 'string' || !Array.isArray(series.levels)) {
+          throw new Error("Invalid deck series structure in backup file. Expected 'levels' array.");
         }
       }
       return { decks, folders, deckSeries };
@@ -60,12 +59,31 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
 
 export type ParsedResult = 
   | { type: DeckType.Flashcard, data: ImportedCard[] }
-  | { type: DeckType.Quiz, data: { name: string; description: string; questions: ImportedQuestion[] } };
+  | { type: DeckType.Quiz, data: ImportedQuizDeck }
+  | { type: 'quiz_series', data: { seriesName: string, seriesDescription: string, levels: Array<{ title: string; decks: ImportedQuizDeck[] }> } };
 
 export const parseAndValidateImportData = (jsonString: string): ParsedResult => {
   try {
     if (!jsonString.trim()) throw new Error("Pasted content is empty.");
     const data = JSON.parse(jsonString);
+
+    // New check for a series object with levels
+    if (typeof data === 'object' && data !== null && 'seriesName' in data && 'levels' in data) {
+        if (typeof data.seriesName !== 'string' || typeof data.seriesDescription !== 'string' || !Array.isArray(data.levels)) {
+            throw new Error("Invalid series format. Must have 'seriesName' (string), 'seriesDescription' (string), and a 'levels' (array).");
+        }
+        for (const level of data.levels) {
+             if (typeof level.title !== 'string' || !Array.isArray(level.decks)) {
+                throw new Error("Each level in the series must have a 'title' (string) and a 'decks' (array).");
+             }
+             for (const deck of level.decks) {
+                 if (typeof deck.name !== 'string' || typeof deck.description !== 'string' || !Array.isArray(deck.questions)) {
+                    throw new Error("Each deck in a level must be a valid quiz deck object with 'name', 'description', and 'questions' properties.");
+                 }
+             }
+        }
+        return { type: 'quiz_series', data: data };
+    }
 
     // Simple flashcard import
     if (Array.isArray(data)) {
@@ -92,7 +110,7 @@ export const parseAndValidateImportData = (jsonString: string): ParsedResult => 
       return { type: DeckType.Quiz, data: data };
     }
 
-    throw new Error("Unsupported JSON structure. Expected an array of flashcards or a quiz object.");
+    throw new Error("Unsupported JSON structure. Expected an array of flashcards, a single quiz object, or a series object.");
   } catch (error) {
     console.error("Failed to parse JSON:", error);
     throw new Error(error instanceof Error ? error.message : "Invalid JSON format");

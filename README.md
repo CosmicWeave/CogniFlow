@@ -32,6 +32,7 @@ CogniFlow is designed from the ground up to provide an excellent experience on y
 *   **Organize with Folders:** Group related decks into collapsible folders for a clean and organized overview.
 *   **Flexible Data Management:**
     *   Import from Anki (.apkg) packages, including styles, images, and audio.
+    *   **Seamless Anki Import:** On compatible platforms (Android, Desktop), you can directly open `.apkg` files with CogniFlow from your file manager.
     *   Bulk add cards/questions via JSON, with guidance for AI-powered generation.
     *   Backup and restore your entire collection with a single file.
 *   **Full Offline Functionality:** Study, create cards, and manage your decks even without an internet connection.

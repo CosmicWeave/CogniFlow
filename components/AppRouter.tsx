@@ -1,5 +1,4 @@
 
-
 import React, { useMemo } from 'react';
 import { useRouter } from '../contexts/RouterContext';
 import { Deck, DeckType, Folder, DeckSeries, QuizDeck, SeriesProgress, Reviewable, Card, FlashcardDeck } from '../types';
@@ -83,7 +82,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     const seriesDeckIds = useMemo(() => {
         const ids = new Set<string>();
         state.deckSeries.forEach(series => {
-          series.deckIds.forEach(deckId => ids.add(deckId));
+          series.levels.forEach(level => level.deckIds.forEach(deckId => ids.add(deckId)));
         });
         return ids;
     }, [state.deckSeries]);
@@ -93,7 +92,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         state.deckSeries.forEach(series => {
             if (!series.archived && !series.deletedAt) {
                 const completedCount = props.seriesProgress.get(series.id)?.size || 0;
-                series.deckIds.forEach((deckId, index) => {
+                const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+                flatDeckIds.forEach((deckId, index) => {
                     if (index <= completedCount) {
                         unlockedIds.add(deckId);
                     }
@@ -132,7 +132,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 counts.set(series.id, 0);
                 return;
             }
-            const seriesDecks = series.deckIds.map(id => state.decks.find(d => d.id === id)).filter(d => d);
+            const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(d => d);
             const dueCount = seriesDecks.reduce((total, deck) => {
                 if (deck && unlockedSeriesDeckIds.has(deck.id)) {
                     return total + getDueItemsCount(deck);
@@ -147,7 +147,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     const seriesMasteryLevels = useMemo(() => {
         const masteryMap = new Map<string, number>();
         state.deckSeries.forEach(series => {
-            const seriesDecks = series.deckIds.map(id => state.decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+            const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(Boolean) as Deck[];
             if (seriesDecks.length === 0) {
                 masteryMap.set(series.id, 0);
                 return;
@@ -194,7 +194,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     }
 
     if (pathname.startsWith('/series/') && activeSeries) {
-        const seriesDecks = activeSeries.deckIds.map(id => state.decks.find(d => d.id === id)).filter(d => d) as QuizDeck[];
+        const seriesDecks = activeSeries.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(d => d) as QuizDeck[];
         return <SeriesOverviewPage
             key={activeSeries.id}
             series={activeSeries}

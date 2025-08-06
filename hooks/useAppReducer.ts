@@ -1,3 +1,4 @@
+
 import { useReducer } from 'react';
 import { Deck, Folder, DeckSeries } from '../types';
 import { RestoreData } from '../services/googleDriveService';
@@ -53,7 +54,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
           ...state,
           decks: state.decks.filter(d => d.id !== action.payload),
-          deckSeries: state.deckSeries.map(s => ({...s, deckIds: s.deckIds.filter(id => id !== action.payload)}))
+          deckSeries: state.deckSeries.map(s => ({
+              ...s,
+              levels: s.levels
+                  .map(level => ({
+                      ...level,
+                      deckIds: level.deckIds.filter(id => id !== action.payload)
+                  }))
+                  .filter(level => level.deckIds.length > 0)
+          }))
       };
     case 'UPDATE_DECK':
       return { ...state, decks: state.decks.map(d => d.id === action.payload.id ? action.payload : d) };

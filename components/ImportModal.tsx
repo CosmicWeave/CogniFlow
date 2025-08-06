@@ -1,7 +1,6 @@
 
-
 import React, { useState, useCallback, useRef } from 'react';
-import { Deck, DeckType, FlashcardDeck } from '../types';
+import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel, Question } from '../types';
 import { parseAndValidateImportData, createCardsFromImport, createQuestionsFromImport } from '../services/importService';
 import { parseAnkiPkg } from '../services/ankiImportService';
 import Button from './ui/Button';
@@ -16,11 +15,12 @@ interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddDecks: (decks: Deck[]) => void;
+  onAddSeriesWithDecks: (series: DeckSeries, decks: Deck[]) => void;
 }
 
 type Tab = 'create' | 'paste' | 'upload';
 
-const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }) => {
+const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, onAddSeriesWithDecks }) => {
   const [activeTab, setActiveTab] = useState<Tab>('create');
   const [deckName, setDeckName] = useState('');
   const [jsonContent, setJsonContent] = useState('');
@@ -51,6 +51,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
       const parsed = parseAndValidateImportData(content);
       if (parsed?.type === DeckType.Quiz) {
         setDeckName(parsed.data.name);
+      } else if (parsed?.type === 'quiz_series') {
+        setDeckName(parsed.data.seriesName); // Prefill deck name with series name
       }
     } catch (error) {
         // Ignore parsing errors while typing
@@ -82,15 +84,48 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
         return;
     }
 
-    if (!deckName.trim()) {
-        addToast('Please enter a deck name.', 'error');
-        return;
-    }
-    
     try {
       const parsed = parseAndValidateImportData(jsonContent);
       if (!parsed) return;
 
+      if (parsed.type === 'quiz_series') {
+        const { seriesName, seriesDescription, levels: levelsData } = parsed.data;
+        const allNewDecks: QuizDeck[] = [];
+        const newLevels: SeriesLevel[] = levelsData.map(levelData => {
+            const decksForLevel: QuizDeck[] = levelData.decks.map(d => ({
+                id: crypto.randomUUID(),
+                name: d.name,
+                description: d.description,
+                type: DeckType.Quiz,
+                questions: createQuestionsFromImport(d.questions)
+            }));
+            allNewDecks.push(...decksForLevel);
+            return {
+                title: levelData.title,
+                deckIds: decksForLevel.map(deck => deck.id)
+            };
+        });
+        
+        const newSeries: DeckSeries = {
+            id: crypto.randomUUID(),
+            type: 'series',
+            name: seriesName,
+            description: seriesDescription,
+            levels: newLevels,
+            archived: false,
+        };
+
+        onAddSeriesWithDecks(newSeries, allNewDecks);
+        handleClose();
+        return; // Exit after handling series
+      }
+
+      // Existing logic for single deck import
+      if (!deckName.trim()) {
+        addToast('Please enter a deck name.', 'error');
+        return;
+      }
+      
       let newDeck: Deck;
       if (parsed.type === DeckType.Flashcard) {
         const cards = createCardsFromImport(parsed.data);
@@ -118,7 +153,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
     } catch(error) {
        addToast(error instanceof Error ? error.message : 'Invalid JSON content.', 'error');
     }
-  }, [deckName, activeTab, jsonContent, onAddDecks, handleClose, addToast]);
+  }, [deckName, activeTab, jsonContent, onAddDecks, handleClose, addToast, onAddSeriesWithDecks]);
 
   const processFile = async (file: File) => {
     if (!file) return;
@@ -144,7 +179,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
           const text = await file.text();
           handleJsonContentChange(text);
           setIsProcessing(false); // Done processing text file
-          addToast('File loaded. Enter a deck name and import.', 'info');
+          addToast('File loaded. Confirm name and import, or paste content directly.', 'info');
       } else {
           addToast("Unsupported file type. Please upload a '.json' or '.apkg' file.", 'error');
           setFileName('');
@@ -186,7 +221,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
       case 'paste':
         return (
           <div>
-            <textarea className="w-full h-48 p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-900 dark:text-gray-100" placeholder='Paste JSON here... e.g., [{"front": "Q1", "back": "A1"}] or a Quiz object.' value={jsonContent} onChange={(e) => handleJsonContentChange(e.target.value)} />
+            <textarea className="w-full h-48 p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-900 dark:text-gray-100" placeholder='Paste JSON here... e.g., [{"front": "Q1", "back": "A1"}] or a Quiz/Series object.' value={jsonContent} onChange={(e) => handleJsonContentChange(e.target.value)} />
             <Link href="/instructions/json" onClick={onClose} className="text-sm text-blue-500 dark:text-blue-400 hover:underline mt-2 inline-flex items-center gap-1">
               <Icon name="help-circle" className="w-4 h-4"/>
               View JSON format guide
@@ -196,11 +231,11 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
       case 'upload':
         return (
           <>
-            <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json,.apkg" onChange={handleFileChange} />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json,.apkg,application/zip,application/x-zip-compressed" onChange={handleFileChange} />
             <label onDragOver={handleDragOver} onDrop={handleDrop} className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-400 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                 <Icon name="upload-cloud" className="w-10 h-10 text-gray-400 dark:text-gray-500 mb-2"/>
                 <p className="text-sm text-gray-500 dark:text-gray-400"><span className="font-semibold text-blue-500 dark:text-blue-400" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}>Click to upload</span> or drag and drop</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">JSON or Anki (.apkg) files</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">JSON or Anki Package (.apkg)</p>
                 {fileName && <p className="text-sm text-green-500 dark:text-green-400 mt-2 truncate" title={fileName}>{fileName}</p>}
             </label>
           </>
@@ -223,15 +258,16 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
             </div>
         )}
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Create / Import Deck</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Create / Import</h2>
           <Button variant="ghost" onClick={handleClose} className="p-1 h-auto"><Icon name="x" /></Button>
         </div>
 
         <div className="p-6 space-y-4">
           {showDeckNameInput && (
               <div>
-                <label htmlFor="deck-name" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Deck Name</label>
+                <label htmlFor="deck-name" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Deck / Series Name</label>
                 <input type="text" id="deck-name" value={deckName} onChange={(e) => setDeckName(e.target.value)} className="w-full p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="e.g. Japanese Vocabulary" />
+                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">For single deck or new deck creation. This is auto-filled when pasting a Series object.</p>
               </div>
           )}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
@@ -245,7 +281,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks }
         <div className="flex justify-end p-4 bg-gray-100/50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
           <Button variant="secondary" onClick={handleClose} className="mr-2">Cancel</Button>
           <Button variant="primary" onClick={handleSubmit} disabled={isProcessing || (activeTab === 'create' && !deckName.trim()) || (activeTab !== 'create' && !jsonContent && !fileName) }>
-            {activeTab === 'create' ? 'Create Deck' : 'Create & Import'}
+            {activeTab === 'create' ? 'Create Deck' : 'Import'}
           </Button>
         </div>
       </div>

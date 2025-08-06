@@ -1,6 +1,6 @@
 
 import { useCallback } from 'react';
-import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress } from '../types';
+import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel } from '../types';
 import * as db from '../services/db';
 import { useToast } from './useToast';
 import { useRouter } from '../contexts/RouterContext';
@@ -207,9 +207,10 @@ export const useDataManagement = ({
                     try {
                         localStorage.setItem(`series-progress-${seriesId}`, JSON.stringify(Array.from(currentSeriesProgress)));
                         const series = state.deckSeries.find(s => s.id === seriesId);
-                        const isLastDeckInSeries = series?.deckIds.indexOf(deckId) === (series?.deckIds.length ?? 0) - 1;
+                        const flatDeckIds = series?.levels.flatMap(l => l.deckIds) || [];
+                        const isLastDeckInSeries = flatDeckIds.indexOf(deckId) === flatDeckIds.length - 1;
                         
-                        if (isLastDeckInSeries && (series?.deckIds.length ?? 0) > 0) {
+                        if (isLastDeckInSeries && flatDeckIds.length > 0) {
                             addToast(`Congratulations! You've completed the series: "${series?.name}"!`, 'success');
                         } else {
                             addToast(`Deck "${updatedDeckFromState.name}" completed! Next chapter unlocked.`, 'success');
@@ -248,19 +249,23 @@ export const useDataManagement = ({
     const handleStartGeneralStudy = useCallback(() => {
         const unlockedSeriesDeckIds = new Set<string>();
         state.deckSeries.forEach(series => {
-            if (!series.archived) {
+            if (!series.archived && !series.deletedAt) {
                 const completedCount = seriesProgress.get(series.id)?.size || 0;
-                series.deckIds.forEach((deckId, index) => {
-                    if (index <= completedCount) {
-                        unlockedSeriesDeckIds.add(deckId);
-                    }
+                let deckCount = 0;
+                series.levels.forEach(level => {
+                    level.deckIds.forEach(() => {
+                        if (deckCount <= completedCount) {
+                            unlockedSeriesDeckIds.add(series.id);
+                        }
+                        deckCount++;
+                    });
                 });
             }
         });
         
         const seriesDeckIds = new Set<string>();
         state.deckSeries.forEach(series => {
-            series.deckIds.forEach(deckId => seriesDeckIds.add(deckId));
+            series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
         });
 
         const today = new Date();
@@ -292,16 +297,20 @@ export const useDataManagement = ({
 
         const unlockedSeriesDeckIds = new Set<string>();
         const completedCount = seriesProgress.get(series.id)?.size || 0;
-        series.deckIds.forEach((deckId, index) => {
-            if (index <= completedCount) {
-                unlockedSeriesDeckIds.add(deckId);
-            }
+        let deckCount = 0;
+        series.levels.forEach(level => {
+            level.deckIds.forEach(deckId => {
+                if (deckCount <= completedCount) {
+                    unlockedSeriesDeckIds.add(deckId);
+                }
+                deckCount++;
+            });
         });
     
         const today = new Date();
         today.setHours(23, 59, 59, 999);
     
-        const seriesDecks = series.deckIds.map(id => state.decks.find(d => d.id === id)).filter((d): d is QuizDeck => !!(d && d.type === DeckType.Quiz));
+        const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter((d): d is QuizDeck => !!(d && d.type === DeckType.Quiz));
         
         const allDueQuestions = seriesDecks
           .filter(deck => unlockedSeriesDeckIds.has(deck.id))
@@ -382,7 +391,7 @@ export const useDataManagement = ({
                 await handleUpdateSeries(updatedSeries);
             }
         } else {
-            const newSeries: DeckSeries = { id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description, deckIds: [] };
+            const newSeries: DeckSeries = { id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description, levels: [] };
             dispatch({ type: 'ADD_SERIES', payload: newSeries });
             addToast(`Series "${newSeries.name}" created.`, 'success');
             await db.addDeckSeries([newSeries]);
@@ -401,10 +410,27 @@ export const useDataManagement = ({
         const series = state.deckSeries.find(s => s.id === seriesId);
         if (!series) return;
         await handleAddDecks([newDeck]);
-        const updatedSeries = { ...series, deckIds: [...series.deckIds, newDeck.id] };
+        const newLevel: SeriesLevel = { title: newDeck.name, deckIds: [newDeck.id] };
+        const updatedSeries = { ...series, levels: [...series.levels, newLevel] };
         await handleUpdateSeries(updatedSeries);
     }, [state.deckSeries, handleAddDecks, handleUpdateSeries]);
     
+    const handleAddSeriesWithDecks = useCallback(async (series: DeckSeries, decks: Deck[]) => {
+        try {
+            dispatch({ type: 'ADD_SERIES_WITH_DECKS', payload: { series, decks }});
+
+            await Promise.all([
+                db.addDecks(decks),
+                db.addDeckSeries([series])
+            ]);
+
+            addToast(`Successfully imported series "${series.name}" with ${decks.length} decks.`, "success");
+        } catch (error) {
+            console.error("Failed to create series with decks:", error);
+            addToast("There was an error creating the new series.", "error");
+        }
+    }, [dispatch, addToast]);
+
     const handleRestoreDeck = useCallback(async (deckId: string) => {
         const deck = state.decks.find(d => d.id === deckId);
         if (!deck) return;
@@ -498,7 +524,8 @@ export const useDataManagement = ({
             const completedInSeries = new Set(newProgressMap.get(series.id) || []);
             let seriesWasUpdated = false;
             
-            for (const deckId of series.deckIds) {
+            const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+            for (const deckId of flatDeckIds) {
                 if (completedInSeries.has(deckId)) {
                     continue; // Already complete, skip check
                 }
@@ -557,6 +584,7 @@ export const useDataManagement = ({
         handleSaveSeries,
         handleDeleteSeries,
         handleAddDeckToSeries,
+        handleAddSeriesWithDecks,
         handleRestoreDeck,
         handleRestoreSeries,
         handleDeleteDeckPermanently,

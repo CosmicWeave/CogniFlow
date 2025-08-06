@@ -1,7 +1,4 @@
 
-
-
-
 export enum ReviewRating {
   Again = 1,
   Hard = 2,
@@ -78,13 +75,19 @@ export interface QuizDeck extends BaseDeck {
 
 export type Deck = FlashcardDeck | QuizDeck;
 
-// A curated, ordered sequence of quiz decks
+// A level within a series, containing a title and an ordered list of decks.
+export interface SeriesLevel {
+    title: string;
+    deckIds: string[]; // Ordered array of QuizDeck IDs within this level
+}
+
+// A curated, ordered sequence of quiz decks, organized into levels.
 export interface DeckSeries {
     id: string;
     type: 'series';
     name: string;
     description: string;
-    deckIds: string[]; // Ordered array of QuizDeck IDs
+    levels: SeriesLevel[]; // A nested structure for decks
     archived?: boolean;
     deletedAt?: string; // ISO string for date
 }
@@ -97,6 +100,12 @@ export type SeriesProgress = Map<string, Set<string>>;
 export type ImportedCard = Pick<Card, 'front' | 'back'>;
 
 export type ImportedQuestion = Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'suspended'>;
+
+export type ImportedQuizDeck = {
+  name: string;
+  description: string;
+  questions: ImportedQuestion[];
+};
 
 // Types for Google Drive integration
 export interface GoogleDriveFile {

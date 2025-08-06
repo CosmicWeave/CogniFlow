@@ -1,3 +1,4 @@
+
 import { QuizDeck, DeckType, Question, DeckSeries } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
@@ -42,7 +43,7 @@ export const createSampleSeries = (): { series: DeckSeries, decks: QuizDeck[] } 
     // Deck 1: Addition
     const additionDeck: QuizDeck = {
         id: crypto.randomUUID(),
-        name: 'Chapter 1: Simple Addition',
+        name: 'Level 1.1: Simple Addition',
         description: 'Practice basic addition problems.',
         type: DeckType.Quiz,
         questions: [
@@ -55,7 +56,7 @@ export const createSampleSeries = (): { series: DeckSeries, decks: QuizDeck[] } 
     // Deck 2: Subtraction
     const subtractionDeck: QuizDeck = {
         id: crypto.randomUUID(),
-        name: 'Chapter 2: Simple Subtraction',
+        name: 'Level 1.2: Simple Subtraction',
         description: 'Practice basic subtraction problems.',
         type: DeckType.Quiz,
         questions: [
@@ -67,7 +68,7 @@ export const createSampleSeries = (): { series: DeckSeries, decks: QuizDeck[] } 
     // Deck 3: Multiplication
     const multiplicationDeck: QuizDeck = {
         id: crypto.randomUUID(),
-        name: 'Chapter 3: Simple Multiplication',
+        name: 'Level 2.1: Simple Multiplication',
         description: 'Practice basic multiplication problems.',
         type: DeckType.Quiz,
         questions: [
@@ -84,7 +85,16 @@ export const createSampleSeries = (): { series: DeckSeries, decks: QuizDeck[] } 
         type: 'series',
         name: 'Sample: Basic Math Series',
         description: 'A sample series to demonstrate the progressive learning path feature. Complete each deck to unlock the next!',
-        deckIds: decks.map(d => d.id)
+        levels: [
+            {
+                title: 'Level 1: Fundamentals',
+                deckIds: [additionDeck.id, subtractionDeck.id]
+            },
+            {
+                title: 'Level 2: Next Steps',
+                deckIds: [multiplicationDeck.id]
+            }
+        ]
     };
     
     return { series, decks };
