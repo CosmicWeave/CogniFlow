@@ -1,22 +1,33 @@
 import React from 'react';
 
-type SortPreference = 'lastOpened' | 'name' | 'dueCount';
+// Renamed for clarity and exported for reuse
+export type DeckSortPreference = 'lastOpened' | 'name' | 'dueCount';
 
-interface DeckSortControlProps {
-  currentSort: SortPreference;
-  onSortChange: (preference: SortPreference) => void;
+interface DeckSortControlProps<T extends string> {
+  currentSort: T;
+  onSortChange: (preference: T) => void;
+  sortOptions?: readonly { key: T; label: string }[];
 }
 
-const sortOptions: { key: SortPreference; label: string }[] = [
+const defaultDeckSortOptions: readonly { key: DeckSortPreference; label: string }[] = [
   { key: 'lastOpened', label: 'Recent' },
   { key: 'name', label: 'Name' },
   { key: 'dueCount', label: 'Due' },
 ];
 
-const DeckSortControl: React.FC<DeckSortControlProps> = ({ currentSort, onSortChange }) => {
+const DeckSortControl = <T extends string>({
+  currentSort,
+  onSortChange,
+  sortOptions,
+}: DeckSortControlProps<T>): React.ReactElement => {
+  // Use provided options, or fall back to the default deck sorting options.
+  // The type assertion is safe because if `sortOptions` is undefined, this component
+  // is being used for default deck sorting, for which T will be DeckSortPreference.
+  const options = sortOptions ?? (defaultDeckSortOptions as typeof sortOptions);
+
   return (
     <div className="inline-flex rounded-md shadow-sm bg-gray-100 dark:bg-gray-800 p-1" role="group">
-      {sortOptions.map((option, index) => (
+      {options && options.map((option, index) => (
         <button
           key={option.key}
           type="button"
@@ -27,7 +38,7 @@ const DeckSortControl: React.FC<DeckSortControlProps> = ({ currentSort, onSortCh
               : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
             }
             ${index === 0 ? 'rounded-l-md' : ''}
-            ${index === sortOptions.length - 1 ? 'rounded-r-md' : ''}
+            ${index === options.length - 1 ? 'rounded-r-md' : ''}
           `}
           aria-pressed={currentSort === option.key}
         >
@@ -38,4 +49,6 @@ const DeckSortControl: React.FC<DeckSortControlProps> = ({ currentSort, onSortCh
   );
 };
 
+// Kept for backward compatibility with AllDecksPage
+export type SortPreference = DeckSortPreference;
 export default DeckSortControl;

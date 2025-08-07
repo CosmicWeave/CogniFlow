@@ -1,6 +1,5 @@
 
 
-
 import React, { useRef } from 'react';
 import Icon from './ui/Icon';
 import Button from './ui/Button';
@@ -46,7 +45,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSe
           </div>
           <nav className="flex-grow p-4 space-y-2">
             <Link href="/" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
-              <Icon name="laptop" className="w-6 h-6 mr-3" /> Decks
+              <Icon name="laptop" className="w-6 h-6 mr-3" /> Home
+            </Link>
+             <Link href="/series" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+              <Icon name="layers" className="w-6 h-6 mr-3" /> Series
+            </Link>
+            <Link href="/decks" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+              <Icon name="folder" className="w-6 h-6 mr-3" /> Decks
             </Link>
              <Link href="/archive" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
                <Icon name="archive" className="w-6 h-6 mr-3" />
@@ -67,7 +72,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSe
           </nav>
           <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
             <Button variant="primary" onClick={onCreateSeries} className="w-full">
-              <Icon name="list" className="w-5 h-5 mr-2" />
+              <Icon name="layers" className="w-5 h-5 mr-2" />
               Create New Series
             </Button>
              <Button variant="secondary" onClick={onImport} className="w-full">

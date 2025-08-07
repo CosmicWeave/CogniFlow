@@ -1,12 +1,12 @@
 
+
 import React, { useMemo } from 'react';
 import { useRouter } from '../contexts/RouterContext';
-import { Deck, DeckType, Folder, DeckSeries, QuizDeck, SeriesProgress, Reviewable, Card, FlashcardDeck } from '../types';
+import { Deck, DeckType, Folder, DeckSeries, QuizDeck, SeriesProgress, Reviewable, Card, FlashcardDeck, Question } from '../types';
 import { AppState } from '../hooks/useAppReducer';
 import { RestoreData } from '../services/googleDriveService';
 import { getEffectiveMasteryLevel } from '../services/srs';
 
-import DeckList from './DeckList';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import StudySession from './StudySession';
@@ -14,10 +14,11 @@ import SettingsPage from './SettingsPage';
 import DeckDetailsPage from './DeckDetailsPage';
 import JsonInstructionsPage from './JsonInstructionsPage';
 import SeriesOverviewPage from './SeriesOverviewPage';
-import SeriesListItem from './SeriesListItem';
 import ArchivePage from './ArchivePage';
 import TrashPage from './TrashPage';
-import DeckSortControl from './ui/DeckSortControl';
+import DashboardPage from './DashboardPage';
+import AllDecksPage from './AllDecksPage';
+import AllSeriesPage from './AllSeriesPage';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -62,7 +63,7 @@ interface AppRouterProps {
     handleResetDeckProgress: (deckId: string) => Promise<void>;
     handleFactoryReset: () => void;
     handleStartGeneralStudy: () => void;
-    handleStartSeriesStudy: (seriesId: string) => void;
+    handleStartSeriesStudy: (seriesId: string) => Promise<void>;
     handleDeleteFolder: (folderId: string) => Promise<void>;
     handleUpdateSeries: (series: DeckSeries, options?: { silent?: boolean; toastMessage?: string; }) => Promise<void>;
     handleSaveSeries: (data: { id: string | null; name: string; description: string; }) => Promise<void>;
@@ -79,89 +80,65 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     const { state, activeDeck, activeSeries, generalStudyDeck } = props;
     const [pathname] = path.split('?');
 
-    const seriesDeckIds = useMemo(() => {
-        const ids = new Set<string>();
+    const {
+        standaloneDecks,
+        seriesDeckIds,
+        unlockedSeriesDeckIds,
+        totalDueQuestions,
+        seriesData
+    } = useMemo(() => {
+        const seriesDeckIds = new Set<string>();
         state.deckSeries.forEach(series => {
-          series.levels.forEach(level => level.deckIds.forEach(deckId => ids.add(deckId)));
+          series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
         });
-        return ids;
-    }, [state.deckSeries]);
 
-    const unlockedSeriesDeckIds = useMemo(() => {
-        const unlockedIds = new Set<string>();
+        const standaloneDecks = state.decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
+
+        const unlockedSeriesDeckIds = new Set<string>();
         state.deckSeries.forEach(series => {
             if (!series.archived && !series.deletedAt) {
                 const completedCount = props.seriesProgress.get(series.id)?.size || 0;
                 const flatDeckIds = series.levels.flatMap(l => l.deckIds);
                 flatDeckIds.forEach((deckId, index) => {
                     if (index <= completedCount) {
-                        unlockedIds.add(deckId);
+                        unlockedSeriesDeckIds.add(deckId);
                     }
                 });
             }
         });
-        return unlockedIds;
-    }, [state.deckSeries, props.seriesProgress]);
 
-    const sortedDecks = useMemo(() => {
-        const decksToSort = state.decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
-        switch (props.sortPreference) {
-            case 'name': return decksToSort.sort((a, b) => a.name.localeCompare(b.name));
-            case 'dueCount': return decksToSort.sort((a, b) => getDueItemsCount(b) - getDueItemsCount(a));
-            case 'lastOpened': default: return decksToSort.sort((a,b) => (b.lastOpened || '').localeCompare(a.lastOpened || ''));
-        }
-    }, [state.decks, props.sortPreference, seriesDeckIds]);
-      
-    const sortedFolders = useMemo(() => [...state.folders].sort((a, b) => a.name.localeCompare(b.name)), [state.folders]);
-    const sortedSeries = useMemo(() => state.deckSeries.filter(s => !s.archived && !s.deletedAt).sort((a, b) => a.name.localeCompare(b.name)), [state.deckSeries]);
-    
-    const totalDueQuestions = useMemo(() => {
-        return state.decks
+        const totalDueQuestions = state.decks
           .filter(deck => {
-            if (deck.type !== DeckType.Quiz || deck.archived || deck.deletedAt) return false;
+            if (deck.archived || deck.deletedAt) return false;
+            // It's a series deck that is locked
             if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
             return true;
           })
           .reduce((total, deck) => total + getDueItemsCount(deck), 0);
-    }, [state.decks, seriesDeckIds, unlockedSeriesDeckIds]);
-      
-    const seriesDueCounts = useMemo(() => {
-        const counts = new Map<string, number>();
+
+        const seriesData = new Map<string, { dueCount: number, mastery: number }>();
         state.deckSeries.forEach(series => {
             if (series.archived || series.deletedAt) {
-                counts.set(series.id, 0);
+                seriesData.set(series.id, { dueCount: 0, mastery: 0 });
                 return;
             }
-            const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(d => d);
+            const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+            
             const dueCount = seriesDecks.reduce((total, deck) => {
-                if (deck && unlockedSeriesDeckIds.has(deck.id)) {
+                if (unlockedSeriesDeckIds.has(deck.id)) {
                     return total + getDueItemsCount(deck);
                 }
                 return total;
             }, 0);
-            counts.set(series.id, dueCount);
-        });
-        return counts;
-    }, [state.decks, state.deckSeries, unlockedSeriesDeckIds]);
-    
-    const seriesMasteryLevels = useMemo(() => {
-        const masteryMap = new Map<string, number>();
-        state.deckSeries.forEach(series => {
-            const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(Boolean) as Deck[];
-            if (seriesDecks.length === 0) {
-                masteryMap.set(series.id, 0);
-                return;
-            }
+
             const allItems = seriesDecks.flatMap<Reviewable>(d => d.type === DeckType.Flashcard ? d.cards : d.questions).filter(i => !i.suspended);
-            if (allItems.length === 0) {
-                masteryMap.set(series.id, 0);
-                return;
-            }
-            const totalMastery = allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0);
-            masteryMap.set(series.id, totalMastery / allItems.length);
+            const mastery = allItems.length > 0 ? allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allItems.length : 0;
+            
+            seriesData.set(series.id, { dueCount, mastery });
         });
-        return masteryMap;
-    }, [state.decks, state.deckSeries]);
+
+        return { standaloneDecks, seriesDeckIds, unlockedSeriesDeckIds, totalDueQuestions, seriesData };
+    }, [state.decks, state.deckSeries, props.seriesProgress]);
 
     // --- Route Rendering ---
     
@@ -213,6 +190,33 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     if (pathname === '/study/general') {
         const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
         return generalStudyDeck && <StudySession key="general-study" deck={generalStudyDeck} seriesId={seriesId} onSessionEnd={(deckId) => props.handleSessionEnd(deckId, seriesId)} onItemReviewed={props.handleItemReviewed} onUpdateLastOpened={() => {}}/>;
+    }
+    
+    if (pathname.startsWith('/decks/') && pathname.endsWith('/cram')) {
+        if (activeDeck) {
+            const items = (activeDeck.type === DeckType.Flashcard ? activeDeck.cards : (activeDeck as QuizDeck).questions)
+                .filter(item => !item.suspended); // Cramming reviews all non-ignored items
+            
+            const shuffledItems = [...items].sort(() => Math.random() - 0.5);
+
+            let cramDeck: Deck;
+            if (activeDeck.type === DeckType.Flashcard) {
+                cramDeck = { ...activeDeck, name: `${activeDeck.name} (Cram)`, cards: shuffledItems as Card[] };
+            } else {
+                cramDeck = { ...activeDeck, name: `${activeDeck.name} (Cram)`, questions: shuffledItems as Question[] };
+            }
+
+            const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
+            return <StudySession 
+                key={`${activeDeck.id}-cram`} 
+                deck={cramDeck} 
+                seriesId={seriesId}
+                onSessionEnd={(deckId) => props.handleSessionEnd(deckId, seriesId)} 
+                onItemReviewed={props.handleItemReviewed}
+                onUpdateLastOpened={props.updateLastOpened}
+                sessionKeySuffix="_cram"
+            />;
+        }
     }
 
     if (pathname.startsWith('/decks/') && pathname.endsWith('/study-flip')) {
@@ -283,43 +287,13 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
       return <JsonInstructionsPage />;
     }
     
-    // Default to home page
-    if (sortedDecks.length > 0 || sortedFolders.length > 0 || sortedSeries.length > 0) {
-      return (
-        <>
-          {totalDueQuestions > 0 && (
-            <div className="mb-6"><Button onClick={props.handleStartGeneralStudy} variant="primary" className="w-full sm:w-auto text-lg py-3"><Icon name="zap" className="w-5 h-5 mr-2" />Study All Due Questions ({totalDueQuestions})</Button></div>
-          )}
-          
-          {sortedSeries.length > 0 && (
-            <div className="mb-8">
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-4">Your Series</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {sortedSeries.map(series => (
-                      <SeriesListItem
-                        key={series.id}
-                        series={series}
-                        completedCount={props.seriesProgress.get(series.id)?.size || 0}
-                        dueCount={seriesDueCounts.get(series.id) || 0}
-                        masteryLevel={seriesMasteryLevels.get(series.id) || 0}
-                        onStartSeriesStudy={props.handleStartSeriesStudy}
-                      />
-                  ))}
-                </div>
-            </div>
-          )}
-
-          <div className="flex justify-between items-center mb-6 gap-4">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Your Decks</h2>
-            <div className="flex items-center gap-2">
-                <Button variant="ghost" onClick={() => props.openFolderModal('new')}><Icon name="folder-plus" className="w-5 h-5 mr-2" /><span className="hidden sm:inline">New Folder</span></Button>
-                <DeckSortControl currentSort={props.sortPreference} onSortChange={props.setSortPreference} />
-            </div>
-          </div>
-          <DeckList 
-            decks={sortedDecks} 
-            folders={sortedFolders}
-            sessionsToResume={props.sessionsToResume} 
+    if (pathname === '/decks') {
+        return <AllDecksPage
+            decks={standaloneDecks}
+            folders={state.folders}
+            sessionsToResume={props.sessionsToResume}
+            sortPreference={props.sortPreference}
+            onSortChange={props.setSortPreference}
             onUpdateLastOpened={props.updateLastOpened}
             onEditFolder={(folder) => props.openFolderModal(folder)}
             onDeleteFolder={props.handleDeleteFolder}
@@ -332,18 +306,59 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onUpdateDeck={props.handleUpdateDeck}
             onDeleteDeck={props.handleDeleteDeck}
             openConfirmModal={props.openConfirmModal}
-          />
-        </>
-      )
+            onNewFolder={() => props.openFolderModal('new')}
+            onImportDecks={() => props.openModal(props.setImportModalOpen)}
+            onCreateSampleDeck={props.handleCreateSampleDeck}
+        />;
+    }
+
+    if (pathname === '/series') {
+        return <AllSeriesPage
+            series={state.deckSeries.filter(s => !s.archived && !s.deletedAt)}
+            seriesProgress={props.seriesProgress}
+            seriesData={seriesData}
+            onStartSeriesStudy={props.handleStartSeriesStudy}
+            onCreateNewSeries={props.openCreateSeriesModal}
+            onCreateSampleSeries={props.handleCreateSampleSeries}
+        />
+    }
+
+    const activeSeriesList = state.deckSeries.filter(s => !s.archived && !s.deletedAt);
+    if (standaloneDecks.length > 0 || activeSeriesList.length > 0) {
+        const recentSeries = [...activeSeriesList].sort((a,b) => {
+            const decksA = a.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(Boolean);
+            const decksB = b.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter(Boolean);
+            const lastOpenedA = Math.max(0, ...decksA.map(d => new Date(d.lastOpened || 0).getTime()));
+            const lastOpenedB = Math.max(0, ...decksB.map(d => new Date(d.lastOpened || 0).getTime()));
+            return lastOpenedB - lastOpenedA;
+        }).slice(0, 2);
+
+        const recentDecks = [...standaloneDecks].sort((a,b) => (b.lastOpened || '').localeCompare(a.lastOpened || '')).slice(0, 2);
+
+        return <DashboardPage
+            recentSeries={recentSeries}
+            recentDecks={recentDecks}
+            totalDueQuestions={totalDueQuestions}
+            onStartGeneralStudy={props.handleStartGeneralStudy}
+            sessionsToResume={props.sessionsToResume}
+            onUpdateLastOpened={props.updateLastOpened}
+            onUpdateDeck={props.handleUpdateDeck}
+            onDeleteDeck={props.handleDeleteDeck}
+            openConfirmModal={props.openConfirmModal}
+            seriesData={seriesData}
+            seriesProgress={props.seriesProgress}
+            onStartSeriesStudy={props.handleStartSeriesStudy}
+        />
     }
     
+    // Fallback to empty state
     return (
         <div className="text-center py-20">
           <h2 className="text-3xl font-bold text-gray-600 dark:text-gray-400">Welcome to CogniFlow</h2>
           <p className="mt-4 text-gray-500 dark:text-gray-500">Create decks, import content, or try a sample to get started.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
             <Button onClick={() => props.openModal(props.setImportModalOpen)}><Icon name="plus" className="w-5 h-5 mr-2" />Create or Import Deck</Button>
-            <Button onClick={props.openCreateSeriesModal} variant="secondary"><Icon name="list" className="w-5 h-5 mr-2" />Create New Series</Button>
+            <Button onClick={props.openCreateSeriesModal} variant="secondary"><Icon name="layers" className="w-5 h-5 mr-2" />Create New Series</Button>
             <Button onClick={props.handleCreateSampleDeck} variant="ghost"><Icon name="laptop" className="w-5 h-5 mr-2" />Create Sample Deck</Button>
             <Button onClick={props.handleCreateSampleSeries} variant="ghost"><Icon name="zap" className="w-5 h-5 mr-2" />Create Sample Series</Button>
           </div>

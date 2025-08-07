@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder } from '../types';
 import Button from './ui/Button';
@@ -347,6 +348,19 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
               >
                   <Icon name={deck.locked ? 'lock' : (canResume ? 'zap' : 'laptop')} className="w-5 h-5 mr-2" />
                   {studyButtonText}
+              </Link>
+              <Link
+                href={`/decks/${deck.id}/cram`}
+                passAs={Button}
+                variant="secondary"
+                size="lg"
+                onClick={() => onUpdateLastOpened(deck.id)}
+                disabled={allItems.length === 0}
+                className="font-semibold w-full sm:w-auto"
+                title="Review all cards in random order, without affecting your SRS schedule."
+              >
+                <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
+                Cram
               </Link>
               {deck.type === DeckType.Quiz && activeItems.length > 0 && (
                  <Link

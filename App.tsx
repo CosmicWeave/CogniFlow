@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress } from './types';
 import * as db from './services/db';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
@@ -24,6 +25,8 @@ import { usePullToRefresh } from './hooks/usePullToRefresh';
 import Header from './components/Header';
 import AppRouter from './components/AppRouter';
 import TrashPage from './components/TrashPage';
+import CommandPalette from './components/CommandPalette';
+import { IconName } from './components/ui/Icon';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -33,6 +36,7 @@ const App: React.FC = () => {
   const [isRestoreModalOpen, setRestoreModalOpen] = useState(false);
   const [isResetProgressModalOpen, setResetProgressModalOpen] = useState(false);
   const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [folderToEdit, setFolderToEdit] = useState<Folder | 'new' | null>(null);
   const [seriesToEdit, setSeriesToEdit] = useState<DeckSeries | 'new' | null>(null);
   const [confirmModalProps, setConfirmModalProps] = useState<{
@@ -52,7 +56,7 @@ const App: React.FC = () => {
   const [installPrompt, handleInstall] = useInstallPrompt();
   const { addToast } = useToast();
   const modalTriggerRef = useRef<HTMLElement | null>(null);
-  const { path } = useRouter();
+  const { path, navigate } = useRouter();
   const initialLoadComplete = useRef(false);
 
   const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd, REFRESH_THRESHOLD } = usePullToRefresh();
@@ -85,6 +89,28 @@ const App: React.FC = () => {
     setSeriesToEdit: (series) => { openModal(setSeriesToEdit as any); setSeriesToEdit(series); }
   });
   const { handleAddDecks } = dataHandlers;
+
+  // Global keydown listener for Command Palette
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        // Prevent browser's default find-in-page
+        e.preventDefault();
+        
+        // Don't open if an input is focused or another modal is open
+        const target = e.target as HTMLElement;
+        const isInputFocused = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        const isAnyModalOpen = isImportModalOpen || isRestoreModalOpen || isResetProgressModalOpen || isConfirmModalOpen || folderToEdit !== null || seriesToEdit !== null;
+        
+        if (!isInputFocused && !isAnyModalOpen) {
+          openModal(setIsCommandPaletteOpen);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isImportModalOpen, isRestoreModalOpen, isResetProgressModalOpen, isConfirmModalOpen, folderToEdit, seriesToEdit]);
+
 
   const loadData = useCallback(async (isInitialLoad = false) => {
     if (isInitialLoad) {
@@ -229,31 +255,71 @@ const App: React.FC = () => {
     });
   }, []);
 
-  const getActiveDeckId = (p: string) => p.match(/^\/decks\/([^/?]+)/)?.[1] || null;
-  const getActiveSeriesId = (p: string) => p.match(/^\/series\/([^/?]+)/)?.[1] || null;
+  const activeDeck = useMemo(() => {
+    const getActiveDeckId = (p: string) => p.match(/^\/decks\/([^/?]+)/)?.[1] || null;
+    const activeDeckId = getActiveDeckId(path);
+    if (!activeDeckId) return null;
+    
+    const baseDeck = state.decks.find(d => d.id === activeDeckId);
+    if (!baseDeck) return null;
 
-  const activeDeckId = getActiveDeckId(path);
-  let activeDeck = activeDeckId ? state.decks.find(d => d.id === activeDeckId) : null;
-  
-  if (activeDeck) {
-      const params = new URLSearchParams(window.location.hash.split('?')[1]);
-      const seriesId = params.get('seriesId');
-      if (seriesId) {
-          const series = state.deckSeries.find(s => s.id === seriesId);
-          if (series) {
-              const flatDeckIds = series.levels.flatMap(l => l.deckIds);
-              const deckIndex = flatDeckIds.indexOf(activeDeck.id);
-              if (deckIndex > -1) {
-                  const completedInSeries = seriesProgress.get(series.id)?.size || 0;
-                  const isLocked = deckIndex > completedInSeries;
-                  activeDeck = { ...activeDeck, locked: isLocked };
-              }
-          }
-      }
-  }
-  
-  const activeSeriesId = getActiveSeriesId(path);
-  const activeSeries = activeSeriesId ? state.deckSeries.find(s => s.id === activeSeriesId) : null;
+    const params = new URLSearchParams(window.location.hash.split('?')[1]);
+    const seriesId = params.get('seriesId');
+    if (seriesId) {
+        const series = state.deckSeries.find(s => s.id === seriesId);
+        if (series) {
+            const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+            const deckIndex = flatDeckIds.indexOf(activeDeckId);
+            if (deckIndex > -1) {
+                const completedInSeries = seriesProgress.get(series.id)?.size || 0;
+                const isLocked = deckIndex > completedInSeries;
+                // Return new object with lock status
+                return { ...baseDeck, locked: isLocked };
+            }
+        }
+    }
+    // Return base deck if not in a series context
+    return baseDeck;
+  }, [path, state.decks, state.deckSeries, seriesProgress]);
+
+  const activeSeries = useMemo(() => {
+    const getActiveSeriesId = (p: string) => p.match(/^\/series\/([^/?]+)/)?.[1] || null;
+    const activeSeriesId = getActiveSeriesId(path);
+    if (!activeSeriesId) return null;
+    return state.deckSeries.find(s => s.id === activeSeriesId);
+  }, [path, state.deckSeries]);
+
+  const commandPaletteActions = useMemo(() => {
+    const openCreateSeriesModal = () => {
+      modalTriggerRef.current = document.activeElement as HTMLElement;
+      setSeriesToEdit('new');
+    };
+    const goToSettingSection = (sectionId: string) => {
+      navigate('/settings');
+      // Use a timeout to allow the page to render before scrolling
+      setTimeout(() => {
+        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    };
+    return [
+      { id: 'new-deck', label: 'New / Import Deck', icon: 'plus' as IconName, action: () => openModal(setImportModalOpen) },
+      { id: 'new-series', label: 'Create New Series', icon: 'layers' as IconName, action: openCreateSeriesModal },
+      { id: 'go-decks', label: 'Go to All Decks', icon: 'folder' as IconName, action: () => navigate('/decks') },
+      { id: 'go-series', label: 'Go to All Series', icon: 'layers' as IconName, action: () => navigate('/series') },
+      { id: 'go-archive', label: 'Go to Archive', icon: 'archive' as IconName, action: () => navigate('/archive') },
+      { id: 'go-trash', label: 'Go to Trash', icon: 'trash-2' as IconName, action: () => navigate('/trash') },
+      { id: 'go-settings', label: 'Go to Settings', icon: 'settings' as IconName, action: () => navigate('/settings') },
+      
+      // Settings Actions
+      { id: 'go-appearance-settings', label: 'Go to Appearance Settings', icon: 'sun' as IconName, action: () => goToSettingSection('settings-appearance'), searchableOnly: true, keywords: ['theme', 'dark', 'light', 'animation', 'haptics'] },
+      { id: 'go-local-backup', label: 'Go to Local Backup', icon: 'download' as IconName, action: () => goToSettingSection('settings-local-backup'), searchableOnly: true, keywords: ['export', 'import', 'json', 'file', 'download', 'data'] },
+      { id: 'go-cloud-backup', label: 'Go to Cloud Backup', icon: 'upload-cloud' as IconName, action: () => goToSettingSection('google-drive-backup'), searchableOnly: true, keywords: ['google', 'drive', 'sync', 'data'] },
+      { id: 'go-cache-management', label: 'Go to Cache Management', icon: 'broom' as IconName, action: () => goToSettingSection('settings-cache-management'), searchableOnly: true, keywords: ['clear', 'reload', 'refresh', 'storage', 'data', 'service worker'] },
+      { id: 'go-reset-progress', label: 'Go to Reset Progress', icon: 'refresh-ccw' as IconName, action: () => goToSettingSection('settings-reset-progress'), searchableOnly: true, keywords: ['srs', 'spaced repetition', 'start over', 'danger'] },
+      { id: 'go-factory-reset', label: 'Go to Factory Reset', icon: 'trash-2' as IconName, action: () => goToSettingSection('settings-factory-reset'), searchableOnly: true, keywords: ['delete all', 'wipe', 'clean', 'erase', 'danger'] },
+    ];
+  }, [navigate]);
+
 
   if (state.isLoading) {
     return <div className="min-h-screen flex items-center justify-center"><h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300"><Spinner size="lg" />Loading CogniFlow...</h1></div>;
@@ -286,7 +352,8 @@ const App: React.FC = () => {
       <div className="flex-grow flex flex-col">
         <Header 
           activeDeck={activeDeck} 
-          onOpenMenu={() => openModal(setIsMenuOpen)} 
+          onOpenMenu={() => openModal(setIsMenuOpen)}
+          onOpenCommandPalette={() => openModal(setIsCommandPaletteOpen)}
         />
         <main className={`${mainContentClass} container mx-auto px-4 sm:px-6 lg:px-8 py-8`}>
           <AppRouter
@@ -320,6 +387,13 @@ const App: React.FC = () => {
         </main>
       </div>
       <OfflineIndicator />
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => closeModal(setIsCommandPaletteOpen)}
+        decks={state.decks}
+        series={state.deckSeries}
+        actions={commandPaletteActions}
+      />
       {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={() => closeModal(setImportModalOpen)} onAddDecks={dataHandlers.handleAddDecks} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
       {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={() => closeModal(setRestoreModalOpen)} onRestore={dataHandlers.handleRestoreData} />}
       {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={() => closeModal(setResetProgressModalOpen)} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}

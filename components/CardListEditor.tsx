@@ -1,10 +1,13 @@
 
+
 import React, { useState, useRef } from 'react';
 import { Card } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import EditCardModal from './EditCardModal';
 import ConfirmModal from './ConfirmModal';
+import MasteryBar from './ui/MasteryBar';
+import { getEffectiveMasteryLevel } from '../services/srs';
 
 interface CardListEditorProps {
   cards: Card[];
@@ -12,6 +15,33 @@ interface CardListEditorProps {
   onAddCard: (newCardData: Pick<Card, 'front' | 'back'>) => void;
   onBulkAdd: () => void;
 }
+
+const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean } => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const dueDate = new Date(dueDateString);
+    dueDate.setHours(0, 0, 0, 0);
+
+    const diffTime = dueDate.getTime() - today.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+    
+    const isDue = diffDays <= 0;
+    let text: string;
+
+    if (diffDays < 0) {
+        text = "Due";
+    } else if (diffDays === 0) {
+        text = "Due today";
+    } else if (diffDays === 1) {
+        text = "Due tomorrow";
+    } else {
+        text = `Due in ${diffDays} days`;
+    }
+    
+    return { text, isDue };
+};
+
 
 const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, onAddCard, onBulkAdd }) => {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
@@ -76,29 +106,40 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
         <div id="card-list-content" className="animate-fade-in">
           <div className="p-6">
             {cards.length > 0 ? (
-              <ul className="space-y-3">
-                {cards.map((card) => (
-                  <li key={card.id} className={`bg-gray-100 dark:bg-gray-900/50 p-3 rounded-md flex items-center justify-between transition-opacity ${card.suspended ? 'opacity-50' : ''}`}>
-                    <div className="flex-1 min-w-0 mr-4">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
-                    </div>
-                    <div className="flex-shrink-0 flex items-center gap-2">
-                      {card.suspended ? (
-                        <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnignoreCard(card.id)} title="Re-enable this card">
-                            <Icon name="eye" className="w-4 h-4" />
-                        </Button>
-                      ) : (
-                        <Button variant="ghost" className="p-2 h-auto" onClick={(e) => openEditModal(card, e)} title="Edit this card">
-                          <Icon name="edit" className="w-4 h-4" />
-                        </Button>
-                      )}
-                      <Button variant="ghost" className="p-2 h-auto text-gray-500 dark:text-gray-400 hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
-                        <Icon name="trash-2" className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </li>
-                ))}
+              <ul className="space-y-4">
+                {cards.map((card) => {
+                    const { text: dueDateText, isDue } = getDueDateInfo(card.dueDate);
+                    return (
+                      <li key={card.id} className={`p-4 rounded-lg flex items-start justify-between transition-all ${card.suspended ? 'bg-yellow-50 dark:bg-yellow-900/20 opacity-70' : 'bg-gray-50 dark:bg-gray-900/30'}`}>
+                        <div className="flex-1 min-w-0 mr-4">
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
+                           <div className="mt-3 space-y-2">
+                                <MasteryBar level={getEffectiveMasteryLevel(card)} />
+                                <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                                    <span className={`font-semibold ${isDue ? 'text-blue-500 dark:text-blue-400' : ''}`}>
+                                        <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex-shrink-0 flex items-center gap-2">
+                          {card.suspended ? (
+                            <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnignoreCard(card.id)} title="Re-enable this card">
+                                <Icon name="eye" className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" className="p-2 h-auto" onClick={(e) => openEditModal(card, e)} title="Edit this card">
+                              <Icon name="edit" className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" className="p-2 h-auto text-gray-500 dark:text-gray-400 hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
+                            <Icon name="trash-2" className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    )
+                })}
               </ul>
             ) : (
               <p className="text-gray-400 dark:text-gray-500 text-center py-4">This deck has no cards.</p>

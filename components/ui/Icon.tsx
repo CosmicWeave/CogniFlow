@@ -6,7 +6,8 @@ export type IconName =
   | 'sun' | 'moon' | 'code' | 'refresh-ccw' | 'broom' | 'settings' | 'info' | 'chevron-down'
   | 'eye' | 'eye-off' | 'zap' | 'help-circle' | 'google'
   | 'folder' | 'folder-plus' | 'folder-edit'
-  | 'list' | 'lock' | 'unlock' | 'archive' | 'unarchive' | 'arrow-down' | 'monitor' | 'more-vertical';
+  | 'list' | 'lock' | 'unlock' | 'archive' | 'unarchive' | 'arrow-down' | 'monitor' | 'more-vertical'
+  | 'search' | 'filter' | 'layers' | 'terminal';
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName;
@@ -50,6 +51,10 @@ const ICONS: Record<IconName, React.ReactNode> = {
   'arrow-down': <><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></>,
   'monitor': <><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></>,
   'more-vertical': <><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></>,
+  'search': <><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></>,
+  'filter': <><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></>,
+  'layers': <><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></>,
+  'terminal': <><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></>,
 };
 
 const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6', ...props }) => {

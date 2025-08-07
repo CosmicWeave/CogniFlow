@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, Question, ReviewRating, Deck, DeckType, Reviewable, QuizDeck } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs';
@@ -13,7 +12,7 @@ import Confetti from './ui/Confetti';
 
 interface StudySessionProps {
   deck: Deck;
-  onSessionEnd: (deckId: string) => void;
+  onSessionEnd: (deckId: string, seriesId?: string) => void;
   onItemReviewed: (deckId: string, item: Reviewable, seriesId?: string) => Promise<void>;
   onUpdateLastOpened: (deckId: string) => void;
   sessionKeySuffix?: string;
@@ -21,8 +20,8 @@ interface StudySessionProps {
 }
 
 const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemReviewed, onUpdateLastOpened, sessionKeySuffix = '', seriesId }) => {
-  const [reviewQueue, setReviewQueue] = useState<Reviewable[]>([]);
-  const [reviewedItems, setReviewedItems] = useState<Reviewable[]>([]);
+  const [reviewQueue, setReviewQueue] = useState<(Card | Question)[]>([]);
+  const [reviewedItems, setReviewedItems] = useState<Array<{ item: Card | Question; rating: ReviewRating | null }>>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [displayIndex, setDisplayIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -40,20 +39,36 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
       currentIndex,
   }), [reviewQueue, currentIndex]);
 
+  // Effect 1: Update the "last opened" timestamp.
+  // This should only run once when the session for a specific deck is initiated.
   useEffect(() => {
+    // We call onUpdateLastOpened to mark this deck as recently used.
     onUpdateLastOpened(deck.id);
 
-    if (isGeneralSession) {
-        setReviewQueue((deck as QuizDeck).questions);
-        setIsSessionInitialized(true);
-        return;
-    }
+    // This is a one-time action. We disable the exhaustive-deps lint rule
+    // for onUpdateLastOpened because including it would cause an infinite loop:
+    // 1. This effect runs.
+    // 2. onUpdateLastOpened updates the deck in the parent state.
+    // 3. The parent state change causes a new onUpdateLastOpened function to be created.
+    // 4. The new function reference would trigger this effect again.
+    // By only depending on deck.id (which is stable for a session), we break the loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck.id]);
+
+  // Effect 2: Initialize the session queue and state.
+  // This effect synchronizes the study queue with the deck's properties.
+  useEffect(() => {
+    const isSpecialSession = isGeneralSession || sessionKeySuffix === '_cram' || sessionKeySuffix === '_flip';
     
-    if (sessionKeySuffix === '_flip') {
-        const itemsToReview = (deck as Deck).type === DeckType.Flashcard ? (deck as any).cards : [];
+    if (isSpecialSession) {
+        // For general, cram, or flip sessions, the deck is pre-configured by AppRouter.
+        // We just need to load the items from it and reset state.
+        const itemsToReview = deck.type === DeckType.Flashcard ? (deck as any).cards : (deck as any).questions;
         setReviewQueue(itemsToReview);
+        setCurrentIndex(0);
+        setDisplayIndex(0);
         setIsSessionInitialized(true);
-        return;
+        return; // Don't try to load from localStorage for these special sessions
     }
 
     const savedSessionJSON = localStorage.getItem(sessionKey);
@@ -61,12 +76,13 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     if (savedSessionJSON) {
       try {
         const savedSession = JSON.parse(savedSessionJSON);
-        if (savedSession.reviewQueue && typeof savedSession.currentIndex === 'number') {
+        if (savedSession.reviewQueue && savedSession.reviewQueue.length > 0 && typeof savedSession.currentIndex === 'number') {
           setReviewQueue(savedSession.reviewQueue);
           setCurrentIndex(savedSession.currentIndex);
           setDisplayIndex(savedSession.currentIndex);
           sessionResumed = true;
-          addToast("Session resumed.", "info");
+        } else {
+          localStorage.removeItem(sessionKey); // Clean up invalid session
         }
       } catch (e) {
         console.error("Failed to parse saved session", e);
@@ -82,23 +98,21 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         .filter(item => !item.suspended && new Date(item.dueDate) <= today)
         .sort(() => Math.random() - 0.5);
       setReviewQueue(dueItems);
+      // Always reset indices for a brand new session
+      setCurrentIndex(0);
+      setDisplayIndex(0);
     }
     setIsSessionInitialized(true);
+  }, [deck, deck.type, sessionKeySuffix, isGeneralSession, sessionKey]);
 
-    return () => {
-      if (!isGeneralSession && currentIndex < reviewQueue.length) {
-        try {
-          localStorage.setItem(sessionKey, JSON.stringify(sessionState));
-        } catch (e) { console.error("Could not save session state", e); }
-      }
-    };
-  }, [deck.id, deck.type, sessionKeySuffix]);
 
   useEffect(() => {
-    if (!isGeneralSession && isSessionInitialized && currentIndex < reviewQueue.length) {
+    // Only save state for regular sessions
+    const isRegularSession = !isGeneralSession && sessionKeySuffix === '';
+    if (isRegularSession && isSessionInitialized && currentIndex < reviewQueue.length) {
        try { localStorage.setItem(sessionKey, JSON.stringify(sessionState)); } catch (e) { console.error("Could not save session state", e); }
     }
-  }, [sessionState, isGeneralSession, isSessionInitialized, sessionKey, currentIndex, reviewQueue.length]);
+  }, [sessionState, isGeneralSession, isSessionInitialized, sessionKey, currentIndex, reviewQueue.length, sessionKeySuffix]);
   
   const displayedItem = useMemo(() => reviewQueue[displayIndex], [reviewQueue, displayIndex]);
   const isHistorical = displayIndex < currentIndex;
@@ -127,13 +141,26 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
       setDisplayIndex(nextIndex);
     }
     
+    // Clean up local storage for regular sessions
     if (nextIndex >= reviewQueue.length) {
-      if (!isGeneralSession) localStorage.removeItem(sessionKey);
+      const isRegularSession = !isGeneralSession && sessionKeySuffix === '';
+      if (isRegularSession) {
+        localStorage.removeItem(sessionKey);
+      }
     }
-  }, [currentIndex, reviewQueue.length, isGeneralSession, sessionKey]);
+  }, [currentIndex, reviewQueue.length, isGeneralSession, sessionKey, sessionKeySuffix]);
 
   const handleReview = useCallback(async (rating: ReviewRating) => {
     if (!displayedItem || !isCurrent || isReviewing) return;
+
+    const isCramSession = sessionKeySuffix === '_cram';
+    if (isCramSession) {
+        // For cramming, just advance immediately without any SRS logic or delay.
+        setIsReviewing(true);
+        advanceToNext();
+        setIsReviewing(false);
+        return;
+    }
 
     setIsReviewing(true);
     if (hapticsEnabled && 'vibrate' in navigator) navigator.vibrate(20);
@@ -147,7 +174,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     if (oldPercent <= 85 && newPercent > 85) addToast('Item Mastered!', 'success');
     
-    setReviewedItems(prev => [...prev, updatedItem]);
+    setReviewedItems(prev => [...prev, { item: updatedItem, rating }]);
 
     // Update the item in the queue to show mastery change before advancing
     setReviewQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
@@ -160,14 +187,14 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         advanceToNext();
         setIsReviewing(false);
     }, 800);
-  }, [displayedItem, isCurrent, isReviewing, hapticsEnabled, advanceToNext, deck.id, onItemReviewed, addToast, seriesId, currentIndex]);
+  }, [displayedItem, isCurrent, isReviewing, hapticsEnabled, advanceToNext, deck.id, onItemReviewed, addToast, seriesId, currentIndex, sessionKeySuffix]);
   
   const handleIgnore = useCallback(async () => {
     if (!displayedItem || !isCurrent || isReviewing) return;
     
     setIsReviewing(true);
     const ignoredItem = { ...displayedItem, suspended: true };
-    setReviewedItems(prev => [...prev, ignoredItem]);
+    setReviewedItems(prev => [...prev, { item: ignoredItem, rating: null }]);
     const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
 
     await onItemReviewed(originalDeckId, ignoredItem, seriesId);
@@ -244,12 +271,22 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     <div className="text-center p-8">
       <h2 className="text-2xl font-bold">All caught up!</h2>
       <p className="text-gray-500 dark:text-gray-400 mt-2">{isGeneralSession ? "There are no quiz questions due for review across all your decks." : "There are no items due for review in this deck."}</p>
-      <Button onClick={() => onSessionEnd(deck.id)} className="mt-6">Back to Decks</Button>
+      <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-6">Back to Decks</Button>
     </div>
   );
 
   if (currentIndex >= reviewQueue.length) {
-    // ... Session complete screen (unchanged)
+    if (sessionKeySuffix === '_cram') {
+      return (
+        <div className="text-center p-8 animate-fade-in relative">
+            <Confetti />
+            <h2 className="text-2xl font-bold text-green-500 dark:text-green-400">Cram Session Complete!</h2>
+            <p className="text-gray-500 dark:text-gray-400 mt-2">You've reviewed all {reviewQueue.length} items in this deck.</p>
+            <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-8">Finish Session</Button>
+        </div>
+      );
+    }
+    
     const today = new Date();
     today.setHours(0,0,0,0);
     const tomorrow = new Date(today);
@@ -260,12 +297,18 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     let dueTomorrowCount = 0;
     let dueNextWeekCount = 0;
 
-    reviewedItems.forEach(item => {
+    reviewedItems.forEach(({ item }) => {
         if (item.suspended) return;
         const dueDate = new Date(item.dueDate);
         if (dueDate.getTime() > today.getTime() && dueDate.getTime() <= tomorrow.getTime()) dueTomorrowCount++;
         if (dueDate.getTime() > tomorrow.getTime() && dueDate.getTime() <= nextWeek.getTime()) dueNextWeekCount++;
     });
+    
+    const mostDifficultItems = reviewedItems
+      .filter(reviewed => reviewed.rating === ReviewRating.Again || reviewed.rating === ReviewRating.Hard)
+      .sort((a, b) => (a.rating ?? 5) - (b.rating ?? 5))
+      .slice(0, 5)
+      .map(reviewed => reviewed.item);
 
     return (
       <div className="text-center p-8 animate-fade-in relative">
@@ -276,7 +319,26 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             <div className="flex justify-between items-center text-gray-700 dark:text-gray-300"><span>Due tomorrow:</span><span className="font-bold">{dueTomorrowCount} items</span></div>
             <div className="flex justify-between items-center text-gray-700 dark:text-gray-300"><span>Due in the next 7 days:</span><span className="font-bold">{dueNextWeekCount} items</span></div>
         </div>
-        <Button onClick={() => onSessionEnd(deck.id)} className="mt-8">Finish Session</Button>
+
+        {mostDifficultItems.length > 0 && (
+            <div className="mt-6 bg-orange-100 dark:bg-orange-900/30 rounded-lg p-4 max-w-sm mx-auto space-y-3">
+            <h4 className="font-bold text-orange-800 dark:text-orange-200 text-left flex items-center gap-2">
+                <Icon name="zap" className="w-5 h-5" />
+                Challenging Items
+            </h4>
+            <ul className="text-left text-sm space-y-2">
+                {mostDifficultItems.map(item => (
+                <li key={item.id} className="text-orange-700 dark:text-orange-300 border-l-2 border-orange-400 pl-3">
+                    <p className="font-semibold truncate">
+                    {'questionText' in item ? item.questionText : item.front}
+                    </p>
+                </li>
+                ))}
+            </ul>
+            </div>
+        )}
+
+        <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-8">Finish Session</Button>
       </div>
     );
   }
@@ -321,11 +383,13 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                     <Button onClick={() => handleReview(ReviewRating.Good)} className="bg-green-600 hover:bg-green-700 dark:bg-green-800 dark:hover:bg-green-700 focus:ring-green-500 py-3 text-base text-white" disabled={isReviewing}>Good <span className="hidden sm:inline">(3)</span></Button>
                     <Button onClick={() => handleReview(ReviewRating.Easy)} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 focus:ring-blue-500 py-3 text-base text-white" disabled={isReviewing}>Easy <span className="hidden sm:inline">(4)</span></Button>
                 </div>
-                <div className="text-center">
-                    <Button variant="ghost" onClick={handleIgnore} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" disabled={isReviewing}>
-                        <Icon name="eye-off" className="w-4 h-4 mr-1"/> Ignore this card
-                    </Button>
-                </div>
+                {sessionKeySuffix !== '_cram' && (
+                  <div className="text-center">
+                      <Button variant="ghost" onClick={handleIgnore} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" disabled={isReviewing}>
+                          <Icon name="eye-off" className="w-4 h-4 mr-1"/> Ignore this card
+                      </Button>
+                  </div>
+                )}
               </div>
             ) : (
               !isQuiz && isCurrent && (

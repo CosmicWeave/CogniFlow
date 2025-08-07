@@ -291,7 +291,7 @@ export const useDataManagement = ({
         navigate('/study/general');
     }, [state.decks, state.deckSeries, seriesProgress, navigate, setGeneralStudyDeck]);
 
-    const handleStartSeriesStudy = useCallback((seriesId: string) => {
+    const handleStartSeriesStudy = useCallback(async (seriesId: string) => {
         const series = state.deckSeries.find(s => s.id === seriesId);
         if (!series) return;
 
@@ -402,9 +402,30 @@ export const useDataManagement = ({
     const handleDeleteSeries = useCallback(async (seriesId: string) => {
         const series = state.deckSeries.find(s => s.id === seriesId);
         if (!series) return;
+        
+        const deckIdsToDelete = series.levels.flatMap(level => level.deckIds);
+        const decksToTrash = state.decks
+            .filter(d => deckIdsToDelete.includes(d.id))
+            .map(d => ({ ...d, deletedAt: new Date().toISOString(), archived: false }));
+        
         const updatedSeries = { ...series, deletedAt: new Date().toISOString(), archived: false };
-        await handleUpdateSeries(updatedSeries, { toastMessage: `Moved "${series.name}" to Trash.` });
-    }, [state.deckSeries, handleUpdateSeries]);
+    
+        // Optimistic UI updates
+        dispatch({ type: 'BULK_UPDATE_DECKS', payload: decksToTrash });
+        dispatch({ type: 'UPDATE_SERIES', payload: updatedSeries });
+        addToast(`Series "${series.name}" and its ${decksToTrash.length} deck(s) moved to Trash.`, 'success');
+    
+        // Database updates
+        try {
+            await Promise.all([
+                db.bulkUpdateDecks(decksToTrash),
+                db.updateDeckSeries(updatedSeries)
+            ]);
+        } catch (error) {
+            console.error("Failed to move series and its decks to trash:", error);
+            addToast("Error moving series to trash.", "error");
+        }
+    }, [state.deckSeries, state.decks, dispatch, addToast]);
     
     const handleAddDeckToSeries = useCallback(async (seriesId: string, newDeck: QuizDeck) => {
         const series = state.deckSeries.find(s => s.id === seriesId);
@@ -458,13 +479,27 @@ export const useDataManagement = ({
     }, [state.decks, dispatch, addToast]);
 
     const handleDeleteSeriesPermanently = useCallback(async (seriesId: string) => {
+        const series = state.deckSeries.find(s => s.id === seriesId);
+        if (!series) return;
+    
+        const deckIdsToDelete = series.levels.flatMap(level => level.deckIds);
+        const seriesName = series.name;
+    
         try {
-            const seriesName = state.deckSeries.find(s => s.id === seriesId)?.name;
+            // Optimistic UI updates
+            deckIdsToDelete.forEach(deckId => {
+                dispatch({ type: 'DELETE_DECK', payload: deckId });
+            });
             dispatch({ type: 'DELETE_SERIES', payload: seriesId });
-            addToast(`Series "${seriesName || 'Series'}" permanently deleted.`, 'success');
-            await db.deleteDeckSeries(seriesId);
+            addToast(`Series "${seriesName}" and its ${deckIdsToDelete.length} deck(s) permanently deleted.`, 'success');
+            
+            // Database operations
+            await Promise.all([
+                ...deckIdsToDelete.map(deckId => db.deleteDeck(deckId)),
+                db.deleteDeckSeries(seriesId)
+            ]);
         } catch (error) {
-            console.error("Failed to permanently delete series:", error);
+            console.error("Failed to permanently delete series and its decks:", error);
             addToast("There was an error permanently deleting the series.", "error");
         }
     }, [state.deckSeries, dispatch, addToast]);

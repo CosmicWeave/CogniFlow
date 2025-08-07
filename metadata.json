@@ -7,8 +7,12 @@
     {
       "action": "/",
       "accept": {
-        "application/zip": [".apkg"],
-        "application/x-zip-compressed": [".apkg"]
+        "application/zip": [
+          ".apkg"
+        ],
+        "application/x-zip-compressed": [
+          ".apkg"
+        ]
       },
       "launch_type": "single-client"
     }

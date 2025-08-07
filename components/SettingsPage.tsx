@@ -183,7 +183,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
     <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
       <h2 className="text-3xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 pb-4">Settings</h2>
       
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div id="settings-appearance" className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Appearance</h3>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
           Customize the look and feel of the application.
@@ -209,7 +209,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
         
         <div className="space-y-6">
             {/* Local Backup */}
-            <div>
+            <div id="settings-local-backup">
               <h4 className="font-semibold text-gray-700 dark:text-gray-300">Local File Backup</h4>
               <p className="text-gray-600 dark:text-gray-400 my-2">
                 Backup all your decks and study progress to a JSON file on your device.
@@ -226,7 +226,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
               </div>
             </div>
 
-            <div className="border-t border-gray-200 dark:border-gray-700/60 pt-6">
+            <div id="google-drive-backup" className="border-t border-gray-200 dark:border-gray-700/60 pt-6">
               <h4 className="font-semibold text-gray-700 dark:text-gray-300">Google Drive Cloud Backup</h4>
               <p className="text-gray-600 dark:text-gray-400 my-2">
                 Securely back up and restore your data to a private folder in your Google Drive.
@@ -304,7 +304,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div id="settings-cache-management" className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
         <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Cache Management</h3>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
           If you are experiencing issues, clearing the cache can help. You must reload the page afterwards for changes to take full effect.
@@ -333,9 +333,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
         </div>
       </div>
 
-      <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
+      <div id="settings-danger-zone" className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
         <h3 className="text-xl font-semibold text-red-400 dark:text-red-300 mb-2">Danger Zone</h3>
-        <div>
+        <div id="settings-reset-progress">
             <h4 className="font-semibold text-red-400 dark:text-red-300">Reset Deck Progress</h4>
             <p className="text-sm text-red-500/80 dark:text-red-300/80 mt-2 mb-4">
             This will reset the spaced repetition data (due dates, intervals) for all items in a selected deck, without deleting the cards themselves.
@@ -345,7 +345,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
             Reset Deck Progress...
             </Button>
         </div>
-        <div className="mt-6 pt-6 border-t border-red-500/30">
+        <div id="settings-factory-reset" className="mt-6 pt-6 border-t border-red-500/30">
             <h4 className="font-semibold text-red-400 dark:text-red-300">Factory Reset</h4>
             <p className="text-sm text-red-500/80 dark:text-red-300/80 mt-2 mb-4">
                 This will permanently delete all local data, including all decks, folders, series, and settings. The application will be restored to its original state.

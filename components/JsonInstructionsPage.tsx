@@ -545,7 +545,7 @@ Now, generate the complete JSON deck based on all the above requirements.`;
             <li>
                 <strong>Validate Your JSON:</strong> Before importing, it's a good idea to paste your JSON into an online validator to check for syntax errors. A common mistake is a trailing comma after the last item in an array or object.
                 <br/>
-                <code>{'[ { "key": "value" }, ] &larr; Invalid Trailing Comma'}</code>
+                <code>[ { "key": "value" }, ] &larr; Invalid Trailing Comma</code>
             </li>
             <li>
                 <strong>Check Your Quotes:</strong> All keys and string values in JSON must be enclosed in double quotes ("). Single quotes (') are not valid.

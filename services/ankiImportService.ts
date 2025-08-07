@@ -1,3 +1,4 @@
+
 import type { Deck } from '../types';
 
 /**
@@ -8,8 +9,9 @@ import type { Deck } from '../types';
  */
 export function parseAnkiPkg(fileBuffer: ArrayBuffer): Promise<Deck[]> {
     return new Promise((resolve, reject) => {
-        // Create a new worker. The URL is relative to the current module's location.
-        const worker = new Worker(new URL('./ankiImport.worker.ts', import.meta.url), {
+        // Create a new worker using a root-relative path. This is more robust than
+        // using `import.meta.url` which can fail in some environments.
+        const worker = new Worker('/services/ankiImport.worker.ts', {
             type: 'module'
         });
         

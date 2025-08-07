@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { DeckSeries } from '../types';
 import Link from './ui/Link';
@@ -11,7 +12,7 @@ interface SeriesListItemProps {
   series: DeckSeries;
   completedCount: number;
   dueCount: number;
-  onStartSeriesStudy: (seriesId: string) => void;
+  onStartSeriesStudy: (seriesId: string) => Promise<void>;
   masteryLevel: number;
 }
 
@@ -22,13 +23,13 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
     return (
         <Link 
             href={`/series/${series.id}`}
-            className="block bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all duration-200"
+            className="block bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 border border-transparent hover:border-blue-400 dark:hover:border-blue-400"
         >
              <div className="p-4">
                 <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0 mr-4">
                         <div className="flex items-center mb-1">
-                            <Icon name="list" className="w-5 h-5 mr-2 text-purple-500 dark:text-purple-400" />
+                            <Icon name="layers" className="w-5 h-5 mr-2 text-purple-500 dark:text-purple-400" />
                             <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 break-words">{series.name}</h3>
                         </div>
                         {series.description && (

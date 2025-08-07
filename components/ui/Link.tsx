@@ -6,7 +6,7 @@ import { useRouter } from '../../contexts/RouterContext';
 // components passed via 'passAs' (like a Button).
 interface LinkProps extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'onClick'> {
   href: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
   passAs?: React.ElementType;
   onClick?: (e: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => void;

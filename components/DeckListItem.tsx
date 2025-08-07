@@ -1,3 +1,5 @@
+
+
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Deck, DeckType } from '../types';
 import Button from './ui/Button';
@@ -5,6 +7,7 @@ import Link from './ui/Link';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import MasteryBar from './ui/MasteryBar';
 import Icon from './ui/Icon';
+import { useRouter } from '../../contexts/RouterContext';
 
 interface DeckListItemProps {
   deck: Deck;
@@ -32,6 +35,7 @@ const stripHtml = (html: string | undefined): string => {
 };
 
 const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal }) => {
+    const { navigate } = useRouter();
     const dueCount = getDueItemsCount(deck);
     const canResume = sessionsToResume.has(deck.id);
     const items = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
@@ -54,14 +58,22 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isMenuOpen]);
 
+    const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        // This is more robust. It checks if the click originated from an interactive element.
+        // If so, it lets that element's own handler take over. Otherwise, it navigates.
+        if ((e.target as HTMLElement).closest('button, a')) {
+            return;
+        }
+        onUpdateLastOpened(deck.id);
+        navigate(`/decks/${deck.id}`);
+    };
+
     const handleArchive = (e: React.MouseEvent) => {
-        e.stopPropagation();
         onUpdateDeck({ ...deck, archived: true });
         setIsMenuOpen(false);
     };
 
     const handleDelete = (e: React.MouseEvent) => {
-        e.stopPropagation();
         openConfirmModal({
             title: 'Move Deck to Trash',
             message: `Are you sure you want to move the deck "${deck.name}" to the trash? It will be permanently deleted after 10 days.`,
@@ -81,66 +93,79 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
         <div
             key={deck.id}
             draggable="true"
+            onClick={handleContainerClick}
             onDragStart={(e) => {
                 e.dataTransfer.setData('text/plain', deck.id);
                 setTimeout(() => onDragStart(deck.id), 0);
             }}
             onDragEnd={onDragEnd}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow-md hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all duration-200 ${draggedDeckId === deck.id ? 'opacity-40 scale-95' : 'opacity-100'}`}
+            className={`bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 group relative cursor-pointer ${draggedDeckId === deck.id ? 'opacity-40 scale-95' : 'opacity-100'}`}
         >
-             <div className="p-4 flex items-center justify-between">
-                <div className="flex-1 mr-4 min-w-0">
-                    <Link href={`/decks/${deck.id}`} className="block" onClick={() => onUpdateLastOpened(deck.id)}>
-                        <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 break-words hover:text-blue-500 dark:hover:text-blue-300 transition-colors">{deck.name}</h3>
-                        {deck.description && (
-                            <div
-                                className="prose prose-sm dark:prose-invert max-w-none text-gray-500 dark:text-gray-400 mt-1 truncate [&_a]:text-blue-500 dark:[&_a]:text-blue-400 [&_a:hover]:text-blue-600 dark:[&_a:hover]:text-blue-300"
-                                title={stripHtml(deck.description)}
-                                dangerouslySetInnerHTML={{ __html: deck.description }}
-                            />
-                        )}
-                        <div className="flex items-center space-x-4 text-sm mt-2">
-                            <span className="text-gray-500 dark:text-gray-400">{itemCount} {itemLabel}</span>
-                            <span className={`font-semibold ${dueCount > 0 ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
-                                {dueCount} due
-                            </span>
-                        </div>
-                    </Link>
-                    <div className="mt-3">
-                        <MasteryBar level={averageMastery} />
-                    </div>
+             <div className="p-4 flex flex-col justify-between h-full space-y-3">
+                <div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 break-words group-hover:text-blue-500 dark:group-hover:text-blue-300 transition-colors">{deck.name}</h3>
+                    {deck.description && (
+                        <div
+                            className="prose prose-sm dark:prose-invert max-w-none text-gray-500 dark:text-gray-400 mt-1 truncate"
+                            title={stripHtml(deck.description)}
+                            dangerouslySetInnerHTML={{ __html: deck.description }}
+                        />
+                    )}
                 </div>
-                <div className="flex flex-shrink-0 items-center space-x-1 pl-2">
-                    <Link href={`/decks/${deck.id}/study`} passAs={Button} variant="primary" onClick={() => onUpdateLastOpened(deck.id)}
-                        disabled={dueCount === 0 && !canResume}
-                        className="font-semibold w-24"
-                    >
-                       {canResume ? 'Resume' : 'Study'}
-                    </Link>
-                    <div className="relative" ref={menuRef}>
-                        <Button variant="ghost" className="p-2 h-auto" onClick={(e) => { e.stopPropagation(); setIsMenuOpen(p => !p);}} aria-label={`More options for ${deck.name}`}>
-                           <Icon name="more-vertical" className="w-5 h-5" />
-                        </Button>
-                        {isMenuOpen && (
-                             <div 
-                                className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 ring-1 ring-black ring-opacity-5 animate-fade-in"
-                                style={{ animationDuration: '150ms' }}
+
+                <MasteryBar level={averageMastery} />
+
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+                        <span className="flex items-center gap-1.5">
+                            <Icon name="list" className="w-4 h-4" />
+                            {itemCount} {itemLabel}
+                        </span>
+                        <span className={`flex items-center gap-1.5 font-semibold ${dueCount > 0 ? 'text-blue-500 dark:text-blue-400' : ''}`}>
+                            <Icon name="zap" className="w-4 h-4" />
+                            {dueCount} due
+                        </span>
+                    </div>
+
+                    <div className="flex items-center space-x-1">
+                        <Link 
+                            href={`/decks/${deck.id}/study`}
+                            passAs={Button}
+                            variant="primary"
+                            size="sm"
+                            onClick={() => onUpdateLastOpened(deck.id)}
+                            disabled={dueCount === 0 && !canResume}
+                            className="font-semibold"
+                        >
+                           {canResume ? 'Resume' : 'Study'} 
+                        </Link>
+                        <div className="relative" ref={menuRef}>
+                            <Button 
+                                variant="ghost"
+                                size="sm" 
+                                className="p-2 h-auto"
+                                onClick={() => setIsMenuOpen(p => !p)}
+                                aria-label={`More options for ${deck.name}`}
                             >
-                                <Link href={`/decks/${deck.id}`} onClick={() => { onUpdateLastOpened(deck.id); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                    <Icon name="edit" className="w-4 h-4 mr-3" />
-                                    Details / Edit
-                                </Link>
-                                <button onClick={handleArchive} className="flex items-center w-full px-4 py-2 text-sm text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                    <Icon name="archive" className="w-4 h-4 mr-3" />
-                                    Archive
-                                </button>
-                                <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                                <button onClick={handleDelete} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                    <Icon name="trash-2" className="w-4 h-4 mr-3" />
-                                    Move to Trash
-                                </button>
-                            </div>
-                        )}
+                               <Icon name="more-vertical" className="w-5 h-5" />
+                            </Button>
+                            {isMenuOpen && (
+                                <div 
+                                    className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-20 ring-1 ring-black ring-opacity-5 animate-fade-in"
+                                    style={{ animationDuration: '150ms' }}
+                                >
+                                    <button onClick={handleArchive} className="flex items-center w-full px-4 py-2 text-sm text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                        <Icon name="archive" className="w-4 h-4 mr-3" />
+                                        Archive
+                                    </button>
+                                    <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
+                                    <button onClick={handleDelete} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                        <Icon name="trash-2" className="w-4 h-4 mr-3" />
+                                        Move to Trash
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

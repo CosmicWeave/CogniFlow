@@ -42,9 +42,10 @@ const TrashPage: React.FC<TrashPageProps> = ({
   };
 
   const handleDeleteSeries = (series: DeckSeries) => {
+    const deckCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
     openConfirmModal({
         title: 'Permanently Delete Series',
-        message: `Are you sure you want to permanently delete the series "${series.name}"? This action cannot be undone.`,
+        message: `Are you sure you want to permanently delete the series "${series.name}"? All ${deckCount} deck(s) inside it will also be permanently deleted. This action cannot be undone.`,
         onConfirm: () => onDeleteSeriesPermanently(series.id)
     });
   };
