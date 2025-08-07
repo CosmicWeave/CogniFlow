@@ -60,6 +60,13 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
   useEffect(() => {
     const isSpecialSession = isGeneralSession || sessionKeySuffix === '_cram' || sessionKeySuffix === '_flip';
     
+    // For regular sessions, if already initialized, don't reset the queue.
+    // This prevents the parent deck update (after a review) from wiping out
+    // the in-memory state of the session queue.
+    if (isSessionInitialized && !isSpecialSession) {
+      return;
+    }
+    
     if (isSpecialSession) {
         // For general, cram, or flip sessions, the deck is pre-configured by AppRouter.
         // We just need to load the items from it and reset state.
@@ -103,7 +110,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
       setDisplayIndex(0);
     }
     setIsSessionInitialized(true);
-  }, [deck, deck.type, sessionKeySuffix, isGeneralSession, sessionKey]);
+  }, [deck, deck.type, sessionKeySuffix, isGeneralSession, sessionKey, isSessionInitialized]);
 
 
   useEffect(() => {
@@ -178,15 +185,20 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     // Update the item in the queue to show mastery change before advancing
     setReviewQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
-
-    const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
-    await onItemReviewed(originalDeckId, updatedItem, seriesId);
-
-    // Delay advancing to see the change
-    setTimeout(() => {
-        advanceToNext();
-        setIsReviewing(false);
-    }, 800);
+    
+    try {
+      const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
+      await onItemReviewed(originalDeckId, updatedItem, seriesId);
+    } catch (error) {
+      console.error("Failed to save review:", error);
+      addToast("Failed to save review. Your progress for this card may not be saved.", "error");
+    } finally {
+        // Delay advancing to see the change
+        setTimeout(() => {
+            advanceToNext();
+            setIsReviewing(false);
+        }, 800);
+    }
   }, [displayedItem, isCurrent, isReviewing, hapticsEnabled, advanceToNext, deck.id, onItemReviewed, addToast, seriesId, currentIndex, sessionKeySuffix]);
   
   const handleIgnore = useCallback(async () => {
@@ -195,16 +207,20 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     setIsReviewing(true);
     const ignoredItem = { ...displayedItem, suspended: true };
     setReviewedItems(prev => [...prev, { item: ignoredItem, rating: null }]);
-    const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
-
-    await onItemReviewed(originalDeckId, ignoredItem, seriesId);
-
-    addToast("Card ignored for future sessions.", "info");
-
-    setTimeout(() => {
-        advanceToNext();
-        setIsReviewing(false);
-    }, 300);
+    
+    try {
+        const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
+        await onItemReviewed(originalDeckId, ignoredItem, seriesId);
+        addToast("Card ignored for future sessions.", "info");
+    } catch (error) {
+        console.error("Failed to ignore card:", error);
+        addToast("Failed to save ignored state. Please try again.", "error");
+    } finally {
+        setTimeout(() => {
+            advanceToNext();
+            setIsReviewing(false);
+        }, 300);
+    }
   }, [displayedItem, isCurrent, isReviewing, addToast, advanceToNext, deck.id, onItemReviewed, seriesId]);
 
   const handleNavigatePrevious = useCallback(() => {
@@ -327,13 +343,30 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                 Challenging Items
             </h4>
             <ul className="text-left text-sm space-y-2">
-                {mostDifficultItems.map(item => (
-                <li key={item.id} className="text-orange-700 dark:text-orange-300 border-l-2 border-orange-400 pl-3">
-                    <p className="font-semibold truncate">
-                    {'questionText' in item ? item.questionText : item.front}
-                    </p>
-                </li>
-                ))}
+                {mostDifficultItems.map(item => {
+                    const isQuestion = 'questionText' in item;
+                    const promptText = (isQuestion ? (item as Question).questionText : (item as Card).front).replace(/<[^>]+>/g, '').trim();
+                    
+                    let answerText: string;
+                    if (isQuestion) {
+                        const question = item as Question;
+                        const correctOption = question.options.find(opt => opt.id === question.correctAnswerId);
+                        answerText = (correctOption?.text ?? 'N/A').replace(/<[^>]+>/g, '').trim();
+                    } else {
+                        answerText = (item as Card).back.replace(/<[^>]+>/g, '').trim();
+                    }
+
+                    return (
+                        <li key={item.id} className="text-orange-700 dark:text-orange-300 border-l-2 border-orange-400 pl-3">
+                            <p className="font-semibold break-words">
+                                {promptText}
+                            </p>
+                            <p className="text-sm opacity-80 pl-2 break-words">
+                                <span className="font-semibold mr-1">Answer:</span> {answerText}
+                            </p>
+                        </li>
+                    );
+                })}
             </ul>
             </div>
         )}

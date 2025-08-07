@@ -7,7 +7,7 @@ import Link from './ui/Link';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import MasteryBar from './ui/MasteryBar';
 import Icon from './ui/Icon';
-import { useRouter } from '../../contexts/RouterContext';
+import { useRouter } from '../contexts/RouterContext';
 
 interface DeckListItemProps {
   deck: Deck;

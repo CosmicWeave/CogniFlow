@@ -13,7 +13,7 @@ interface FlashcardProps {
 const Flashcard: React.FC<FlashcardProps> = ({ card, isFlipped }) => {
   const { disableAnimations } = useSettings();
   const contentClasses = "text-2xl text-center text-gray-900 dark:text-gray-100 break-words prose dark:prose-invert max-w-none prose-img:mx-auto prose-img:max-h-48 prose-audio:mx-auto";
-  const effectiveMastery = getEffectiveMasteryLevel(card);
+  const mastery = getEffectiveMasteryLevel(card);
 
   if (disableAnimations) {
     return (
@@ -28,7 +28,7 @@ const Flashcard: React.FC<FlashcardProps> = ({ card, isFlipped }) => {
           </div>
           {isFlipped && (
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
-              <MasteryBar level={effectiveMastery} />
+              <MasteryBar level={mastery} />
             </div>
           )}
         </div>
@@ -67,7 +67,7 @@ const Flashcard: React.FC<FlashcardProps> = ({ card, isFlipped }) => {
               />
             </div>
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
-              <MasteryBar level={effectiveMastery} />
+              <MasteryBar level={mastery} />
             </div>
         </div>
       </div>

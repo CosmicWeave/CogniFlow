@@ -39,6 +39,8 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
     }
     return `${baseClasses} bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:border-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700/50`;
   };
+  
+  const mastery = getEffectiveMasteryLevel(question);
 
   return (
     <div className="bg-white/50 dark:bg-gray-800/50 rounded-lg p-6 w-full border border-gray-200 dark:border-gray-700">
@@ -84,7 +86,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
             <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{question.detailedExplanation}</p>
           </div>
            <div className="pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
-            <MasteryBar level={getEffectiveMasteryLevel(question)} />
+            <MasteryBar level={mastery} />
           </div>
         </div>
       )}

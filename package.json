@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build && touch dist/.nojekyll",
     "preview": "vite preview",
-    "deploy": "dotenv -e .env.local -- gh-pages -d dist"
+    "deployToken": "dotenv -e .env.local -- gh-pages -d dist",
+    "deploy": "gh-pages -d dist --ssh FuruholmAnton/CogniFlow"
   },
   "dependencies": {
     "canvas-confetti": "1.9.3",
