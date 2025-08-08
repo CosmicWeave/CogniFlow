@@ -1,5 +1,5 @@
 
-import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel } from '../types';
+import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
 export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[], folders: Folder[], deckSeries: DeckSeries[] } => {
@@ -7,13 +7,38 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
     if (!jsonString.trim()) throw new Error("File content is empty.");
     const data = JSON.parse(jsonString);
 
-    // New format: { version: 2|3, decks: [], folders: [], deckSeries?: [] }
+    // Handles modern backup format: { version: 2|3, decks: [], ... }
     if (typeof data === 'object' && data !== null && 'version' in data && Array.isArray(data.decks)) {
       if (data.version > 3) throw new Error(`Unsupported backup version: ${data.version}`);
       
       const decks = data.decks as Deck[];
-      const folders = (data.folders || []) as Folder[];
-      const deckSeries = (data.deckSeries || []) as DeckSeries[];
+      const folders = (data.folders || []) as Folder[]; // Handles V2 backups without folders
+      
+      // Transform older DeckSeries format (with `deckIds`) to the new format (with `levels`).
+      const deckSeries = (Array.isArray(data.deckSeries) ? data.deckSeries : [])
+        .filter((s: any) => s && typeof s.id === 'string' && typeof s.name === 'string')
+        .map((s: any) => {
+            // If the new 'levels' structure is already present and valid, use it.
+            if (Array.isArray(s.levels)) {
+                // Ensure sub-structure is also valid for robustness
+                s.levels.forEach((level: any) => {
+                    if (!Array.isArray(level.deckIds)) level.deckIds = [];
+                });
+                return s;
+            }
+            
+            // If the old 'deckIds' structure is present, transform it.
+            if (Array.isArray(s.deckIds)) {
+                const newSeries = { ...s };
+                // Create a single level to hold the flat list of deckIds.
+                newSeries.levels = [{ title: 'Decks', deckIds: newSeries.deckIds }];
+                delete newSeries.deckIds; // Remove the old property to match the new type.
+                return newSeries;
+            }
+        
+            // If neither is present, default to an empty levels array for robustness.
+            return { ...s, levels: [] };
+        }) as DeckSeries[];
 
       // Basic validation
       for (const deck of decks) {
@@ -26,26 +51,33 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
           throw new Error("Invalid folder structure in backup file.");
         }
       }
-       for (const series of deckSeries) {
-        if (typeof series.id !== 'string' || typeof series.name !== 'string' || !Array.isArray(series.levels)) {
-          throw new Error("Invalid deck series structure in backup file. Expected 'levels' array.");
-        }
-      }
+      
       return { decks, folders, deckSeries };
     }
 
-    // Old format: Deck[]
+    // Handles legacy V1 backup format: Deck[]
     if (Array.isArray(data)) {
-        // Check if it looks like a deck array
-        if (data.length > 0 && (!('id' in data[0] && 'name' in data[0] && 'type' in data[0]))) {
-            throw new Error("The file is not a valid CogniFlow backup file.");
-        }
-        for (const deck of data) {
+        // Transform older deck structures to be compatible.
+        const transformedDecks = (data as any[]).map(deck => {
+          // Infer `type` for very old backups that may not have it.
+          if (!deck.type) {
+            if (Array.isArray(deck.cards)) {
+              deck.type = DeckType.Flashcard;
+            } else if (Array.isArray(deck.questions)) {
+              deck.type = DeckType.Quiz;
+            }
+          }
+          return deck;
+        });
+
+        // Validate the transformed structure.
+        for (const deck of transformedDecks) {
             if (typeof deck.id !== 'string' || typeof deck.name !== 'string' || (deck.type !== DeckType.Flashcard && deck.type !== DeckType.Quiz)) {
-                throw new Error("Invalid backup file. One or more decks have incorrect structure.");
+                throw new Error("Invalid backup file. One or more decks have an incorrect structure.");
             }
         }
-        return { decks: data as Deck[], folders: [], deckSeries: [] };
+        // Return in the modern structure with empty folders/series.
+        return { decks: transformedDecks as Deck[], folders: [], deckSeries: [] };
     }
     
     throw new Error("The file is not a valid CogniFlow backup file.");

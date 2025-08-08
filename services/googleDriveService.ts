@@ -1,7 +1,7 @@
 
 import { API_KEY, CLIENT_ID, DISCOVERY_DOC, SCOPES } from './googleDriveConfig';
 import * as db from './db';
-import { Deck, Folder, GoogleDriveFile, DeckSeries } from '../types';
+import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType } from '../types';
 import { getStockholmFilenameTimestamp } from './time';
 
 declare var gapi: any;
@@ -259,14 +259,52 @@ export const downloadFile = async (fileId: string): Promise<RestoreData> => {
 
     const data = response.result;
     
+    // Handles modern backup format: { version: 2|3, decks: [], ... }
     if (typeof data === 'object' && data !== null && 'version' in data && Array.isArray(data.decks)) {
         const folders = (data.folders || []) as Folder[];
-        const deckSeries = (data.deckSeries || []) as DeckSeries[];
+        
+        // Transform older DeckSeries format (with `deckIds`) to the new format (with `levels`).
+        const deckSeries = (Array.isArray(data.deckSeries) ? data.deckSeries : [])
+            .filter((s: any) => s && typeof s.id === 'string' && typeof s.name === 'string')
+            .map((s: any) => {
+                // If the new 'levels' structure is already present and valid, use it.
+                if (Array.isArray(s.levels)) {
+                    // Ensure sub-structure is also valid for robustness
+                    s.levels.forEach((level: any) => {
+                        if (!Array.isArray(level.deckIds)) level.deckIds = [];
+                    });
+                    return s;
+                }
+                
+                // If the old 'deckIds' structure is present, transform it.
+                if (Array.isArray(s.deckIds)) {
+                    const newSeries = { ...s };
+                    // Create a single level to hold the flat list of deckIds.
+                    newSeries.levels = [{ title: 'Decks', deckIds: newSeries.deckIds }];
+                    delete newSeries.deckIds; // Remove the old property to match the new type.
+                    return newSeries;
+                }
+            
+                // If neither is present, default to an empty levels array for robustness.
+                return { ...s, levels: [] };
+            }) as DeckSeries[];
+
         return { decks: data.decks, folders, deckSeries };
     }
     
+    // Handles legacy V1 backup format: Deck[]
     if (Array.isArray(data)) {
-        return { decks: data, folders: [], deckSeries: [] };
+        const transformedDecks = (data as any[]).map(deck => {
+            if (!deck.type) {
+                if (Array.isArray(deck.cards)) {
+                    deck.type = DeckType.Flashcard;
+                } else if (Array.isArray(deck.questions)) {
+                    deck.type = DeckType.Quiz;
+                }
+            }
+            return deck;
+        });
+        return { decks: transformedDecks, folders: [], deckSeries: [] };
     }
 
     throw new Error("Backup file content is not a valid format.");
