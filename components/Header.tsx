@@ -5,7 +5,6 @@ import { useRouter } from '../contexts/RouterContext';
 import { Deck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
-import ThemeToggle from './ui/ThemeToggle';
 import Link from './ui/Link';
 
 interface HeaderProps {
@@ -26,7 +25,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activ
     if (pathname.startsWith('/decks/') && pathname.endsWith('/study')) {
         const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId');
         const backPath = activeDeckId ? `/decks/${activeDeckId}?${seriesId ? `seriesId=${seriesId}` : ''}` : (seriesId ? `/series/${seriesId}` : '/decks');
-        headerContent = <Button variant="ghost" onClick={() => navigate(backPath)} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" /><span className="truncate">{activeDeck?.name || 'Back'}</span></Button>;
+        headerContent = <Button variant="ghost" onClick={() => navigate(backPath)} className="flex items-center space-x-2 -ml-3 min-w-0"><Icon name="chevron-left" /><span className="truncate">{activeDeck?.name || 'Back'}</span></Button>;
     } else if (pathname.startsWith('/decks/')) {
         const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId');
         if (seriesId) {
@@ -36,7 +35,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activ
         }
     } else if (pathname.startsWith('/series/')) {
         headerContent = <Button variant="ghost" onClick={() => navigate('/series')} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" /><span>All Series</span></Button>;
-    } else if (pathname === '/study/general' || ['/settings', '/instructions/json', '/archive', '/trash', '/decks', '/series'].includes(pathname)) {
+    } else if (pathname === '/study/general' || ['/settings', '/instructions/json', '/archive', '/trash', '/decks', '/series', '/progress'].includes(pathname)) {
         headerContent = <Button variant="ghost" onClick={() => navigate('/')} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" />{logoTextSpan}</Button>;
     } else {
         // Home page
@@ -44,9 +43,9 @@ const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activ
     }
 
     return (
-        <header className="bg-white/80 dark:bg-gray-800/30 backdrop-blur-sm sticky top-0 z-20 border-b border-gray-200 dark:border-gray-700">
+        <header className="bg-surface/80 backdrop-blur-sm sticky top-0 z-20 border-b border-border">
             <nav className="container mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-                <div className="flex-1 min-w-0">{headerContent}</div>
+                <div className="flex items-center flex-1 min-w-0">{headerContent}</div>
                 <div className="flex items-center space-x-1">
                     <Button variant="ghost" onClick={onOpenCommandPalette} className="p-1 h-auto" aria-label="Open command palette">
                         <Icon name="search" />

@@ -66,19 +66,19 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({ isOpen, onClose, onAddItems
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative">
+      <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative">
         <form onSubmit={handleSubmit}>
-          <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex justify-between items-center p-4 border-b border-border">
             <h2 className="text-xl font-bold">Bulk Add via JSON</h2>
             <Button type="button" variant="ghost" onClick={onClose} className="p-1 h-auto"><Icon name="x" /></Button>
           </div>
 
           <div className="p-6">
               <div className="flex justify-between items-baseline mb-1">
-                <label htmlFor="json-content" className="block text-sm font-medium text-gray-600 dark:text-gray-300">
+                <label htmlFor="json-content" className="block text-sm font-medium text-text-muted">
                   Paste an array of {deckType === DeckType.Flashcard ? 'card' : 'question'} objects
                 </label>
-                <Link href="/instructions/json" onClick={onClose} className="text-sm text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-1">
+                <Link href="/instructions/json" onClick={onClose} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
                   <Icon name="help-circle" className="w-4 h-4"/>
                   Format Guide
                 </Link>
@@ -89,12 +89,12 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({ isOpen, onClose, onAddItems
                 onChange={(e) => setJsonContent(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={15}
-                className="w-full p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-sm"
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-sm"
                 placeholder={placeholder}
               />
           </div>
 
-          <div className="flex justify-end p-4 bg-gray-100/50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end p-4 bg-background/50 border-t border-border">
             <Button type="button" variant="secondary" onClick={onClose} className="mr-2">Cancel</Button>
             <Button type="submit" variant="primary">
               Add Items

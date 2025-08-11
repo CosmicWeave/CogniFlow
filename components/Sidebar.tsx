@@ -1,6 +1,6 @@
 
 
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import Icon from './ui/Icon';
 import Button from './ui/Button';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -18,24 +18,41 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSe
   const sidebarRef = useRef<HTMLDivElement>(null);
   useFocusTrap(sidebarRef, isOpen);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   return (
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 bg-black/60 z-30 transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black bg-opacity-60 z-50 transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Sidebar */}
+      {/* Sidebar Container: Handles positioning and animation */}
       <div
         ref={sidebarRef}
-        className={`fixed top-0 right-0 h-full w-full max-w-xs bg-white dark:bg-gray-800 shadow-xl z-40 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`fixed top-0 right-0 h-full w-full max-w-xs z-[51] transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sidebar-title"
       >
-        <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        {/* Sidebar Content: Handles visual styling (background, shadow) */}
+        <div className="bg-surface shadow-xl h-full flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b border-border">
             <h2 id="sidebar-title" className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300">
               Menu
             </h2>
@@ -44,33 +61,37 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSe
             </Button>
           </div>
           <nav className="flex-grow p-4 space-y-2">
-            <Link href="/" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+            <Link href="/" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
               <Icon name="laptop" className="w-6 h-6 mr-3" /> Home
             </Link>
-             <Link href="/series" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+             <Link href="/series" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
               <Icon name="layers" className="w-6 h-6 mr-3" /> Series
             </Link>
-            <Link href="/decks" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+            <Link href="/decks" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
               <Icon name="folder" className="w-6 h-6 mr-3" /> Decks
             </Link>
-             <Link href="/archive" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+             <Link href="/progress" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
+               <Icon name="trending-up" className="w-6 h-6 mr-3" />
+              Progress
+            </Link>
+             <Link href="/archive" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
                <Icon name="archive" className="w-6 h-6 mr-3" />
               Archive
             </Link>
-            <Link href="/trash" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+            <Link href="/trash" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
                <Icon name="trash-2" className="w-6 h-6 mr-3" />
               Trash
             </Link>
-             <Link href="/settings" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+             <Link href="/settings" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
                <Icon name="settings" className="w-6 h-6 mr-3" />
               Settings
             </Link>
-            <Link href="/instructions/json" onClick={onClose} className="flex items-center px-3 py-2 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-lg">
+            <Link href="/instructions/json" onClick={onClose} className="flex items-center px-3 py-2 text-text rounded-md hover:bg-border/30 text-lg">
                <Icon name="help-circle" className="w-6 h-6 mr-3" />
               JSON Guide
             </Link>
           </nav>
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+          <div className="p-4 border-t border-border space-y-2">
             <Button variant="primary" onClick={onCreateSeries} className="w-full">
               <Icon name="layers" className="w-5 h-5 mr-2" />
               Create New Series

@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export type IconName = 
@@ -7,7 +8,7 @@ export type IconName =
   | 'eye' | 'eye-off' | 'zap' | 'help-circle' | 'google'
   | 'folder' | 'folder-plus' | 'folder-edit'
   | 'list' | 'lock' | 'unlock' | 'archive' | 'unarchive' | 'arrow-down' | 'monitor' | 'more-vertical'
-  | 'search' | 'filter' | 'layers' | 'terminal';
+  | 'search' | 'filter' | 'layers' | 'terminal' | 'trending-up';
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName;
@@ -55,6 +56,7 @@ const ICONS: Record<IconName, React.ReactNode> = {
   'filter': <><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></>,
   'layers': <><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></>,
   'terminal': <><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></>,
+  'trending-up': <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></>,
 };
 
 const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6', ...props }) => {
@@ -69,7 +71,7 @@ const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6', ...props }) =>
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={className}
+      className={`${className} pointer-events-none`}
       {...props}
     >
       {ICONS[name]}

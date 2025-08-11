@@ -15,6 +15,14 @@ export const calculateNextReview = <T extends Reviewable>(item: T, rating: Revie
 
   let nextInterval: number;
   let nextEaseFactor = item.easeFactor;
+  let newLapses = item.lapses || 0;
+
+  if (rating === ReviewRating.Again) {
+    newLapses++;
+  } else if (rating > ReviewRating.Again) {
+    // Reset on any correct answer
+    newLapses = 0;
+  }
 
   // Adjust ease factor
   nextEaseFactor = item.easeFactor + EASE_FACTOR_MODIFIERS[rating];
@@ -65,6 +73,7 @@ export const calculateNextReview = <T extends Reviewable>(item: T, rating: Revie
     dueDate: nextDueDate.toISOString(),
     lastReviewed: today.toISOString(),
     masteryLevel: masteryLevel,
+    lapses: newLapses,
   };
 };
 
@@ -80,6 +89,7 @@ export const resetReviewable = <T extends Reviewable>(item: T): T => {
         suspended: false,
         masteryLevel: 0,
         lastReviewed: undefined,
+        lapses: 0,
     };
 };
 

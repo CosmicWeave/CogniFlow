@@ -1,17 +1,16 @@
 
+
 import { useCallback } from 'react';
-import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel } from '../types';
+import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel, ReviewRating, ReviewLog } from '../types';
 import * as db from '../services/db';
 import { useToast } from './useToast';
 import { useRouter } from '../contexts/RouterContext';
 import { createNatureSampleDeck, createSampleSeries } from '../services/sampleData';
 import { resetReviewable } from '../services/srs';
-import { AppState, AppAction } from './useAppReducer';
 import { RestoreData } from '../services/googleDriveService';
+import { useStore } from '../store/store';
 
 interface UseDataManagementProps {
-    state: AppState;
-    dispatch: React.Dispatch<AppAction>;
     sessionsToResume: Set<string>;
     setSessionsToResume: React.Dispatch<React.SetStateAction<Set<string>>>;
     seriesProgress: SeriesProgress;
@@ -23,8 +22,6 @@ interface UseDataManagementProps {
 }
 
 export const useDataManagement = ({
-    state,
-    dispatch,
     sessionsToResume,
     setSessionsToResume,
     seriesProgress,
@@ -36,6 +33,7 @@ export const useDataManagement = ({
 }: UseDataManagementProps) => {
     const { addToast } = useToast();
     const { navigate } = useRouter();
+    const dispatch = useStore(state => state.dispatch);
 
     const handleUpdateDeck = useCallback(async (deck: Deck, options?: { silent?: boolean; toastMessage?: string }) => {
         // Optimistic UI update
@@ -61,6 +59,14 @@ export const useDataManagement = ({
         }
     }, [addToast, dispatch]);
 
+    const updateLastOpened = useCallback(async (deckId: string) => {
+        const deck = useStore.getState().decks.find(d => d.id === deckId);
+        if (deck) {
+            const updatedDeck = { ...deck, lastOpened: new Date().toISOString() };
+            await handleUpdateDeck(updatedDeck, { silent: true });
+        }
+    }, [handleUpdateDeck]);
+
     const handleAddDecks = useCallback(async (decks: Deck[]) => {
         try {
             // Optimistic update
@@ -72,25 +78,20 @@ export const useDataManagement = ({
         }
     }, [addToast, dispatch]);
 
-    const updateLastOpened = useCallback(async (deckId: string) => {
-        const deck = state.decks.find(d => d.id === deckId);
-        if (deck) {
-            const updatedDeck = { ...deck, lastOpened: new Date().toISOString() };
-            await handleUpdateDeck(updatedDeck, { silent: true });
-        }
-    }, [state.decks, handleUpdateDeck]);
-
     const handleSessionEnd = useCallback(async (deckId: string, seriesId?: string) => {
-        const baseDeckId = deckId.replace('_flip', '');
-        
+        const sessionKey = `session_deck_${deckId}`;
+
         if (sessionsToResume.has(deckId)) {
             const newSessions = new Set(sessionsToResume);
             newSessions.delete(deckId);
             setSessionsToResume(newSessions);
         }
         
-        localStorage.removeItem(`session_deck_${baseDeckId}`);
-        localStorage.removeItem(`session_deck_${baseDeckId}_flip`);
+        try {
+            await db.deleteSessionState(sessionKey);
+        } catch (e) {
+            console.error(`Failed to clean up session state for ${sessionKey} from DB`, e);
+        }
         
         if (deckId === 'general-study-deck') setGeneralStudyDeck(null);
         
@@ -141,23 +142,25 @@ export const useDataManagement = ({
     }, [addToast, dispatch]);
 
     const handleDeleteDeck = useCallback(async (deckId: string) => {
-        const deck = state.decks.find(d => d.id === deckId);
+        const deck = useStore.getState().decks.find(d => d.id === deckId);
         if (!deck) return;
         const updatedDeck = { ...deck, deletedAt: new Date().toISOString(), archived: false };
         await handleUpdateDeck(updatedDeck, { toastMessage: `Moved "${deck.name}" to Trash.` });
-    }, [state.decks, handleUpdateDeck]);
+    }, [handleUpdateDeck]);
     
     const handleMoveDeck = useCallback(async (deckId: string, folderId: string | null) => {
-        const deck = state.decks.find(d => d.id === deckId);
-        const folder = state.folders.find(f => f.id === folderId);
+        const { decks, folders } = useStore.getState();
+        const deck = decks.find(d => d.id === deckId);
+        const folder = folders.find(f => f.id === folderId);
         if (!deck || deck.folderId === folderId) return;
         const updatedDeck = { ...deck, folderId: folderId };
         const folderName = folder ? `"${folder.name}"` : 'the ungrouped area';
         await handleUpdateDeck(updatedDeck, { toastMessage: `Moved "${deck.name}" to ${folderName}.` });
-    }, [state.decks, state.folders, handleUpdateDeck]);
+    }, [handleUpdateDeck]);
     
-    const handleItemReviewed = useCallback(async (deckId: string, reviewedItem: Reviewable, seriesId?: string) => {
-        const deck = state.decks.find(d => d.id === deckId);
+    const handleItemReviewed = useCallback(async (deckId: string, reviewedItem: Reviewable, rating: ReviewRating | null, seriesId?: string) => {
+        const { decks, deckSeries } = useStore.getState();
+        const deck = decks.find(d => d.id === deckId);
         if (!deck) return;
 
         let newDeck: Deck;
@@ -168,36 +171,40 @@ export const useDataManagement = ({
                 ...deck, 
                 questions: deck.questions.map(q => {
                     if (q.id === reviewedItem.id) {
-                        // Only update reviewable properties to prevent data corruption from virtual cards
-                        return {
-                            ...q,
-                            dueDate: reviewedItem.dueDate,
-                            interval: reviewedItem.interval,
-                            easeFactor: reviewedItem.easeFactor,
-                            suspended: reviewedItem.suspended,
-                            masteryLevel: reviewedItem.masteryLevel,
-                            lastReviewed: reviewedItem.lastReviewed,
-                        };
+                        return { ...q, ...reviewedItem };
                     }
                     return q;
                 }) 
             };
         }
         
-        // Perform the state update and DB write
         await handleUpdateDeck(newDeck, { silent: true });
 
-        // Check for series completion after the deck state is updated
+        try {
+            const reviewLog: ReviewLog = {
+                itemId: reviewedItem.id,
+                deckId: deckId,
+                seriesId: seriesId,
+                timestamp: new Date().toISOString(),
+                rating: rating,
+                newInterval: reviewedItem.interval,
+                easeFactor: reviewedItem.easeFactor,
+                masteryLevel: reviewedItem.masteryLevel || 0,
+            };
+            await db.addReviewLog(reviewLog);
+        } catch (e) {
+            console.error("Failed to log review:", e);
+        }
+        
         if (seriesId) {
-            const updatedDeckFromState = newDeck; // We can use the just-created newDeck object
+            const updatedDeckFromState = newDeck;
             const items = updatedDeckFromState.type === DeckType.Flashcard ? updatedDeckFromState.cards : updatedDeckFromState.questions;
             const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
             
-            const isAlreadyCompleted = (seriesProgress.get(seriesId) || new Set()).has(deckId);
-
-            if (!hasNewItems && !isAlreadyCompleted) {
-                // This is the first time the deck is completed. Mark it.
-                setSeriesProgress(prev => {
+            setSeriesProgress(prev => {
+                const isAlreadyCompleted = (prev.get(seriesId) || new Set()).has(deckId);
+                
+                if (!hasNewItems && !isAlreadyCompleted) {
                     const newProgress = new Map(prev);
                     const currentSeriesProgress = new Set(newProgress.get(seriesId) || []);
                     
@@ -206,7 +213,7 @@ export const useDataManagement = ({
 
                     try {
                         localStorage.setItem(`series-progress-${seriesId}`, JSON.stringify(Array.from(currentSeriesProgress)));
-                        const series = state.deckSeries.find(s => s.id === seriesId);
+                        const series = deckSeries.find(s => s.id === seriesId);
                         const flatDeckIds = series?.levels.flatMap(l => l.deckIds) || [];
                         const isLastDeckInSeries = flatDeckIds.indexOf(deckId) === flatDeckIds.length - 1;
                         
@@ -219,13 +226,14 @@ export const useDataManagement = ({
                         console.error("Could not save series progress", e);
                     }
                     return newProgress;
-                });
-            }
+                }
+                return prev;
+            });
         }
-    }, [state.decks, handleUpdateDeck, addToast, seriesProgress, setSeriesProgress, state.deckSeries]);
+    }, [handleUpdateDeck, addToast, setSeriesProgress]);
 
     const handleResetDeckProgress = useCallback(async (deckId: string) => {
-        const deckToReset = state.decks.find(d => d.id === deckId);
+        const deckToReset = useStore.getState().decks.find(d => d.id === deckId);
         if (!deckToReset) return;
         let updatedDeck: Deck;
         if (deckToReset.type === DeckType.Flashcard) {
@@ -234,7 +242,7 @@ export const useDataManagement = ({
             updatedDeck = { ...deckToReset, questions: deckToReset.questions.map(q => resetReviewable(q)) };
         }
         await handleUpdateDeck(updatedDeck, { toastMessage: `Progress for deck "${updatedDeck.name}" has been reset.`});
-    }, [state.decks, handleUpdateDeck]);
+    }, [handleUpdateDeck]);
       
     const handleExportData = async () => {
         try {
@@ -247,8 +255,10 @@ export const useDataManagement = ({
     };
       
     const handleStartGeneralStudy = useCallback(() => {
+        const { decks, deckSeries } = useStore.getState();
+
         const unlockedSeriesDeckIds = new Set<string>();
-        state.deckSeries.forEach(series => {
+        deckSeries.forEach(series => {
             if (!series.archived && !series.deletedAt) {
                 const completedCount = seriesProgress.get(series.id)?.size || 0;
                 let deckCount = 0;
@@ -264,14 +274,14 @@ export const useDataManagement = ({
         });
         
         const seriesDeckIds = new Set<string>();
-        state.deckSeries.forEach(series => {
+        deckSeries.forEach(series => {
             series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
         });
 
         const today = new Date();
         today.setHours(23, 59, 59, 999);
     
-        const allDueQuestions = state.decks
+        const allDueQuestions = decks
           .filter((deck): deck is QuizDeck => {
             if (deck.type !== DeckType.Quiz || deck.archived || deck.deletedAt) return false;
             if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
@@ -289,10 +299,11 @@ export const useDataManagement = ({
         };
         setGeneralStudyDeck(virtualDeck);
         navigate('/study/general');
-    }, [state.decks, state.deckSeries, seriesProgress, navigate, setGeneralStudyDeck]);
+    }, [seriesProgress, navigate, setGeneralStudyDeck]);
 
     const handleStartSeriesStudy = useCallback(async (seriesId: string) => {
-        const series = state.deckSeries.find(s => s.id === seriesId);
+        const { decks, deckSeries } = useStore.getState();
+        const series = deckSeries.find(s => s.id === seriesId);
         if (!series) return;
 
         const unlockedSeriesDeckIds = new Set<string>();
@@ -310,7 +321,7 @@ export const useDataManagement = ({
         const today = new Date();
         today.setHours(23, 59, 59, 999);
     
-        const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => state.decks.find(d => d.id === id)).filter((d): d is QuizDeck => !!(d && d.type === DeckType.Quiz));
+        const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter((d): d is QuizDeck => !!(d && d.type === DeckType.Quiz));
         
         const allDueQuestions = seriesDecks
           .filter(deck => unlockedSeriesDeckIds.has(deck.id))
@@ -326,7 +337,7 @@ export const useDataManagement = ({
         };
         setGeneralStudyDeck(virtualDeck);
         navigate(`/study/general?seriesId=${seriesId}`);
-    }, [state.decks, state.deckSeries, seriesProgress, navigate, setGeneralStudyDeck]);
+    }, [seriesProgress, navigate, setGeneralStudyDeck]);
 
     const handleSaveFolder = useCallback(async (folderData: {id: string | null, name: string}) => {
         if (folderData.id) {
@@ -344,7 +355,8 @@ export const useDataManagement = ({
     }, [addToast, dispatch, setFolderToEdit]);
     
     const handleDeleteFolder = useCallback(async (folderId: string) => {
-        const folder = state.folders.find(f => f.id === folderId);
+        const { folders, decks } = useStore.getState();
+        const folder = folders.find(f => f.id === folderId);
         if (!folder) return;
         openConfirmModal({
             title: 'Delete Folder',
@@ -352,12 +364,12 @@ export const useDataManagement = ({
             onConfirm: async () => {
                 dispatch({ type: 'DELETE_FOLDER', payload: folderId });
                 addToast(`Folder "${folder.name}" deleted.`, 'success');
-                const decksToUpdate = state.decks.filter(d => d.folderId === folderId).map(d => ({ ...d, folderId: null as (string | null) }));
+                const decksToUpdate = decks.filter(d => d.folderId === folderId).map(d => ({ ...d, folderId: null as (string | null) }));
                 if (decksToUpdate.length > 0) await db.bulkUpdateDecks(decksToUpdate);
                 await db.deleteFolder(folderId);
             }
         })
-    }, [state.decks, state.folders, addToast, dispatch, openConfirmModal]);
+    }, [addToast, dispatch, openConfirmModal]);
     
     const handleUpdateSeries = useCallback(async (series: DeckSeries, options?: { silent?: boolean; toastMessage?: string }) => {
         // Optimistic UI update
@@ -385,7 +397,7 @@ export const useDataManagement = ({
 
     const handleSaveSeries = useCallback(async (data: { id: string | null, name: string, description: string }) => {
         if (data.id) {
-            const seriesToUpdate = state.deckSeries.find(s => s.id === data.id);
+            const seriesToUpdate = useStore.getState().deckSeries.find(s => s.id === data.id);
             if(seriesToUpdate) {
                 const updatedSeries = { ...seriesToUpdate, name: data.name, description: data.description };
                 await handleUpdateSeries(updatedSeries);
@@ -397,14 +409,15 @@ export const useDataManagement = ({
             await db.addDeckSeries([newSeries]);
         }
         setSeriesToEdit(null);
-    }, [addToast, state.deckSeries, handleUpdateSeries, dispatch, setSeriesToEdit]);
+    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit]);
     
     const handleDeleteSeries = useCallback(async (seriesId: string) => {
-        const series = state.deckSeries.find(s => s.id === seriesId);
+        const { deckSeries, decks } = useStore.getState();
+        const series = deckSeries.find(s => s.id === seriesId);
         if (!series) return;
         
         const deckIdsToDelete = series.levels.flatMap(level => level.deckIds);
-        const decksToTrash = state.decks
+        const decksToTrash = decks
             .filter(d => deckIdsToDelete.includes(d.id))
             .map(d => ({ ...d, deletedAt: new Date().toISOString(), archived: false }));
         
@@ -425,16 +438,16 @@ export const useDataManagement = ({
             console.error("Failed to move series and its decks to trash:", error);
             addToast("Error moving series to trash.", "error");
         }
-    }, [state.deckSeries, state.decks, dispatch, addToast]);
+    }, [dispatch, addToast]);
     
     const handleAddDeckToSeries = useCallback(async (seriesId: string, newDeck: QuizDeck) => {
-        const series = state.deckSeries.find(s => s.id === seriesId);
+        const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
         if (!series) return;
         await handleAddDecks([newDeck]);
         const newLevel: SeriesLevel = { title: newDeck.name, deckIds: [newDeck.id] };
         const updatedSeries = { ...series, levels: [...series.levels, newLevel] };
         await handleUpdateSeries(updatedSeries);
-    }, [state.deckSeries, handleAddDecks, handleUpdateSeries]);
+    }, [handleAddDecks, handleUpdateSeries]);
     
     const handleAddSeriesWithDecks = useCallback(async (series: DeckSeries, decks: Deck[]) => {
         try {
@@ -453,22 +466,22 @@ export const useDataManagement = ({
     }, [dispatch, addToast]);
 
     const handleRestoreDeck = useCallback(async (deckId: string) => {
-        const deck = state.decks.find(d => d.id === deckId);
+        const deck = useStore.getState().decks.find(d => d.id === deckId);
         if (!deck) return;
         const { deletedAt, ...restoredDeck } = deck;
         await handleUpdateDeck(restoredDeck, { toastMessage: `Restored deck "${restoredDeck.name}".` });
-    }, [state.decks, handleUpdateDeck]);
+    }, [handleUpdateDeck]);
 
     const handleRestoreSeries = useCallback(async (seriesId: string) => {
-        const series = state.deckSeries.find(s => s.id === seriesId);
+        const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
         if (!series) return;
         const { deletedAt, ...restoredSeries } = series;
         await handleUpdateSeries(restoredSeries, { toastMessage: `Restored series "${restoredSeries.name}".` });
-    }, [state.deckSeries, handleUpdateSeries]);
+    }, [handleUpdateSeries]);
 
     const handleDeleteDeckPermanently = useCallback(async (deckId: string) => {
         try {
-            const deckName = state.decks.find(d => d.id === deckId)?.name;
+            const deckName = useStore.getState().decks.find(d => d.id === deckId)?.name;
             dispatch({ type: 'DELETE_DECK', payload: deckId });
             addToast(`Deck "${deckName || 'Deck'}" permanently deleted.`, 'success');
             await db.deleteDeck(deckId);
@@ -476,10 +489,10 @@ export const useDataManagement = ({
             console.error("Failed to permanently delete deck:", error);
             addToast("There was an error permanently deleting the deck.", "error");
         }
-    }, [state.decks, dispatch, addToast]);
+    }, [dispatch, addToast]);
 
     const handleDeleteSeriesPermanently = useCallback(async (seriesId: string) => {
-        const series = state.deckSeries.find(s => s.id === seriesId);
+        const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
         if (!series) return;
     
         const deckIdsToDelete = series.levels.flatMap(level => level.deckIds);
@@ -502,7 +515,7 @@ export const useDataManagement = ({
             console.error("Failed to permanently delete series and its decks:", error);
             addToast("There was an error permanently deleting the series.", "error");
         }
-    }, [state.deckSeries, dispatch, addToast]);
+    }, [dispatch, addToast]);
     
     const handleFactoryReset = useCallback(() => {
     openConfirmModal({
@@ -547,55 +560,60 @@ export const useDataManagement = ({
     }, [addToast, openConfirmModal]);
 
     const reconcileSeriesProgress = useCallback(() => {
-        const { deckSeries, decks } = state;
+        const { deckSeries, decks } = useStore.getState();
         if (!deckSeries.length || !decks.length) return;
 
         let anySeriesUpdated = false;
-        const newProgressMap = new Map(seriesProgress);
+        
+        setSeriesProgress(prevProgress => {
+            const newProgressMap = new Map(prevProgress);
 
-        for (const series of deckSeries) {
-            if (series.archived || series.deletedAt) continue;
+            for (const series of deckSeries) {
+                if (series.archived || series.deletedAt) continue;
 
-            const completedInSeries = new Set(newProgressMap.get(series.id) || []);
-            let seriesWasUpdated = false;
-            
-            const flatDeckIds = series.levels.flatMap(l => l.deckIds);
-            for (const deckId of flatDeckIds) {
-                if (completedInSeries.has(deckId)) {
-                    continue; // Already complete, skip check
+                const completedInSeries = new Set(newProgressMap.get(series.id) || []);
+                let seriesWasUpdated = false;
+                
+                const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+                for (const deckId of flatDeckIds) {
+                    if (completedInSeries.has(deckId)) {
+                        continue; // Already complete, skip check
+                    }
+
+                    const deck = decks.find(d => d.id === deckId);
+                    if (!deck) continue;
+
+                    const items = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
+                    const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
+
+                    if (!hasNewItems) {
+                        completedInSeries.add(deckId);
+                        seriesWasUpdated = true;
+                    }
                 }
-
-                const deck = decks.find(d => d.id === deckId);
-                if (!deck) continue;
-
-                const items = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
-                const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
-
-                if (!hasNewItems) {
-                    completedInSeries.add(deckId);
-                    seriesWasUpdated = true;
+                
+                if (seriesWasUpdated) {
+                    newProgressMap.set(series.id, completedInSeries);
+                    anySeriesUpdated = true;
                 }
             }
-            
-            if (seriesWasUpdated) {
-                newProgressMap.set(series.id, completedInSeries);
-                anySeriesUpdated = true;
-            }
-        }
 
-        if (anySeriesUpdated) {
-            setSeriesProgress(newProgressMap);
-            // Persist all changes to localStorage
-            newProgressMap.forEach((completedIds, seriesId) => {
-                try {
-                    localStorage.setItem(`series-progress-${seriesId}`, JSON.stringify(Array.from(completedIds)));
-                } catch (e) {
-                    console.error(`Could not save reconciled series progress for ${seriesId}`, e);
-                }
-            });
-            addToast("Unlocked decks based on your progress.", "info");
-        }
-    }, [state.decks, state.deckSeries, seriesProgress, setSeriesProgress, addToast]);
+            if (anySeriesUpdated) {
+                 // Persist all changes to localStorage
+                newProgressMap.forEach((completedIds, seriesId) => {
+                    try {
+                        localStorage.setItem(`series-progress-${seriesId}`, JSON.stringify(Array.from(completedIds)));
+                    } catch (e) {
+                        console.error(`Could not save reconciled series progress for ${seriesId}`, e);
+                    }
+                });
+                addToast("Unlocked decks based on your progress.", "info");
+                return newProgressMap;
+            }
+            return prevProgress;
+        });
+
+    }, [setSeriesProgress, addToast]);
 
 
     return {

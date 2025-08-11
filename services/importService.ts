@@ -202,6 +202,7 @@ export const createCardsFromImport = (importedCards: ImportedCard[]): Card[] => 
         interval: 0,
         easeFactor: INITIAL_EASE_FACTOR,
         masteryLevel: 0,
+        lapses: 0,
     }));
 };
 
@@ -216,5 +217,6 @@ export const createQuestionsFromImport = (importedQuestions: ImportedQuestion[])
         interval: 0,
         easeFactor: INITIAL_EASE_FACTOR,
         masteryLevel: 0,
+        lapses: 0,
     }));
 };

@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress } from './types';
 import * as db from './services/db';
@@ -19,19 +18,18 @@ import { onDataChange } from './services/syncService';
 import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
 import { parseAnkiPkg } from './services/ankiImportService';
 
-import { useAppReducer } from './hooks/useAppReducer';
 import { useDataManagement } from './hooks/useDataManagement';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import Header from './components/Header';
 import AppRouter from './components/AppRouter';
-import TrashPage from './components/TrashPage';
 import CommandPalette from './components/CommandPalette';
 import { IconName } from './components/ui/Icon';
+import { useStore } from './store/store';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
 const App: React.FC = () => {
-  const [state, dispatch] = useAppReducer();
+  const { dispatch, ...state } = useStore();
   const [isImportModalOpen, setImportModalOpen] = useState(false);
   const [isRestoreModalOpen, setRestoreModalOpen] = useState(false);
   const [isResetProgressModalOpen, setResetProgressModalOpen] = useState(false);
@@ -61,32 +59,58 @@ const App: React.FC = () => {
 
   const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd, REFRESH_THRESHOLD } = usePullToRefresh();
   
-  const openModal = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
+  const openModal = useCallback((setter: React.Dispatch<React.SetStateAction<boolean>>) => {
       modalTriggerRef.current = document.activeElement as HTMLElement;
       setter(true);
-  };
+  }, []);
   
-  const openConfirmModal = (props: Omit<typeof confirmModalProps, 'onConfirm'> & { onConfirm: () => void }) => {
-    setConfirmModalProps(props);
-    openModal(setConfirmModalOpen);
-  };
-  
-  const closeModal = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
+  const closeModal = useCallback((setter: React.Dispatch<React.SetStateAction<boolean>>) => {
       setter(false);
-      modalTriggerRef.current?.focus();
-  };
+      // Delay focus shift to allow modal closing animation to complete.
+      // The sidebar animation is 300ms.
+      setTimeout(() => {
+        modalTriggerRef.current?.focus();
+      }, 300);
+  }, []);
 
+  // Create stable open/close functions for each modal
+  const openMenu = useCallback(() => openModal(setIsMenuOpen), [openModal]);
+  const closeMenu = useCallback(() => closeModal(setIsMenuOpen), [closeModal]);
+  const openCommandPalette = useCallback(() => openModal(setIsCommandPaletteOpen), [openModal]);
+  const closeCommandPalette = useCallback(() => closeModal(setIsCommandPaletteOpen), [closeModal]);
+  const openImportModal = useCallback(() => openModal(setImportModalOpen), [openModal]);
+  const closeImportModal = useCallback(() => closeModal(setImportModalOpen), [closeModal]);
+  const openRestoreModal = useCallback(() => openModal(setRestoreModalOpen), [openModal]);
+  const closeRestoreModal = useCallback(() => closeModal(setRestoreModalOpen), [closeModal]);
+  const openResetProgressModal = useCallback(() => openModal(setResetProgressModalOpen), [openModal]);
+  const closeResetProgressModal = useCallback(() => closeModal(setResetProgressModalOpen), [closeModal]);
+  const openConfirm = useCallback(() => openModal(setConfirmModalOpen), [openModal]);
+  const closeConfirm = useCallback(() => closeModal(setConfirmModalOpen), [closeModal]);
+
+  const openConfirmModal = useCallback((props: Omit<typeof confirmModalProps, 'onConfirm'> & { onConfirm: () => void }) => {
+    setConfirmModalProps(props);
+    openConfirm();
+  }, [openConfirm]);
+  
+  const openFolderEditor = useCallback((folder: Folder | 'new' | null) => {
+    modalTriggerRef.current = document.activeElement as HTMLElement;
+    setFolderToEdit(folder);
+  }, []);
+
+  const openSeriesEditor = useCallback((series: DeckSeries | 'new' | null) => {
+    modalTriggerRef.current = document.activeElement as HTMLElement;
+    setSeriesToEdit(series);
+  }, []);
+  
   const dataHandlers = useDataManagement({
-    state,
-    dispatch,
     sessionsToResume,
     setSessionsToResume,
     seriesProgress,
     setSeriesProgress,
     setGeneralStudyDeck,
     openConfirmModal,
-    setFolderToEdit: (folder) => { openModal(setFolderToEdit as any); setFolderToEdit(folder); },
-    setSeriesToEdit: (series) => { openModal(setSeriesToEdit as any); setSeriesToEdit(series); }
+    setFolderToEdit: openFolderEditor,
+    setSeriesToEdit: openSeriesEditor,
   });
   const { handleAddDecks } = dataHandlers;
 
@@ -94,22 +118,18 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        // Prevent browser's default find-in-page
         e.preventDefault();
-        
-        // Don't open if an input is focused or another modal is open
         const target = e.target as HTMLElement;
         const isInputFocused = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
         const isAnyModalOpen = isImportModalOpen || isRestoreModalOpen || isResetProgressModalOpen || isConfirmModalOpen || folderToEdit !== null || seriesToEdit !== null;
-        
         if (!isInputFocused && !isAnyModalOpen) {
-          openModal(setIsCommandPaletteOpen);
+          openCommandPalette();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isImportModalOpen, isRestoreModalOpen, isResetProgressModalOpen, isConfirmModalOpen, folderToEdit, seriesToEdit]);
+  }, [isImportModalOpen, isRestoreModalOpen, isResetProgressModalOpen, isConfirmModalOpen, folderToEdit, seriesToEdit, openCommandPalette]);
 
 
   const loadData = useCallback(async (isInitialLoad = false) => {
@@ -156,7 +176,7 @@ const App: React.FC = () => {
     }
   }, [state.decks, state.deckSeries, dispatch, addToast]);
 
-  const loadLocalSettings = useCallback(() => {
+  const loadLocalSettings = useCallback(async () => {
     try {
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
@@ -164,13 +184,13 @@ const App: React.FC = () => {
         });
       }
       
-      const resumable = new Set<string>();
+      const sessionKeys = await db.getAllSessionKeys();
+      const resumable = new Set(sessionKeys.map(key => key.replace('session_deck_', '')));
       let loadedProgress: SeriesProgress = new Map();
 
       for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (!key) continue;
-          if (key.startsWith('session_deck_')) resumable.add(key.replace('session_deck_', ''));
           if (key.startsWith('series-progress-')) {
               const seriesId = key.replace('series-progress-', '');
               try {
@@ -191,15 +211,20 @@ const App: React.FC = () => {
         if (savedOpenFolders) setOpenFolderIds(new Set(JSON.parse(savedOpenFolders)));
       } catch (e) { console.error("Could not load open folder state", e); }
     } catch (error) {
-        console.error("Failed to load local settings from localStorage. This can happen if cookies/site data are disabled.", error);
+        console.error("Failed to load local settings from storage. This can happen if cookies/site data are disabled.", error);
         addToast("Could not load saved settings.", "error");
     }
-  }, [addToast, setOpenFolderIds, setSeriesProgress, setSessionsToResume, setSortPreference]);
-
-  useEffect(() => { loadData(true); loadLocalSettings(); }, [loadData, loadLocalSettings]);
+  }, [addToast]);
 
   useEffect(() => {
-    // Run cleanup and reconciliation logic only once after the initial data load is complete.
+    const loadInitialData = async () => {
+      await loadData(true);
+      await loadLocalSettings();
+    };
+    loadInitialData();
+  }, [loadData, loadLocalSettings]);
+
+  useEffect(() => {
     if (!state.isLoading && !initialLoadComplete.current) {
         cleanupTrash();
         dataHandlers.reconcileSeriesProgress();
@@ -215,7 +240,6 @@ const App: React.FC = () => {
   }, [loadData, loadLocalSettings]);
 
   useEffect(() => {
-    // File Handling API for "Open with..." PWA feature
     const launchQueue = (window as any).launchQueue;
     if (!launchQueue) return;
 
@@ -225,7 +249,6 @@ const App: React.FC = () => {
       const fileHandle = launchParams.files[0];
       try {
         const file = await fileHandle.getFile();
-
         if (file.name.toLowerCase().endsWith('.apkg')) {
           addToast(`Importing ${file.name}...`, 'info');
           const buffer = await file.arrayBuffer();
@@ -273,12 +296,10 @@ const App: React.FC = () => {
             if (deckIndex > -1) {
                 const completedInSeries = seriesProgress.get(series.id)?.size || 0;
                 const isLocked = deckIndex > completedInSeries;
-                // Return new object with lock status
                 return { ...baseDeck, locked: isLocked };
             }
         }
     }
-    // Return base deck if not in a series context
     return baseDeck;
   }, [path, state.decks, state.deckSeries, seriesProgress]);
 
@@ -290,27 +311,21 @@ const App: React.FC = () => {
   }, [path, state.deckSeries]);
 
   const commandPaletteActions = useMemo(() => {
-    const openCreateSeriesModal = () => {
-      modalTriggerRef.current = document.activeElement as HTMLElement;
-      setSeriesToEdit('new');
-    };
     const goToSettingSection = (sectionId: string) => {
       navigate('/settings');
-      // Use a timeout to allow the page to render before scrolling
       setTimeout(() => {
         document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
     };
     return [
-      { id: 'new-deck', label: 'New / Import Deck', icon: 'plus' as IconName, action: () => openModal(setImportModalOpen) },
-      { id: 'new-series', label: 'Create New Series', icon: 'layers' as IconName, action: openCreateSeriesModal },
+      { id: 'new-deck', label: 'New / Import Deck', icon: 'plus' as IconName, action: openImportModal },
+      { id: 'new-series', label: 'Create New Series', icon: 'layers' as IconName, action: () => openSeriesEditor('new') },
       { id: 'go-decks', label: 'Go to All Decks', icon: 'folder' as IconName, action: () => navigate('/decks') },
       { id: 'go-series', label: 'Go to All Series', icon: 'layers' as IconName, action: () => navigate('/series') },
       { id: 'go-archive', label: 'Go to Archive', icon: 'archive' as IconName, action: () => navigate('/archive') },
       { id: 'go-trash', label: 'Go to Trash', icon: 'trash-2' as IconName, action: () => navigate('/trash') },
       { id: 'go-settings', label: 'Go to Settings', icon: 'settings' as IconName, action: () => navigate('/settings') },
       
-      // Settings Actions
       { id: 'go-appearance-settings', label: 'Go to Appearance Settings', icon: 'sun' as IconName, action: () => goToSettingSection('settings-appearance'), searchableOnly: true, keywords: ['theme', 'dark', 'light', 'animation', 'haptics'] },
       { id: 'go-local-backup', label: 'Go to Local Backup', icon: 'download' as IconName, action: () => goToSettingSection('settings-local-backup'), searchableOnly: true, keywords: ['export', 'import', 'json', 'file', 'download', 'data'] },
       { id: 'go-cloud-backup', label: 'Go to Cloud Backup', icon: 'upload-cloud' as IconName, action: () => goToSettingSection('google-drive-backup'), searchableOnly: true, keywords: ['google', 'drive', 'sync', 'data'] },
@@ -318,17 +333,15 @@ const App: React.FC = () => {
       { id: 'go-reset-progress', label: 'Go to Reset Progress', icon: 'refresh-ccw' as IconName, action: () => goToSettingSection('settings-reset-progress'), searchableOnly: true, keywords: ['srs', 'spaced repetition', 'start over', 'danger'] },
       { id: 'go-factory-reset', label: 'Go to Factory Reset', icon: 'trash-2' as IconName, action: () => goToSettingSection('settings-factory-reset'), searchableOnly: true, keywords: ['delete all', 'wipe', 'clean', 'erase', 'danger'] },
     ];
-  }, [navigate]);
+  }, [navigate, openImportModal, openSeriesEditor]);
 
 
   if (state.isLoading) {
     return <div className="min-h-screen flex items-center justify-center"><h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300"><Spinner size="lg" />Loading CogniFlow...</h1></div>;
   }
 
-  const mainContentClass = `flex-grow transition-transform duration-300 ease-in-out ${isMenuOpen ? '-translate-x-16 sm:-translate-x-20' : ''}`;
-
   return (
-    <div className="min-h-screen text-gray-900 dark:text-gray-100 flex flex-col overflow-x-hidden"
+    <div className="min-h-screen text-text flex flex-col overflow-x-hidden"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -340,24 +353,19 @@ const App: React.FC = () => {
       />
       <Sidebar
         isOpen={isMenuOpen}
-        onClose={() => closeModal(setIsMenuOpen)}
-        onImport={() => { openModal(setImportModalOpen); setIsMenuOpen(false); }}
-        onCreateSeries={() => {
-          setIsMenuOpen(false);
-          modalTriggerRef.current = document.activeElement as HTMLElement;
-          setSeriesToEdit('new');
-        }}
-        onInstall={installPrompt ? () => { handleInstall(); closeModal(setIsMenuOpen); } : null}
+        onClose={closeMenu}
+        onImport={() => { openImportModal(); closeMenu(); }}
+        onCreateSeries={() => { closeMenu(); openSeriesEditor('new'); }}
+        onInstall={installPrompt ? () => { handleInstall(); closeMenu(); } : null}
       />
       <div className="flex-grow flex flex-col">
         <Header 
           activeDeck={activeDeck} 
-          onOpenMenu={() => openModal(setIsMenuOpen)}
-          onOpenCommandPalette={() => openModal(setIsCommandPaletteOpen)}
+          onOpenMenu={openMenu}
+          onOpenCommandPalette={openCommandPalette}
         />
-        <main className={`${mainContentClass} container mx-auto px-4 sm:px-6 lg:px-8 py-8`}>
+        <main className="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <AppRouter
-            state={state}
             sessionsToResume={sessionsToResume}
             sortPreference={sortPreference}
             setSortPreference={setSortPreference}
@@ -369,19 +377,12 @@ const App: React.FC = () => {
             generalStudyDeck={generalStudyDeck}
             activeDeck={activeDeck}
             activeSeries={activeSeries}
-            openModal={openModal}
             setImportModalOpen={setImportModalOpen}
             setRestoreModalOpen={setRestoreModalOpen}
             setResetProgressModalOpen={setResetProgressModalOpen}
-            openFolderModal={(folder) => {
-              modalTriggerRef.current = document.activeElement as HTMLElement;
-              setFolderToEdit(folder);
-            }}
+            openFolderModal={openFolderEditor}
             openConfirmModal={openConfirmModal}
-            openCreateSeriesModal={() => {
-                modalTriggerRef.current = document.activeElement as HTMLElement;
-                setSeriesToEdit('new');
-            }}
+            openCreateSeriesModal={() => openSeriesEditor('new')}
             {...dataHandlers}
           />
         </main>
@@ -389,15 +390,13 @@ const App: React.FC = () => {
       <OfflineIndicator />
       <CommandPalette
         isOpen={isCommandPaletteOpen}
-        onClose={() => closeModal(setIsCommandPaletteOpen)}
-        decks={state.decks}
-        series={state.deckSeries}
+        onClose={closeCommandPalette}
         actions={commandPaletteActions}
       />
-      {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={() => closeModal(setImportModalOpen)} onAddDecks={dataHandlers.handleAddDecks} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
-      {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={() => closeModal(setRestoreModalOpen)} onRestore={dataHandlers.handleRestoreData} />}
-      {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={() => closeModal(setResetProgressModalOpen)} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}
-      {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={() => closeModal(setConfirmModalOpen)} {...confirmModalProps} />}
+      {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={closeImportModal} onAddDecks={dataHandlers.handleAddDecks} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
+      {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={closeRestoreModal} onRestore={dataHandlers.handleRestoreData} />}
+      {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={closeResetProgressModal} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}
+      {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={closeConfirm} {...confirmModalProps} />}
       {folderToEdit !== null && <FolderModal folder={folderToEdit === 'new' ? null : folderToEdit} onClose={() => setFolderToEdit(null)} onSave={dataHandlers.handleSaveFolder} />}
       {seriesToEdit !== null && <EditSeriesModal series={seriesToEdit === 'new' ? null : seriesToEdit} onClose={() => setSeriesToEdit(null)} onSave={dataHandlers.handleSaveSeries} />}
     </div>

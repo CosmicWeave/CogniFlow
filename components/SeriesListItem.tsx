@@ -1,5 +1,6 @@
 
 
+
 import React from 'react';
 import { DeckSeries } from '../types';
 import Link from './ui/Link';
@@ -23,17 +24,17 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
     return (
         <Link 
             href={`/series/${series.id}`}
-            className="block bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 border border-transparent hover:border-blue-400 dark:hover:border-blue-400"
+            className="block bg-surface rounded-lg shadow-md hover:shadow-lg transition-all duration-200 border border-transparent hover:border-primary"
         >
              <div className="p-4">
                 <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0 mr-4">
                         <div className="flex items-center mb-1">
                             <Icon name="layers" className="w-5 h-5 mr-2 text-purple-500 dark:text-purple-400" />
-                            <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 break-words">{series.name}</h3>
+                            <h3 className="text-xl font-bold text-text break-words">{series.name}</h3>
                         </div>
                         {series.description && (
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">{series.description}</p>
+                            <p className="text-sm text-text-muted mt-1 truncate">{series.description}</p>
                         )}
                     </div>
                     {isCompleted && (
@@ -47,8 +48,8 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
                     <div className="mt-3 space-y-3">
                         <div>
                             <div className="flex justify-between items-center text-sm mb-1">
-                                <span className="font-medium text-gray-600 dark:text-gray-300">Completion</span>
-                                <span className="font-semibold text-gray-500 dark:text-gray-400">{completedCount} / {totalCount}</span>
+                                <span className="font-medium text-text-muted">Completion</span>
+                                <span className="font-semibold text-text-muted">{completedCount} / {totalCount}</span>
                             </div>
                             <ProgressBar current={completedCount} total={totalCount} />
                         </div>
@@ -57,7 +58,7 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
                         </div>
                     </div>
                 )}
-                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700/50 flex justify-end">
+                <div className="mt-4 pt-4 border-t border-border/50 flex justify-end">
                      <Button 
                         variant="secondary"
                         size="sm"

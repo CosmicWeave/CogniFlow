@@ -1,4 +1,3 @@
-
 import { API_KEY, CLIENT_ID, DISCOVERY_DOC, SCOPES } from './googleDriveConfig';
 import * as db from './db';
 import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType } from '../types';
@@ -30,9 +29,13 @@ const handleTokenResponse = async (tokenResponse: any) => {
     if (tokenResponse.error) {
       // This can happen if silent sign-in finds no session or the user closes the pop-up.
       // It's not an error to be thrown, just a notification that sign-in did not complete.
+      // If silent sign-in fails, we remove the flag to prevent repeated pop-ups on load.
+      localStorage.removeItem('gdrive-previously-signed-in');
       notifyAuthSubscribers(false);
       return;
     }
+    // On successful sign-in, set the flag.
+    localStorage.setItem('gdrive-previously-signed-in', 'true');
     // Explicitly set the access token for the GAPI client.
     // This is the crucial step to ensure all subsequent gapi.client requests are authenticated.
     gapi.client.setToken({ access_token: tokenResponse.access_token });
@@ -143,16 +146,22 @@ export const requestManualSignIn = () => {
  */
 export const attemptSilentSignIn = () => {
     if (!tokenClient) return;
-    // An empty prompt attempts to get a token without user interaction.
-    tokenClient.requestAccessToken({ prompt: '' });
+    // Using 'none' ensures that no UI is shown to the user.
+    // An error is returned if the user is not signed in or has not granted consent.
+    tokenClient.requestAccessToken({ prompt: 'none' });
 };
 
 export const signOut = () => {
   const token = gapi.client.getToken();
+  // Always clear local state regardless of Google's response
+  gapi.client.setToken(null);
+  localStorage.removeItem('gdrive-previously-signed-in');
+  notifyAuthSubscribers(false);
+  
   if (token !== null) {
     google.accounts.oauth2.revoke(token.access_token, () => {
-      gapi.client.setToken('');
-      notifyAuthSubscribers(false);
+      // Callback can be empty or log success
+      console.log('Google token revoked.');
     });
   }
 };

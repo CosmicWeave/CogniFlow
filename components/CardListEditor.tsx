@@ -84,21 +84,21 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
     handleCloseEditModal();
   };
 
-  const handleUnignoreCard = (cardId: string) => {
+  const handleUnsuspendCard = (cardId: string) => {
     onCardsChange(cards.map(c => c.id === cardId ? { ...c, suspended: false } : c));
   };
 
   return (
     <div>
-      <div className="border-b border-gray-200 dark:border-gray-700">
+      <div className="border-b border-border">
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="w-full flex justify-between items-center text-left p-6"
           aria-expanded={isOpen}
           aria-controls="card-list-content"
         >
-          <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200">Cards</h3>
-          <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-gray-500`}/>
+          <h3 className="text-xl font-semibold text-text">Cards</h3>
+          <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
         </button>
       </div>
 
@@ -110,14 +110,14 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
                 {cards.map((card) => {
                     const { text: dueDateText, isDue } = getDueDateInfo(card.dueDate);
                     return (
-                      <li key={card.id} className={`p-4 rounded-lg flex items-start justify-between transition-all ${card.suspended ? 'bg-yellow-50 dark:bg-yellow-900/20 opacity-70' : 'bg-gray-50 dark:bg-gray-900/30'}`}>
+                      <li key={card.id} className={`p-4 rounded-lg flex items-start justify-between transition-all ${card.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'}`}>
                         <div className="flex-1 min-w-0 mr-4">
-                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
+                          <p className="text-sm font-medium text-text truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
+                          <p className="text-sm text-text-muted truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
                            <div className="mt-3 space-y-2">
                                 <MasteryBar level={getEffectiveMasteryLevel(card)} />
-                                <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                                    <span className={`font-semibold ${isDue ? 'text-blue-500 dark:text-blue-400' : ''}`}>
+                                <div className="flex items-center gap-4 text-xs text-text-muted">
+                                    <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
                                         <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
                                     </span>
                                 </div>
@@ -125,7 +125,7 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
                         </div>
                         <div className="flex-shrink-0 flex items-center gap-2">
                           {card.suspended ? (
-                            <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnignoreCard(card.id)} title="Re-enable this card">
+                            <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnsuspendCard(card.id)} title="Unsuspend this card">
                                 <Icon name="eye" className="w-4 h-4" />
                             </Button>
                           ) : (
@@ -133,7 +133,7 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
                               <Icon name="edit" className="w-4 h-4" />
                             </Button>
                           )}
-                          <Button variant="ghost" className="p-2 h-auto text-gray-500 dark:text-gray-400 hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
+                          <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
                             <Icon name="trash-2" className="w-4 h-4" />
                           </Button>
                         </div>
@@ -142,10 +142,10 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
                 })}
               </ul>
             ) : (
-              <p className="text-gray-400 dark:text-gray-500 text-center py-4">This deck has no cards.</p>
+              <p className="text-text-muted text-center py-4">This deck has no cards.</p>
             )}
           </div>
-          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-2">
+          <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
               <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
                   <Icon name="plus" className="w-5 h-5 mr-2"/>
                   Add New Card

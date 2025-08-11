@@ -34,11 +34,11 @@ class ErrorBoundary extends Component<Props, State> {
       // You can render any custom fallback UI
       return (
         <div className="min-h-screen flex items-center justify-center p-4">
-            <div className="text-center bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full">
+            <div className="text-center bg-surface p-8 rounded-lg shadow-xl max-w-md w-full">
                 <h1 className="text-3xl font-bold text-red-600 dark:text-red-500 mb-4">Oops! Something went wrong.</h1>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">The application encountered an unexpected error. Please try reloading the page to continue.</p>
+                <p className="text-text-muted mb-6">The application encountered an unexpected error. Please try reloading the page to continue.</p>
                 {this.state.error && (
-                    <pre className="bg-gray-100 dark:bg-gray-900 text-left text-xs text-red-500 dark:text-red-400 p-4 rounded-md overflow-x-auto mb-6">
+                    <pre className="bg-background text-left text-xs text-red-500 dark:text-red-400 p-4 rounded-md overflow-x-auto mb-6">
                         <code>{this.state.error.toString()}</code>
                     </pre>
                 )}

@@ -13,11 +13,11 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ label, checked, onChange, d
   return (
     <div className="flex items-center justify-between">
       <span className="flex flex-col">
-        <label htmlFor={id} className="font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+        <label htmlFor={id} className="font-medium text-text cursor-pointer">
           {label}
         </label>
         {description && (
-          <span id={`${id}-description`} className="text-sm text-gray-500 dark:text-gray-400">
+          <span id={`${id}-description`} className="text-sm text-text-muted">
             {description}
           </span>
         )}
@@ -30,8 +30,8 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ label, checked, onChange, d
         aria-describedby={description ? `${id}-description` : undefined}
         onClick={() => onChange(!checked)}
         className={`${
-          checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
-        } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800`}
+          checked ? 'bg-primary' : 'bg-border'
+        } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:focus:ring-offset-surface`}
       >
         <span
           aria-hidden="true"

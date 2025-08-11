@@ -1,7 +1,8 @@
+
 import JSZip from 'jszip';
 import initSqlJs, { type SqlJsStatic } from 'sql.js';
-import { Deck, Card, DeckType, FlashcardDeck } from '../types';
-import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR } from '../constants';
+import { Deck, Card, DeckType, FlashcardDeck } from '/types.ts';
+import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR } from '/constants.ts';
 
 let SQL: SqlJsStatic | null = null;
 
@@ -140,7 +141,7 @@ async function parseAnkiPkg(fileBuffer: ArrayBuffer): Promise<Deck[]> {
         row[0] as number, { mid: row[1] as number, flds: (row[2] as string).split('\x1f') }
     ]));
     
-    const cardsRes = db.exec("SELECT id, nid, did, ord, due, ivl, factor, type FROM cards");
+    const cardsRes = db.exec("SELECT id, nid, did, ord, due, ivl, factor, type, lapses FROM cards");
     const allCards = cardsRes[0].values;
     const importedDecks = new Map<string, FlashcardDeck>();
 
@@ -154,7 +155,7 @@ async function parseAnkiPkg(fileBuffer: ArrayBuffer): Promise<Deck[]> {
     }
 
     for (const cardData of allCards) {
-        const [cardId, noteId, deckId, ord, due, interval, easeFactor, cardType] = cardData as [number, number, number, number, number, number, number, number];
+        const [cardId, noteId, deckId, ord, due, interval, easeFactor, cardType, lapses] = cardData as [number, number, number, number, number, number, number, number, number];
         const note = notes.get(noteId);
         if (!note) continue;
         const model = models[note.mid];
@@ -192,6 +193,7 @@ async function parseAnkiPkg(fileBuffer: ArrayBuffer): Promise<Deck[]> {
             easeFactor: easeFactor ? Math.max(easeFactor / 1000, MIN_EASE_FACTOR) : INITIAL_EASE_FACTOR,
             masteryLevel,
             lastReviewed: lastReviewedDate?.toISOString(),
+            lapses: lapses || 0,
         });
     }
     

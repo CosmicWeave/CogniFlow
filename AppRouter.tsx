@@ -27,10 +27,7 @@ export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
-    if (!Array.isArray(items)) {
-        return 0;
-    }
+    const items = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };
 
@@ -90,7 +87,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     } = useMemo(() => {
         const seriesDeckIds = new Set<string>();
         deckSeries.forEach(series => {
-          (series.levels || []).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
+          series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
         });
 
         const standaloneDecks = decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
@@ -99,7 +96,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         deckSeries.forEach(series => {
             if (!series.archived && !series.deletedAt) {
                 const completedCount = props.seriesProgress.get(series.id)?.size || 0;
-                const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
+                const flatDeckIds = series.levels.flatMap(l => l.deckIds);
                 flatDeckIds.forEach((deckId, index) => {
                     if (index <= completedCount) {
                         unlockedSeriesDeckIds.add(deckId);
@@ -168,7 +165,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     
     if (pathname.startsWith('/decks/') && pathname.endsWith('/cram')) {
         if (activeDeck) {
-            const items = (activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck).questions)
+            const items = (activeDeck.type === DeckType.Flashcard ? activeDeck.cards : (activeDeck as QuizDeck).questions)
                 .filter(item => !item.suspended); // Cramming reviews all non-ignored items
             
             const shuffledItems = [...items].sort(() => Math.random() - 0.5);
@@ -196,7 +193,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     if (pathname.startsWith('/decks/') && pathname.endsWith('/study-flip')) {
         if (activeDeck && activeDeck.type === DeckType.Quiz) {
             const quizDeck = activeDeck as QuizDeck;
-            const cards: Card[] = (quizDeck.questions || [])
+            const cards: Card[] = quizDeck.questions
                 .filter(q => !q.suspended)
                 .map(q => {
                     const correctAnswer = q.options.find(o => o.id === q.correctAnswerId);

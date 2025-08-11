@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import ToggleSwitch from './ui/ToggleSwitch';
@@ -8,6 +8,7 @@ import * as gdrive from '../services/googleDriveService';
 import Spinner from './ui/Spinner';
 import { GoogleDriveFile } from '../types';
 import { formatUTCToStockholmString } from '../services/time';
+import { useTheme, themes } from '../contexts/ThemeContext';
 
 interface SettingsPageProps {
   onExport: () => void;
@@ -17,9 +18,48 @@ interface SettingsPageProps {
   onFactoryReset: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRestoreData, onResetProgress, onFactoryReset }) => {
+const AccordionSection: React.FC<{
+    id: string;
+    title: string;
+    children: React.ReactNode;
+    openSection: string | null;
+    setOpenSection: (id: string | null) => void;
+    isDanger?: boolean;
+}> = ({ id, title, children, openSection, setOpenSection, isDanger = false }) => {
+    const isOpen = openSection === id;
+    
+    const headerClasses = isDanger 
+        ? "bg-red-900/20 text-red-400 dark:text-red-300" 
+        : "bg-surface";
+    const borderClasses = isDanger 
+        ? "border border-red-500/30"
+        : "border border-border";
+
+    return (
+        <div className={`rounded-lg shadow-md overflow-hidden ${borderClasses}`}>
+            <button
+                onClick={() => setOpenSection(isOpen ? null : id)}
+                className={`w-full flex justify-between items-center text-left p-6 ${headerClasses}`}
+                aria-expanded={isOpen}
+            >
+                <h3 className="text-xl font-semibold">{title}</h3>
+                <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-text-muted`} />
+            </button>
+            {isOpen && (
+                <div className={`p-6 pt-0 animate-fade-in ${isDanger ? 'bg-red-900/10' : 'bg-surface'}`}>
+                    <div className="pt-6 border-t border-border">{children}</div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRestoreData, onResetProgress, onFactoryReset }) => {
   const { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled } = useSettings();
   const { addToast } = useToast();
+  const { themeId, setThemeById } = useTheme();
+  const [openSection, setOpenSection] = useState<string | null>('data');
 
   const [gdriveState, setGdriveState] = useState({
     isReady: false,
@@ -50,7 +90,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
       try {
         await gdrive.initGoogleDriveService();
         if (isMounted) {
-          gdrive.attemptSilentSignIn();
+          const previouslySignedIn = localStorage.getItem('gdrive-previously-signed-in') === 'true';
+          if (previouslySignedIn) {
+            gdrive.attemptSilentSignIn();
+          }
         }
       } catch (error) {
         if (isMounted) {
@@ -177,188 +220,202 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRest
         window.location.reload();
     }, 1500);
   };
+  
+  // Memoize to prevent re-render on every state change
+  const isSystemDark = useMemo(() => window.matchMedia('(prefers-color-scheme: dark)').matches, []);
+
 
   return (
     <>
-    <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
-      <h2 className="text-3xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 pb-4">Settings</h2>
+    <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
+      <h2 className="text-3xl font-bold mb-6 text-text border-b border-border pb-4">Settings</h2>
       
-      <div id="settings-appearance" className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Appearance</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
-          Customize the look and feel of the application.
-        </p>
-        <div className="space-y-4">
-          <ToggleSwitch
-            label="Disable card flip animation"
-            checked={disableAnimations}
-            onChange={setDisableAnimations}
-            description="For a faster, no-frills study session."
-          />
-          <ToggleSwitch
-            label="Haptic feedback"
-            checked={hapticsEnabled}
-            onChange={setHapticsEnabled}
-            description="Provides physical feedback on supported devices."
-          />
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Data Management</h3>
-        
-        <div className="space-y-6">
-            {/* Local Backup */}
-            <div id="settings-local-backup">
-              <h4 className="font-semibold text-gray-700 dark:text-gray-300">Local File Backup</h4>
-              <p className="text-gray-600 dark:text-gray-400 my-2">
-                Backup all your decks and study progress to a JSON file on your device.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Button onClick={onExport} variant="secondary" className="w-full sm:w-auto">
-                  <Icon name="download" className="w-5 h-5 mr-2" />
-                  Backup to File
-                </Button>
-                <Button onClick={onRestore} variant="secondary" className="w-full sm:w-auto">
-                  <Icon name="upload-cloud" className="w-5 h-5 mr-2" />
-                  Restore from File
-                </Button>
-              </div>
-            </div>
-
-            <div id="google-drive-backup" className="border-t border-gray-200 dark:border-gray-700/60 pt-6">
-              <h4 className="font-semibold text-gray-700 dark:text-gray-300">Google Drive Cloud Backup</h4>
-              <p className="text-gray-600 dark:text-gray-400 my-2">
-                Securely back up and restore your data to a private folder in your Google Drive.
-              </p>
-              {!gdriveState.isReady ? (
-                <div className="h-10 flex items-center">
-                  <Spinner size="sm" /> 
-                  <span className="ml-2 text-gray-500 dark:text-gray-400">Initializing Google Drive...</span>
+      <AccordionSection id="data" title="Data Management" openSection={openSection} setOpenSection={setOpenSection}>
+          <div className="space-y-6">
+              {/* Local Backup */}
+              <div id="settings-local-backup">
+                <h4 className="font-semibold text-text">Local File Backup</h4>
+                <p className="text-text-muted my-2">
+                  Backup all your decks and study progress to a JSON file on your device.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button onClick={onExport} variant="secondary" className="w-full sm:w-auto">
+                    <Icon name="download" className="w-5 h-5 mr-2" />
+                    Backup to File
+                  </Button>
+                  <Button onClick={onRestore} variant="secondary" className="w-full sm:w-auto">
+                    <Icon name="upload-cloud" className="w-5 h-5 mr-2" />
+                    Restore from File
+                  </Button>
                 </div>
-              ) : gdriveState.isSignedIn ? (
-                <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                        <img src={gdriveState.user?.picture} alt="User profile" className="w-10 h-10 rounded-full"/>
-                        <div>
-                            <p className="font-semibold text-gray-800 dark:text-gray-200">{gdriveState.user?.name}</p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">{gdriveState.user?.email}</p>
-                        </div>
-                        <Button variant="ghost" onClick={handleDriveSignOut} className="ml-auto">Sign Out</Button>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <Button onClick={handleDriveBackup} variant="secondary" className="w-full sm:w-auto" disabled={gdriveState.isProcessing}>
-                        <Icon name="upload-cloud" className="w-5 h-5 mr-2" />
-                        {gdriveState.isProcessing ? 'Backing up...' : 'Backup to Drive Now'}
+              </div>
+
+              <div id="google-drive-backup" className="border-t border-border pt-6">
+                <h4 className="font-semibold text-text">Google Drive Cloud Backup</h4>
+                <p className="text-text-muted my-2">
+                  Securely back up and restore your data to a private folder in your Google Drive.
+                </p>
+                {!gdriveState.isReady ? (
+                  <div className="h-10 flex items-center">
+                    <Spinner size="sm" /> 
+                    <span className="ml-2 text-text-muted">Initializing Google Drive...</span>
+                  </div>
+                ) : gdriveState.isSignedIn ? (
+                  <div className="space-y-4">
+                      <div className="flex items-center gap-4">
+                          <img src={gdriveState.user?.picture} alt="User profile" className="w-10 h-10 rounded-full"/>
+                          <div>
+                              <p className="font-semibold text-text">{gdriveState.user?.name}</p>
+                              <p className="text-sm text-text-muted">{gdriveState.user?.email}</p>
+                          </div>
+                          <Button variant="ghost" onClick={handleDriveSignOut} className="ml-auto">Sign Out</Button>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-4">
+                        <Button onClick={handleDriveBackup} variant="secondary" className="w-full sm:w-auto" disabled={gdriveState.isProcessing}>
+                          <Icon name="upload-cloud" className="w-5 h-5 mr-2" />
+                          {gdriveState.isProcessing ? 'Backing up...' : 'Backup to Drive Now'}
+                        </Button>
+                      </div>
+
+                      <div className="pt-4 mt-4 border-t border-border/50">
+                          <h5 className="font-semibold text-text mb-2">Available Backups</h5>
+                          {isListingFiles ? (
+                              <div className="flex items-center text-text-muted">
+                                  <Spinner size="sm" />
+                                  <span className="ml-2">Loading backups...</span>
+                              </div>
+                          ) : driveFiles.length > 0 ? (
+                             <ul className="space-y-2 max-h-60 overflow-y-auto border border-border rounded-md p-2">
+                              {driveFiles.map(file => (
+                                  <li key={file.id} className="flex justify-between items-center p-2 rounded-md hover:bg-border/20">
+                                      <div className="min-w-0 mr-2">
+                                          <p className="font-medium text-sm text-text truncate" title={file.name}>{file.name}</p>
+                                          <p className="text-xs text-text-muted">
+                                              {formatUTCToStockholmString(file.modifiedTime)}
+                                          </p>
+                                      </div>
+                                      <div className="flex-shrink-0 flex items-center gap-1">
+                                          <Button variant="ghost" size="sm" onClick={() => handleConfirmRestore(file)} disabled={gdriveState.isProcessing}>Restore</Button>
+                                          <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDriveDelete(file)} disabled={gdriveState.isProcessing}>Delete</Button>
+                                      </div>
+                                  </li>
+                              ))}
+                              </ul>
+                          ) : (
+                              <p className="text-text-muted text-sm">No backups found in your Google Drive.</p>
+                          )}
+                          <Button variant="ghost" size="sm" className="mt-2" onClick={fetchDriveFiles} disabled={isListingFiles}>
+                            <Icon name="refresh-ccw" className={`w-4 h-4 mr-2 ${isListingFiles ? 'animate-spin' : ''}`} /> Refresh list
+                          </Button>
+                      </div>
+                  </div>
+                ) : (
+                   <div className="flex flex-col sm:flex-row gap-4">
+                      <Button onClick={handleManualSignIn} variant="secondary" disabled={gdriveState.isProcessing}>
+                        <Icon name="google" className="w-5 h-5 mr-2" />
+                        {gdriveState.isProcessing ? 'Signing in...' : 'Sign in with Google'}
                       </Button>
                     </div>
-
-                    <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700/50">
-                        <h5 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Available Backups</h5>
-                        {isListingFiles ? (
-                            <div className="flex items-center text-gray-500 dark:text-gray-400">
-                                <Spinner size="sm" />
-                                <span className="ml-2">Loading backups...</span>
-                            </div>
-                        ) : driveFiles.length > 0 ? (
-                           <ul className="space-y-2 max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
-                            {driveFiles.map(file => (
-                                <li key={file.id} className="flex justify-between items-center p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                                    <div className="min-w-0 mr-2">
-                                        <p className="font-medium text-sm text-gray-800 dark:text-gray-200 truncate" title={file.name}>{file.name}</p>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {formatUTCToStockholmString(file.modifiedTime)}
-                                        </p>
-                                    </div>
-                                    <div className="flex-shrink-0 flex items-center gap-1">
-                                        <Button size="sm" variant="secondary" onClick={() => handleConfirmRestore(file)} disabled={gdriveState.isProcessing}>
-                                            <Icon name="download" className="w-4 h-4 mr-1"/> Restore
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() => handleDriveDelete(file)}
-                                            disabled={gdriveState.isProcessing}
-                                            aria-label={`Delete backup file ${file.name}`}
-                                            className="text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 p-2 h-auto"
-                                            title="Delete backup"
-                                        >
-                                            <Icon name="trash-2" className="w-4 h-4" />
-                                        </Button>
-                                    </div>
-                                </li>
-                            ))}
-                           </ul>
-                        ) : (
-                            <p className="text-sm text-gray-500 dark:text-gray-400">No backups found in Google Drive.</p>
-                        )}
-                    </div>
+                )}
+              </div>
+          </div>
+      </AccordionSection>
+      
+      <AccordionSection id="cache-management" title="Cache Management" openSection={openSection} setOpenSection={setOpenSection}>
+           <div id="settings-cache-management" className="space-y-4">
+                <p className="text-text-muted">
+                    If you are experiencing issues, clearing the cache can help. "Hard Reload" clears all caches and reloads the application, which is the strongest reset option.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4">
+                    <Button variant="secondary" onClick={() => handleClearCache('APP')}>
+                      <Icon name="broom" className="w-5 h-5 mr-2" /> Clear App Cache
+                    </Button>
+                    <Button variant="secondary" onClick={() => handleClearCache('CDN')}>
+                      <Icon name="broom" className="w-5 h-5 mr-2" /> Clear CDN Cache
+                    </Button>
+                     <Button variant="danger" onClick={handleHardReload}>
+                      <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> Hard Reload
+                    </Button>
                 </div>
-              ) : (
-                <Button onClick={handleManualSignIn} variant="secondary" disabled={gdriveState.isProcessing}>
-                  <Icon name="google" className="w-5 h-5 mr-2" />
-                  {gdriveState.isProcessing ? 'Signing in...' : 'Sign in with Google'}
-                </Button>
-              )}
             </div>
-        </div>
-      </div>
+      </AccordionSection>
+      
+      <AccordionSection id="appearance" title="Appearance" openSection={openSection} setOpenSection={setOpenSection}>
+          <div className="border-b border-border pb-6 mb-6">
+              <h4 className="font-semibold text-text">Theme</h4>
+               <p className="text-text-muted my-2">
+                  Select a theme to change the application's color scheme. The "System" theme will automatically match your device's light or dark mode.
+               </p>
+               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
+                  {themes.map(theme => {
+                      const isSelected = themeId === theme.id;
+                      const palette = theme.id === 'system' && isSystemDark ? theme.paletteDark! : theme.palette;
+                      
+                      return (
+                          <button
+                              key={theme.id}
+                              onClick={() => setThemeById(theme.id)}
+                              className={`relative p-4 rounded-lg border-2 transition-all duration-200 ${
+                                  isSelected ? 'border-primary ring-2 ring-primary/50' : 'border-border hover:border-primary/70'
+                              }`}
+                               aria-pressed={isSelected}
+                               aria-label={`Select ${theme.name} theme`}
+                          >
+                              {isSelected && <Icon name="check-circle" className="absolute top-2 right-2 w-5 h-5 text-primary" />}
+                              <div className="flex items-center justify-center gap-1.5 mb-2">
+                                  <div className="w-5 h-5 rounded-full border border-border/50" style={{ backgroundColor: `rgb(${palette.background})` }}></div>
+                                  <div className="w-5 h-5 rounded-full border border-border/50" style={{ backgroundColor: `rgb(${palette.surface})` }}></div>
+                                  <div className="w-5 h-5 rounded-full" style={{ backgroundColor: `rgb(${palette.primary})` }}></div>
+                                  <div className="w-5 h-5 rounded-full" style={{ backgroundColor: `rgb(${palette.text})` }}></div>
+                              </div>
+                              <p className="text-center text-sm font-medium text-text">{theme.name}</p>
+                          </button>
+                      );
+                  })}
+               </div>
+          </div>
+          <div className="space-y-4">
+            <ToggleSwitch
+              label="Disable card flip animation"
+              checked={disableAnimations}
+              onChange={setDisableAnimations}
+              description="For a faster, no-frills study session."
+            />
+            <ToggleSwitch
+              label="Haptic feedback"
+              checked={hapticsEnabled}
+              onChange={setHapticsEnabled}
+              description="Provides physical feedback on supported devices."
+            />
+          </div>
+      </AccordionSection>
 
-      <div id="settings-cache-management" className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Cache Management</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
-          If you are experiencing issues, clearing the cache can help. You must reload the page afterwards for changes to take full effect.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-4">
-          <Button onClick={() => handleClearCache('APP')} variant="secondary" className="w-full sm:w-auto">
-            <Icon name="broom" className="w-5 h-5 mr-2" />
-            Clear App Cache
-          </Button>
-          <Button onClick={() => handleClearCache('CDN')} variant="secondary" className="w-full sm-w-auto">
-            <Icon name="broom" className="w-5 h-5 mr-2" />
-            Clear CDN & Library Cache
-          </Button>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-            "App Cache" stores the main interface files. "CDN Cache" stores third-party libraries like React.
-        </p>
-         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700/50">
-            <Button variant="danger" onClick={handleHardReload} className="w-full">
-                <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
-                Hard Reload (Clear All Caches & Refresh)
-            </Button>
-            <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-                Use this if you are still experiencing issues after clearing individual caches. This is the most forceful option.
-            </p>
-        </div>
-      </div>
+      <AccordionSection id="danger-zone" title="Danger Zone" openSection={openSection} setOpenSection={setOpenSection} isDanger>
+          <div className="space-y-6">
+              <div id="settings-reset-progress">
+                  <h4 className="font-semibold text-red-300">Reset Deck Progress</h4>
+                  <p className="text-red-300/80 my-2">
+                    This will reset the spaced repetition data (due dates, intervals) for a single deck. The cards themselves will not be deleted.
+                  </p>
+                  <Button onClick={onResetProgress} variant="danger">
+                    <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
+                    Reset Deck Progress...
+                  </Button>
+              </div>
 
-      <div id="settings-danger-zone" className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
-        <h3 className="text-xl font-semibold text-red-400 dark:text-red-300 mb-2">Danger Zone</h3>
-        <div id="settings-reset-progress">
-            <h4 className="font-semibold text-red-400 dark:text-red-300">Reset Deck Progress</h4>
-            <p className="text-sm text-red-500/80 dark:text-red-300/80 mt-2 mb-4">
-            This will reset the spaced repetition data (due dates, intervals) for all items in a selected deck, without deleting the cards themselves.
-            </p>
-            <Button variant="danger" onClick={onResetProgress}>
-            <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
-            Reset Deck Progress...
-            </Button>
-        </div>
-        <div id="settings-factory-reset" className="mt-6 pt-6 border-t border-red-500/30">
-            <h4 className="font-semibold text-red-400 dark:text-red-300">Factory Reset</h4>
-            <p className="text-sm text-red-500/80 dark:text-red-300/80 mt-2 mb-4">
-                This will permanently delete all local data, including all decks, folders, series, and settings. The application will be restored to its original state.
-            </p>
-            <Button variant="danger" onClick={onFactoryReset}>
-                <Icon name="trash-2" className="w-5 h-5 mr-2" />
-                Reset Application Data
-            </Button>
-        </div>
-      </div>
+              <div id="settings-factory-reset" className="border-t border-red-500/30 pt-6">
+                 <h4 className="font-semibold text-red-300">Factory Reset</h4>
+                  <p className="text-red-300/80 my-2">
+                    This will permanently delete ALL of your data, including decks, folders, series, and settings. This action cannot be undone.
+                  </p>
+                  <Button onClick={onFactoryReset} variant="danger">
+                    <Icon name="trash-2" className="w-5 h-5 mr-2" />
+                    Factory Reset...
+                  </Button>
+              </div>
+          </div>
+      </AccordionSection>
     </div>
     </>
   );
 };
-
-export default SettingsPage;

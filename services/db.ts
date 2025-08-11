@@ -1,13 +1,15 @@
 
-import { Deck, Folder, DeckSeries } from '../types';
+import { Deck, Folder, DeckSeries, ReviewLog } from '../types';
 import { broadcastDataChange } from './syncService';
 import { getStockholmFilenameTimestamp } from './time';
 
 const DB_NAME = 'CogniFlowDB';
-const DB_VERSION = 3; // Incremented version
+const DB_VERSION = 5; // Incremented version
 const DECK_STORE_NAME = 'decks';
 const FOLDER_STORE_NAME = 'folders';
 const SERIES_STORE_NAME = 'deckSeries';
+const SESSION_STORE_NAME = 'sessions';
+const REVIEW_STORE_NAME = 'reviews';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -52,6 +54,13 @@ function initDB(): Promise<IDBDatabase> {
       }
       if (event.oldVersion < 3 && !dbInstance.objectStoreNames.contains(SERIES_STORE_NAME)) {
         dbInstance.createObjectStore(SERIES_STORE_NAME, { keyPath: 'id' });
+      }
+      if (event.oldVersion < 4 && !dbInstance.objectStoreNames.contains(SESSION_STORE_NAME)) {
+        dbInstance.createObjectStore(SESSION_STORE_NAME, { keyPath: 'id' });
+      }
+      if (event.oldVersion < 5 && !dbInstance.objectStoreNames.contains(REVIEW_STORE_NAME)) {
+        const reviewStore = dbInstance.createObjectStore(REVIEW_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
       }
     };
   });
@@ -272,6 +281,85 @@ export async function deleteDeckSeries(seriesId: string): Promise<void> {
         const store = transaction.objectStore(SERIES_STORE_NAME);
         store.delete(seriesId);
     });
+}
+
+// Session State Functions
+export async function saveSessionState(id: string, state: { reviewQueue: any[], currentIndex: number }): Promise<void> {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(SESSION_STORE_NAME, 'readwrite');
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject('Transaction error saving session state');
+    
+    const store = transaction.objectStore(SESSION_STORE_NAME);
+    store.put({ id, ...state });
+  });
+}
+
+export async function getSessionState(id: string): Promise<{ reviewQueue: any[], currentIndex: number } | null> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SESSION_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(SESSION_STORE_NAME);
+    const request = store.get(id);
+
+    request.onerror = () => reject('Error fetching session state');
+    request.onsuccess = () => resolve(request.result || null);
+  });
+}
+
+export async function deleteSessionState(id: string): Promise<void> {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(SESSION_STORE_NAME, 'readwrite');
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject('Transaction error deleting session state');
+
+    const store = transaction.objectStore(SESSION_STORE_NAME);
+    store.delete(id);
+  });
+}
+
+export async function getAllSessionKeys(): Promise<string[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SESSION_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(SESSION_STORE_NAME);
+    const request = store.getAllKeys();
+
+    request.onerror = () => reject('Error fetching session keys');
+    request.onsuccess = () => resolve(request.result as string[]);
+  });
+}
+
+// Review Log Functions for Analytics
+export async function addReviewLog(log: ReviewLog): Promise<void> {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(REVIEW_STORE_NAME, 'readwrite');
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => {
+      console.error("Transaction error adding review log", transaction.error);
+      reject('Transaction error adding review log');
+    };
+    
+    const store = transaction.objectStore(REVIEW_STORE_NAME);
+    store.add(log);
+  });
+}
+
+export async function getReviewsSince(sinceDate: Date): Promise<ReviewLog[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(REVIEW_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(REVIEW_STORE_NAME);
+    const index = store.index('timestamp');
+    const range = IDBKeyRange.lowerBound(sinceDate.toISOString());
+    const request = index.getAll(range);
+
+    request.onerror = () => reject('Error fetching review logs');
+    request.onsuccess = () => resolve(request.result);
+  });
 }
 
 

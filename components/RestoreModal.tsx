@@ -104,14 +104,14 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore 
   return (
     <>
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden transform transition-all relative">
+      <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-lg overflow-hidden transform transition-all relative">
         {loadingText && (
-            <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex flex-col items-center justify-center z-20">
+            <div className="absolute inset-0 bg-surface/80 flex flex-col items-center justify-center z-20">
                 <Spinner />
-                <p className="text-lg text-gray-700 dark:text-gray-300 mt-4">{loadingText}</p>
+                <p className="text-lg text-text mt-4">{loadingText}</p>
             </div>
         )}
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex justify-between items-center p-4 border-b border-border">
           <h2 className="text-xl font-bold">Restore from Backup</h2>
           <Button variant="ghost" onClick={handleClose} className="p-1 h-auto" disabled={!!loadingText}><Icon name="x" /></Button>
         </div>
@@ -122,18 +122,18 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore 
             </div>
             
             <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json" onChange={handleFileChange} disabled={!!loadingText} />
-            <label onDragOver={handleDragOver} onDrop={handleDrop} className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg transition-colors ${loadingText ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
-                <Icon name="upload-cloud" className="w-10 h-10 text-gray-400 dark:text-gray-500 mb-2"/>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                    <span className="font-semibold text-blue-600 dark:text-blue-400" onClick={(e) => { if (!loadingText) { e.preventDefault(); fileInputRef.current?.click(); }}}>
+            <label onDragOver={handleDragOver} onDrop={handleDrop} className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border rounded-lg transition-colors ${loadingText ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-background'}`}>
+                <Icon name="upload-cloud" className="w-10 h-10 text-text-muted mb-2"/>
+                <p className="text-sm text-text-muted">
+                    <span className="font-semibold text-primary" onClick={(e) => { if (!loadingText) { e.preventDefault(); fileInputRef.current?.click(); }}}>
                         Click to upload
                     </span> or drag and drop</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">CogniFlow Backup JSON file</p>
-                {fileName && <p className={`text-sm mt-2 truncate ${parsedData ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={fileName}>{fileName}</p>}
+                <p className="text-xs text-text-muted/70">CogniFlow Backup JSON file</p>
+                {fileName && <p className={`text-sm mt-2 truncate ${parsedData ? 'text-green-600' : 'text-red-600'}`} title={fileName}>{fileName}</p>}
             </label>
         </div>
 
-        <div className="flex justify-end p-4 bg-gray-100/50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex justify-end p-4 bg-background/50 border-t border-border">
           <Button variant="secondary" onClick={handleClose} className="mr-2" disabled={!!loadingText}>Cancel</Button>
           <Button variant="danger" onClick={() => setIsConfirmOpen(true)} disabled={!parsedData || !!loadingText}>
             {loadingText ? 'Please wait...' : 'Restore'}

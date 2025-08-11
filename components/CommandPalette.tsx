@@ -1,10 +1,12 @@
 
 
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Deck, DeckSeries, Card, Question, QuizDeck } from '../types';
 import { useRouter } from '../contexts/RouterContext';
 import Icon, { IconName } from './ui/Icon';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useStore } from '../store/store';
 
 // Local types for items in the palette to decouple from main app types
 interface PaletteAction {
@@ -56,8 +58,6 @@ interface Command {
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
-  decks: Deck[];
-  series: DeckSeries[];
   actions: Command[];
 }
 
@@ -66,12 +66,13 @@ const stripHtml = (html: string) => {
     return doc.body.textContent || "";
 };
 
-const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, decks, series, actions }) => {
+const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, actions }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const modalRef = useRef<HTMLDivElement>(null);
   const resultsContainerRef = useRef<HTMLUListElement>(null);
   const { navigate } = useRouter();
+  const { decks, deckSeries: series } = useStore();
 
   useFocusTrap(modalRef, isOpen);
 
@@ -221,12 +222,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, decks,
         role="option"
         aria-selected={activeIndex === index}
         onClick={() => handleSelect(item)}
-        className={`flex items-center gap-4 px-4 py-3 cursor-pointer rounded-md ${activeIndex === index ? 'bg-blue-100 dark:bg-blue-900/50' : 'hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
+        className={`flex items-center gap-4 px-4 py-3 cursor-pointer rounded-md ${activeIndex === index ? 'bg-primary/10' : 'hover:bg-border/30'}`}
       >
-        <Icon name={iconName} className="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+        <Icon name={iconName} className="w-5 h-5 text-text-muted flex-shrink-0" />
         <div className="flex-grow min-w-0">
-          <p className={`font-medium truncate ${activeIndex === index ? 'text-blue-800 dark:text-blue-200' : 'text-gray-800 dark:text-gray-200'}`}>{title}</p>
-          {subtitle && <p className={`text-sm truncate ${activeIndex === index ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>{subtitle}</p>}
+          <p className={`font-medium truncate ${activeIndex === index ? 'text-primary' : 'text-text'}`}>{title}</p>
+          {subtitle && <p className={`text-sm truncate ${activeIndex === index ? 'text-primary/80' : 'text-text-muted'}`}>{subtitle}</p>}
         </div>
       </li>
     );
@@ -243,26 +244,26 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, decks,
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative max-h-[70vh] flex flex-col"
+        className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative max-h-[70vh] flex flex-col"
       >
-        <div className="flex items-center gap-2 p-4 border-b border-gray-200 dark:border-gray-700">
-          <Icon name="search" className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+        <div className="flex items-center gap-2 p-4 border-b border-border">
+          <Icon name="search" className="w-5 h-5 text-text-muted" />
           <input
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             placeholder="Search for anything or type a command..."
-            className="w-full bg-transparent focus:outline-none text-lg placeholder:text-gray-400 dark:placeholder:text-gray-500"
+            className="w-full bg-transparent focus:outline-none text-lg placeholder:text-text-muted"
             autoFocus
           />
-           <div className="hidden sm:block text-xs text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5">ESC</div>
+           <div className="hidden sm:block text-xs text-text-muted border border-border rounded px-1.5 py-0.5">ESC</div>
         </div>
         <div className="flex-grow overflow-y-auto p-2">
             {flatResults.length > 0 ? (
                 <ul ref={resultsContainerRef} role="listbox">
                     {groupedResults.map(([groupName, items]) => (
                         <li key={groupName}>
-                            <p className="px-4 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{groupName}</p>
+                            <p className="px-4 py-2 text-xs font-semibold text-text-muted uppercase tracking-wider">{groupName}</p>
                             <ul className="space-y-1">
                                 {items.map(item => renderItem(item, itemCounter++))}
                             </ul>
@@ -271,12 +272,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, decks,
                 </ul>
             ) : (
                 <div className="text-center py-10 px-4">
-                    <p className="text-gray-600 dark:text-gray-400">No results found for "{searchTerm}".</p>
+                    <p className="text-text-muted">No results found for "{searchTerm}".</p>
                 </div>
             )}
         </div>
-        <div className="hidden sm:flex flex-shrink-0 justify-end items-center p-2 border-t border-gray-200 dark:border-gray-700">
-            <span className="text-sm text-gray-500 dark:text-gray-400">
+        <div className="hidden sm:flex flex-shrink-0 justify-end items-center p-2 border-t border-border">
+            <span className="text-sm text-text-muted">
                 <Icon name="terminal" className="inline-block w-4 h-4 mr-2" />
                 <kbd className="font-sans">Cmd+K</kbd> to toggle
             </span>

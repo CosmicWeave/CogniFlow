@@ -1,9 +1,8 @@
 
 
 
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder } from '../types';
+import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck } from '../types';
 import Button from './ui/Button';
 import Link from './ui/Link';
 import Icon from './ui/Icon';
@@ -17,10 +16,10 @@ import { useRouter } from '../contexts/RouterContext';
 import MasteryBar from './ui/MasteryBar';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import DueDateGraph from './ui/DueDateGraph';
+import { useStore } from '../store/store';
 
 interface DeckDetailsPageProps {
   deck: Deck;
-  folders: Folder[];
   sessionsToResume: Set<string>;
   onUpdateDeck: (updatedDeck: Deck, options?: { silent: boolean }) => void;
   onDeleteDeck: (deckId: string) => void;
@@ -31,7 +30,10 @@ interface DeckDetailsPageProps {
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === DeckType.Flashcard ? deck.cards : deck.questions;
+    const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions;
+    if (!Array.isArray(items)) {
+        return 0;
+    }
     return items.filter(card => !card.suspended && new Date(card.dueDate) <= today).length;
 };
 
@@ -59,13 +61,14 @@ const calculateProgressStats = (items: Reviewable[]) => {
 };
 
 
-const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal }) => {
+const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
   const [editedFolderId, setEditedFolderId] = useState(deck.folderId || '');
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
   const { navigate } = useRouter();
+  const folders = useStore(state => state.folders);
 
   useEffect(() => {
       onUpdateLastOpened(deck.id);
@@ -109,6 +112,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
         interval: 0,
         easeFactor: INITIAL_EASE_FACTOR,
         suspended: false,
+        lapses: 0,
     };
 
     if (deck.type === DeckType.Flashcard) {
@@ -122,7 +126,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
     }
   };
 
-  const addQuestion = (newQuestionData: Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'suspended'>) => {
+  const addQuestion = (newQuestionData: Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'suspended' | 'lapses'>) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -133,6 +137,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
         interval: 0,
         easeFactor: INITIAL_EASE_FACTOR,
         suspended: false,
+        lapses: 0,
     };
 
     if (deck.type === DeckType.Quiz) {
@@ -167,6 +172,13 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
   const progressStats = calculateProgressStats(activeItems);
   const dueCount = getDueItemsCount(deck);
   const canResume = sessionsToResume.has(deck.id);
+
+  const challengingItems = useMemo(() => {
+    return allItems
+      .filter(item => (item.lapses || 0) >= 4)
+      .sort((a, b) => (b.lapses || 0) - (a.lapses || 0))
+      .slice(0, 5);
+  }, [allItems]);
 
   const effectiveMastery = useMemo(() => {
     if (activeItems.length === 0) return 0;
@@ -231,26 +243,26 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
   return (
     <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
       {/* Deck Info & Edit Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
         {isEditing ? (
           <div className="space-y-4">
             <div>
-              <label htmlFor="deck-name" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Deck Name</label>
+              <label htmlFor="deck-name" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
               <input
                 type="text"
                 id="deck-name"
                 value={editedName}
                 onChange={(e) => setEditedName(e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none text-2xl font-bold"
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold"
               />
             </div>
              <div>
-              <label htmlFor="deck-folder" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Folder</label>
+              <label htmlFor="deck-folder" className="block text-sm font-medium text-text-muted mb-1">Folder</label>
               <select
                 id="deck-folder"
                 value={editedFolderId}
                 onChange={(e) => setEditedFolderId(e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
               >
                 <option value="">No folder</option>
                 {folders.map(folder => (
@@ -259,13 +271,13 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
               </select>
             </div>
             <div>
-              <label htmlFor="deck-desc" className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Description</label>
+              <label htmlFor="deck-desc" className="block text-sm font-medium text-text-muted mb-1">Description</label>
               <textarea
                 id="deck-desc"
                 value={editedDescription}
                 onChange={(e) => setEditedDescription(e.target.value)}
                 rows={3}
-                className="w-full p-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
               />
             </div>
             <div className="flex justify-end gap-2">
@@ -278,9 +290,9 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
         ) : (
           <div>
             <div className="min-w-0">
-                <h2 className="text-3xl font-bold mb-2 text-gray-900 dark:text-gray-100 break-words">{deck.name}</h2>
+                <h2 className="text-3xl font-bold mb-2 text-text break-words">{deck.name}</h2>
                   {deck.folderId && (
-                      <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <div className="flex items-center text-sm text-text-muted mb-2">
                           <Icon name="folder" className="w-4 h-4 mr-2" />
                           <span>{folders.find(f => f.id === deck.folderId)?.name || '...'}</span>
                       </div>
@@ -294,39 +306,39 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
                     <Icon name="archive" className="mr-2"/> Archive
                 </Button>
             </div>
-            {deck.description && <p className="text-gray-500 dark:text-gray-400 mt-1 mb-4 prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: deck.description }} />}
+            {deck.description && <p className="text-text-muted mt-1 mb-4 prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: deck.description }} />}
             
-             <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4 space-y-6">
+             <div className="mt-4 border-t border-border pt-4 space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div className="space-y-4">
                         <div>
-                            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Deck Statistics</h4>
+                            <h4 className="text-sm font-semibold text-text mb-2">Deck Statistics</h4>
                             <div className="space-y-1">
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    Active Items: <strong className="text-gray-800 dark:text-gray-200">{activeItems.length}</strong>
+                                <p className="text-sm text-text-muted">
+                                    Active Items: <strong className="text-text">{activeItems.length}</strong>
                                 </p>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    Items Due Today: <strong className={dueCount > 0 ? 'text-blue-500 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}>{dueCount}</strong>
+                                <p className="text-sm text-text-muted">
+                                    Items Due Today: <strong className={dueCount > 0 ? 'text-primary' : 'text-text'}>{dueCount}</strong>
                                 </p>
                                 {suspendedCount > 0 && (
                                     <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                                        Ignored Items: <strong>{suspendedCount}</strong>
+                                        Suspended Items: <strong>{suspendedCount}</strong>
                                     </p>
                                 )}
                             </div>
                         </div>
                         <div>
-                           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Overall Mastery</h4>
+                           <h4 className="text-sm font-semibold text-text mb-2">Overall Mastery</h4>
                            <MasteryBar level={effectiveMastery} />
                         </div>
                         <div>
-                           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Progress by Stage</h4>
+                           <h4 className="text-sm font-semibold text-text mb-2">Progress by Stage</h4>
                            <StackedProgressBar data={progressBarData} total={activeItems.length} />
                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 text-xs">
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 mr-2"></span><span className="text-gray-600 dark:text-gray-400">New: <strong>{progressStats.new}</strong></span></div>
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 mr-2"></span><span className="text-gray-600 dark:text-gray-400">Learning: <strong>{progressStats.learning}</strong></span></div>
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-teal-500 mr-2"></span><span className="text-gray-600 dark:text-gray-400">Young: <strong>{progressStats.young}</strong></span></div>
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-green-500 mr-2"></span><span className="text-gray-600 dark:text-gray-400">Mature: <strong>{progressStats.mature}</strong></span></div>
+                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 mr-2"></span><span className="text-text-muted">New: <strong>{progressStats.new}</strong></span></div>
+                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 mr-2"></span><span className="text-text-muted">Learning: <strong>{progressStats.learning}</strong></span></div>
+                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-teal-500 mr-2"></span><span className="text-text-muted">Young: <strong>{progressStats.young}</strong></span></div>
+                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-green-500 mr-2"></span><span className="text-text-muted">Mature: <strong>{progressStats.mature}</strong></span></div>
                            </div>
                         </div>
                     </div>
@@ -335,8 +347,29 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
                     </div>
                 </div>
             </div>
+            
+            {challengingItems.length > 0 && (
+                <div className="mt-6 bg-orange-500/10 rounded-lg p-4 space-y-3 border border-orange-500/20">
+                <h4 className="font-bold text-orange-800 dark:text-orange-200 text-left flex items-center gap-2">
+                    <Icon name="zap" className="w-5 h-5" />
+                    Challenging Items
+                </h4>
+                <ul className="text-left text-sm space-y-2">
+                    {challengingItems.map(item => {
+                        const isQuestion = 'questionText' in item;
+                        const promptText = (isQuestion ? (item as Question).questionText : (item as Card).front).replace(/<[^>]+>/g, '').trim();
+                        return (
+                            <li key={item.id} className="text-orange-700 dark:text-orange-300 border-l-2 border-orange-400 pl-3">
+                                <p className="font-semibold break-words truncate" title={promptText}>{promptText}</p>
+                                <p className="text-xs opacity-80">Incorrect answers: <strong>{item.lapses}</strong></p>
+                            </li>
+                        );
+                    })}
+                </ul>
+                </div>
+            )}
 
-            <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6 flex flex-wrap items-center justify-center gap-4">
+            <div className="mt-8 border-t border-border pt-6 flex flex-wrap items-center justify-center gap-4">
               <Link
                   href={`/decks/${deck.id}/study`}
                   passAs={Button}
@@ -382,7 +415,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
       </div>
 
       {/* Card/Question Management Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
+      <div className="bg-surface rounded-lg shadow-md border border-border">
          {deck.type === DeckType.Flashcard ? (
             <CardListEditor cards={deck.cards} onCardsChange={handleCardsChange} onAddCard={addCard} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
          ) : deck.type === DeckType.Quiz ? (
@@ -393,7 +426,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, folders, sessio
                 onBulkAdd={() => setIsBulkAddModalOpen(true)}
             />
          ) : (
-            <div className="p-6 text-center text-gray-400 dark:text-gray-500">
+            <div className="p-6 text-center text-text-muted">
                 <p>Unsupported deck type.</p>
             </div>
          )}

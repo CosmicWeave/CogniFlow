@@ -1,6 +1,9 @@
+
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, Question, ReviewRating, Deck, DeckType, Reviewable, QuizDeck } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs';
+import { getSessionState, saveSessionState, deleteSessionState } from '../services/db';
 import Flashcard from './Flashcard';
 import QuizQuestion from './QuizQuestion';
 import Button from './ui/Button';
@@ -13,7 +16,7 @@ import Confetti from './ui/Confetti';
 interface StudySessionProps {
   deck: Deck;
   onSessionEnd: (deckId: string, seriesId?: string) => void;
-  onItemReviewed: (deckId: string, item: Reviewable, seriesId?: string) => Promise<void>;
+  onItemReviewed: (deckId: string, item: Reviewable, rating: ReviewRating | null, seriesId?: string) => Promise<void>;
   onUpdateLastOpened: (deckId: string) => void;
   sessionKeySuffix?: string;
   seriesId?: string;
@@ -40,86 +43,76 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
   }), [reviewQueue, currentIndex]);
 
   // Effect 1: Update the "last opened" timestamp.
-  // This should only run once when the session for a specific deck is initiated.
   useEffect(() => {
-    // We call onUpdateLastOpened to mark this deck as recently used.
     onUpdateLastOpened(deck.id);
-
-    // This is a one-time action. We disable the exhaustive-deps lint rule
-    // for onUpdateLastOpened because including it would cause an infinite loop:
-    // 1. This effect runs.
-    // 2. onUpdateLastOpened updates the deck in the parent state.
-    // 3. The parent state change causes a new onUpdateLastOpened function to be created.
-    // 4. The new function reference would trigger this effect again.
-    // By only depending on deck.id (which is stable for a session), we break the loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deck.id]);
 
-  // Effect 2: Initialize the session queue and state.
-  // This effect synchronizes the study queue with the deck's properties.
+  // Effect 2: Initialize the session queue and state from IndexedDB.
   useEffect(() => {
-    const isSpecialSession = isGeneralSession || sessionKeySuffix === '_cram' || sessionKeySuffix === '_flip';
-    
-    // For regular sessions, if already initialized, don't reset the queue.
-    // This prevents the parent deck update (after a review) from wiping out
-    // the in-memory state of the session queue.
-    if (isSessionInitialized && !isSpecialSession) {
-      return;
-    }
-    
-    if (isSpecialSession) {
-        // For general, cram, or flip sessions, the deck is pre-configured by AppRouter.
-        // We just need to load the items from it and reset state.
-        const itemsToReview = deck.type === DeckType.Flashcard ? (deck as any).cards : (deck as any).questions;
-        setReviewQueue(itemsToReview);
-        setCurrentIndex(0);
-        setDisplayIndex(0);
-        setIsSessionInitialized(true);
-        return; // Don't try to load from localStorage for these special sessions
-    }
-
-    const savedSessionJSON = localStorage.getItem(sessionKey);
-    let sessionResumed = false;
-    if (savedSessionJSON) {
-      try {
-        const savedSession = JSON.parse(savedSessionJSON);
-        if (savedSession.reviewQueue && savedSession.reviewQueue.length > 0 && typeof savedSession.currentIndex === 'number') {
-          setReviewQueue(savedSession.reviewQueue);
-          setCurrentIndex(savedSession.currentIndex);
-          setDisplayIndex(savedSession.currentIndex);
-          sessionResumed = true;
-        } else {
-          localStorage.removeItem(sessionKey); // Clean up invalid session
+    const initializeSession = async () => {
+        const isSpecialSession = isGeneralSession || sessionKeySuffix === '_cram' || sessionKeySuffix === '_flip';
+        
+        if (isSessionInitialized && !isSpecialSession) {
+          return;
         }
-      } catch (e) {
-        console.error("Failed to parse saved session", e);
-        localStorage.removeItem(sessionKey);
-      }
-    }
+        
+        if (isSpecialSession) {
+            const itemsToReview = deck.type === DeckType.Flashcard ? (deck as any).cards : (deck as any).questions;
+            setReviewQueue(itemsToReview);
+            setCurrentIndex(0);
+            setDisplayIndex(0);
+            setIsSessionInitialized(true);
+            return;
+        }
+    
+        let sessionResumed = false;
+        try {
+            const savedSession = await getSessionState(sessionKey);
+            if (savedSession && savedSession.reviewQueue && savedSession.reviewQueue.length > 0 && typeof savedSession.currentIndex === 'number') {
+              setReviewQueue(savedSession.reviewQueue);
+              setCurrentIndex(savedSession.currentIndex);
+              setDisplayIndex(savedSession.currentIndex);
+              sessionResumed = true;
+            } else if (savedSession) {
+              await deleteSessionState(sessionKey); // Clean up invalid session
+            }
+        } catch (e) {
+            console.error("Failed to load saved session from DB", e);
+        }
+    
+        if (!sessionResumed) {
+          const today = new Date();
+          today.setHours(23, 59, 59, 999);
+          const itemsToReview = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
+          const dueItems = itemsToReview
+            .filter(item => !item.suspended && new Date(item.dueDate) <= today)
+            .sort(() => Math.random() - 0.5);
+          setReviewQueue(dueItems);
+          setCurrentIndex(0);
+          setDisplayIndex(0);
+        }
+        setIsSessionInitialized(true);
+    };
 
-    if (!sessionResumed) {
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
-      const itemsToReview = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
-      const dueItems = itemsToReview
-        .filter(item => !item.suspended && new Date(item.dueDate) <= today)
-        .sort(() => Math.random() - 0.5);
-      setReviewQueue(dueItems);
-      // Always reset indices for a brand new session
-      setCurrentIndex(0);
-      setDisplayIndex(0);
-    }
-    setIsSessionInitialized(true);
+    initializeSession();
   }, [deck, deck.type, sessionKeySuffix, isGeneralSession, sessionKey, isSessionInitialized]);
 
-
+  // Effect 3: Save session state to IndexedDB on change.
   useEffect(() => {
-    // Only save state for regular sessions
-    const isRegularSession = !isGeneralSession && sessionKeySuffix === '';
-    if (isRegularSession && isSessionInitialized && currentIndex < reviewQueue.length) {
-       try { localStorage.setItem(sessionKey, JSON.stringify(sessionState)); } catch (e) { console.error("Could not save session state", e); }
-    }
-  }, [sessionState, isGeneralSession, isSessionInitialized, sessionKey, currentIndex, reviewQueue.length, sessionKeySuffix]);
+    const saveState = async () => {
+        const isRegularSession = !isGeneralSession && sessionKeySuffix === '';
+        if (isRegularSession && isSessionInitialized && currentIndex < reviewQueue.length) {
+           try {
+               await saveSessionState(sessionKey, sessionState);
+           } catch (e) {
+               console.error("Could not save session state to DB", e);
+               addToast("Could not save session progress. It may be lost on refresh.", "error");
+           }
+        }
+    };
+    saveState();
+  }, [sessionState, isGeneralSession, isSessionInitialized, sessionKey, currentIndex, reviewQueue.length, sessionKeySuffix, addToast]);
   
   const displayedItem = useMemo(() => reviewQueue[displayIndex], [reviewQueue, displayIndex]);
   const isHistorical = displayIndex < currentIndex;
@@ -148,11 +141,11 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
       setDisplayIndex(nextIndex);
     }
     
-    // Clean up local storage for regular sessions
+    // Clean up DB for regular sessions on completion
     if (nextIndex >= reviewQueue.length) {
       const isRegularSession = !isGeneralSession && sessionKeySuffix === '';
       if (isRegularSession) {
-        localStorage.removeItem(sessionKey);
+        deleteSessionState(sessionKey).catch(e => console.error("Failed to delete session state", e));
       }
     }
   }, [currentIndex, reviewQueue.length, isGeneralSession, sessionKey, sessionKeySuffix]);
@@ -162,7 +155,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     const isCramSession = sessionKeySuffix === '_cram';
     if (isCramSession) {
-        // For cramming, just advance immediately without any SRS logic or delay.
         setIsReviewing(true);
         advanceToNext();
         setIsReviewing(false);
@@ -173,8 +165,14 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     if (hapticsEnabled && 'vibrate' in navigator) navigator.vibrate(20);
 
     const oldMastery = getEffectiveMasteryLevel(displayedItem);
-    const updatedItem = calculateNextReview(displayedItem, rating);
+    let updatedItem = calculateNextReview(displayedItem, rating);
     const newMastery = updatedItem.masteryLevel || 0;
+    
+    // Leech detection
+    if ((updatedItem.lapses || 0) >= 8 && !displayedItem.suspended) {
+        updatedItem = { ...updatedItem, suspended: true };
+        addToast("This item is proving difficult. It has been automatically suspended to let you focus on other material.", "info");
+    }
 
     const oldPercent = Math.round(oldMastery * 100);
     const newPercent = Math.round(newMastery * 100);
@@ -182,18 +180,15 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     if (oldPercent <= 85 && newPercent > 85) addToast('Item Mastered!', 'success');
     
     setReviewedItems(prev => [...prev, { item: updatedItem, rating }]);
-
-    // Update the item in the queue to show mastery change before advancing
-    setReviewQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
     
     try {
       const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
-      await onItemReviewed(originalDeckId, updatedItem, seriesId);
+      await onItemReviewed(originalDeckId, updatedItem, rating, seriesId);
     } catch (error) {
       console.error("Failed to save review:", error);
       addToast("Failed to save review. Your progress for this card may not be saved.", "error");
     } finally {
-        // Delay advancing to see the change
+        setReviewQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
         setTimeout(() => {
             advanceToNext();
             setIsReviewing(false);
@@ -201,20 +196,20 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     }
   }, [displayedItem, isCurrent, isReviewing, hapticsEnabled, advanceToNext, deck.id, onItemReviewed, addToast, seriesId, currentIndex, sessionKeySuffix]);
   
-  const handleIgnore = useCallback(async () => {
+  const handleSuspend = useCallback(async () => {
     if (!displayedItem || !isCurrent || isReviewing) return;
     
     setIsReviewing(true);
-    const ignoredItem = { ...displayedItem, suspended: true };
-    setReviewedItems(prev => [...prev, { item: ignoredItem, rating: null }]);
+    const suspendedItem = { ...displayedItem, suspended: true };
+    setReviewedItems(prev => [...prev, { item: suspendedItem, rating: null }]);
     
     try {
         const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
-        await onItemReviewed(originalDeckId, ignoredItem, seriesId);
-        addToast("Card ignored for future sessions.", "info");
+        await onItemReviewed(originalDeckId, suspendedItem, null, seriesId);
+        addToast("Card suspended for future sessions.", "info");
     } catch (error) {
-        console.error("Failed to ignore card:", error);
-        addToast("Failed to save ignored state. Please try again.", "error");
+        console.error("Failed to suspend card:", error);
+        addToast("Failed to save suspended state. Please try again.", "error");
     } finally {
         setTimeout(() => {
             advanceToNext();
@@ -239,7 +234,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      // Arrow key navigation takes priority
       if (e.key === 'ArrowLeft') {
         if (displayIndex > 0) {
           e.preventDefault();
@@ -255,7 +249,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         return;
       }
       
-      // Controls for the current item only
       if (!isCurrent || isReviewing) return;
 
       if (isQuiz && isAnswered) {
@@ -282,11 +275,11 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFlipped, isAnswered, isQuiz, isCurrent, isReviewing, handleReview, handleNavigatePrevious, handleNavigateNext, displayIndex, currentIndex]);
 
-  if (!isSessionInitialized) return <div className="text-center p-8"><p className="text-gray-500 dark:text-gray-400">Initializing session...</p></div>;
+  if (!isSessionInitialized) return <div className="text-center p-8"><p className="text-text-muted">Initializing session...</p></div>;
   if (reviewQueue.length === 0) return (
     <div className="text-center p-8">
       <h2 className="text-2xl font-bold">All caught up!</h2>
-      <p className="text-gray-500 dark:text-gray-400 mt-2">{isGeneralSession ? "There are no quiz questions due for review across all your decks." : "There are no items due for review in this deck."}</p>
+      <p className="text-text-muted mt-2">{isGeneralSession ? "There are no quiz questions due for review across all your decks." : "There are no items due for review in this deck."}</p>
       <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-6">Back to Decks</Button>
     </div>
   );
@@ -296,8 +289,8 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
       return (
         <div className="text-center p-8 animate-fade-in relative">
             <Confetti />
-            <h2 className="text-2xl font-bold text-green-500 dark:text-green-400">Cram Session Complete!</h2>
-            <p className="text-gray-500 dark:text-gray-400 mt-2">You've reviewed all {reviewQueue.length} items in this deck.</p>
+            <h2 className="text-2xl font-bold text-green-500">Cram Session Complete!</h2>
+            <p className="text-text-muted mt-2">You've reviewed all {reviewQueue.length} items in this deck.</p>
             <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-8">Finish Session</Button>
         </div>
       );
@@ -329,15 +322,15 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     return (
       <div className="text-center p-8 animate-fade-in relative">
         <Confetti />
-        <h2 className="text-2xl font-bold text-green-500 dark:text-green-400">Congratulations!</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-2">You've completed this study session.</p>
-        <div className="mt-6 bg-gray-100 dark:bg-gray-800/50 rounded-lg p-4 max-w-sm mx-auto space-y-2">
-            <div className="flex justify-between items-center text-gray-700 dark:text-gray-300"><span>Due tomorrow:</span><span className="font-bold">{dueTomorrowCount} items</span></div>
-            <div className="flex justify-between items-center text-gray-700 dark:text-gray-300"><span>Due in the next 7 days:</span><span className="font-bold">{dueNextWeekCount} items</span></div>
+        <h2 className="text-2xl font-bold text-green-500">Congratulations!</h2>
+        <p className="text-text-muted mt-2">You've completed this study session.</p>
+        <div className="mt-6 bg-surface rounded-lg p-4 max-w-sm mx-auto space-y-2 border border-border">
+            <div className="flex justify-between items-center text-text"><span>Due tomorrow:</span><span className="font-bold">{dueTomorrowCount} items</span></div>
+            <div className="flex justify-between items-center text-text"><span>Due in the next 7 days:</span><span className="font-bold">{dueNextWeekCount} items</span></div>
         </div>
 
         {mostDifficultItems.length > 0 && (
-            <div className="mt-6 bg-orange-100 dark:bg-orange-900/30 rounded-lg p-4 max-w-sm mx-auto space-y-3">
+            <div className="mt-6 bg-orange-500/10 rounded-lg p-4 max-w-sm mx-auto space-y-3 border border-orange-500/20">
             <h4 className="font-bold text-orange-800 dark:text-orange-200 text-left flex items-center gap-2">
                 <Icon name="zap" className="w-5 h-5" />
                 Challenging Items
@@ -411,15 +404,15 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             ) : showRatingButtons ? (
               <div className="space-y-4 animate-fade-in w-full">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <Button onClick={() => handleReview(ReviewRating.Again)} className="bg-red-600 hover:bg-red-700 dark:bg-red-800 dark:hover:bg-red-700 focus:ring-red-500 py-3 text-base text-white" disabled={isReviewing}>Again <span className="hidden sm:inline">(1)</span></Button>
-                    <Button onClick={() => handleReview(ReviewRating.Hard)} className="bg-orange-500 hover:bg-orange-600 dark:bg-orange-700 dark:hover:bg-orange-600 focus:ring-orange-400 py-3 text-base text-white" disabled={isReviewing}>Hard <span className="hidden sm:inline">(2)</span></Button>
-                    <Button onClick={() => handleReview(ReviewRating.Good)} className="bg-green-600 hover:bg-green-700 dark:bg-green-800 dark:hover:bg-green-700 focus:ring-green-500 py-3 text-base text-white" disabled={isReviewing}>Good <span className="hidden sm:inline">(3)</span></Button>
-                    <Button onClick={() => handleReview(ReviewRating.Easy)} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 focus:ring-blue-500 py-3 text-base text-white" disabled={isReviewing}>Easy <span className="hidden sm:inline">(4)</span></Button>
+                    <Button onClick={() => handleReview(ReviewRating.Again)} className="bg-red-600 hover:bg-red-700 focus:ring-red-500 py-3 text-base text-white" disabled={isReviewing}>Again <span className="hidden sm:inline">(1)</span></Button>
+                    <Button onClick={() => handleReview(ReviewRating.Hard)} className="bg-orange-500 hover:bg-orange-600 focus:ring-orange-400 py-3 text-base text-white" disabled={isReviewing}>Hard <span className="hidden sm:inline">(2)</span></Button>
+                    <Button onClick={() => handleReview(ReviewRating.Good)} className="bg-green-600 hover:bg-green-700 focus:ring-green-500 py-3 text-base text-white" disabled={isReviewing}>Good <span className="hidden sm:inline">(3)</span></Button>
+                    <Button onClick={() => handleReview(ReviewRating.Easy)} className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 py-3 text-base text-white" disabled={isReviewing}>Easy <span className="hidden sm:inline">(4)</span></Button>
                 </div>
                 {sessionKeySuffix !== '_cram' && (
                   <div className="text-center">
-                      <Button variant="ghost" onClick={handleIgnore} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" disabled={isReviewing}>
-                          <Icon name="eye-off" className="w-4 h-4 mr-1"/> Ignore this card
+                      <Button variant="ghost" onClick={handleSuspend} className="text-xs" disabled={isReviewing}>
+                          <Icon name="eye-off" className="w-4 h-4 mr-1"/> Suspend this card
                       </Button>
                   </div>
                 )}
@@ -440,7 +433,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                     <Icon name="chevron-left" className="w-8 h-8" />
                 </Button>
                 <div className="text-center w-28">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Item {displayIndex + 1} of {reviewQueue.length}</span>
+                    <span className="text-sm text-text-muted">Item {displayIndex + 1} of {reviewQueue.length}</span>
                 </div>
                 <Button variant="ghost" onClick={handleNavigateNext} disabled={displayIndex >= currentIndex} className="p-3 rounded-full disabled:opacity-30" aria-label="Next item">
                     <Icon name="chevron-left" className="w-8 h-8 rotate-180" />

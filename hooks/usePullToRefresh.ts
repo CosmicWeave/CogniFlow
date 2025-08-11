@@ -23,8 +23,10 @@ export const usePullToRefresh = () => {
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (pullToRefreshState.startY === 0) return;
     const pullDistance = e.touches[0].clientY - pullToRefreshState.startY;
-    if (pullDistance > 0) {
-      // Prevent browser's default pull-to-refresh on mobile
+    
+    // Only start preventing default and tracking pull distance after a small threshold
+    // to avoid interfering with normal clicks that might have a slight drag.
+    if (pullDistance > 5) {
       e.preventDefault(); 
       
       const justMetThreshold = pullDistance > REFRESH_THRESHOLD && !pullToRefreshState.thresholdMet;

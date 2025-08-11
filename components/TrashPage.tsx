@@ -1,11 +1,11 @@
-import React from 'react';
+
+import React, { useMemo } from 'react';
 import { Deck, DeckSeries } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
+import { useStore } from '../store/store';
 
 interface TrashPageProps {
-  trashedDecks: Deck[];
-  trashedSeries: DeckSeries[];
   onRestoreDeck: (deckId: string) => void;
   onRestoreSeries: (seriesId: string) => void;
   onDeleteDeckPermanently: (deckId: string) => void;
@@ -24,14 +24,17 @@ const calculateDaysLeft = (deletedAt: string): number => {
 };
 
 const TrashPage: React.FC<TrashPageProps> = ({
-  trashedDecks,
-  trashedSeries,
   onRestoreDeck,
   onRestoreSeries,
   onDeleteDeckPermanently,
   onDeleteSeriesPermanently,
   openConfirmModal,
 }) => {
+  const { decks, deckSeries } = useStore();
+
+  const trashedDecks = useMemo(() => decks.filter(d => d.deletedAt), [decks]);
+  const trashedSeries = useMemo(() => deckSeries.filter(s => s.deletedAt), [deckSeries]);
+
 
   const handleDeleteDeck = (deck: Deck) => {
     openConfirmModal({
