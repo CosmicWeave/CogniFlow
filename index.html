@@ -13,39 +13,188 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="CogniFlow">
 
+    <style>
+      /* --- Base Theme Colors (CSS Variables) --- */
+      /* This is the default "Light" theme */
+      :root {
+        --color-background: 249 250 251; /* gray-50 */
+        --color-surface: 255 255 255; /* white */
+        --color-text: 17 24 39; /* gray-900 */
+        --color-text-muted: 75 85 99; /* gray-500 */
+        --color-border: 229 231 235; /* gray-200 */
+        --color-primary: 37 99 235; /* blue-600 */
+        --color-primary-hover: 29 78 216; /* blue-700 */
+        --color-on-primary: 255 255 255; /* white */
+      }
+
+      /* Base Dark Theme */
+      html.dark {
+        --color-background: 17 24 39; /* gray-900 */
+        --color-surface: 31 41 55; /* gray-800 */
+        --color-text: 243 244 246; /* gray-100 */
+        --color-text-muted: 156 163 175; /* gray-400 */
+        --color-border: 55 65 81; /* gray-700 */
+      }
+      
+      /* --- New Theme Definitions --- */
+      html.theme-rose {
+        --color-background: 255 241 242; --color-surface: 254 226 226;
+        --color-text: 136 25 55; --color-text-muted: 190 24 64;
+        --color-border: 253 186 195; --color-primary: 225 29 72; --color-primary-hover: 190 18 60;
+      }
+      html.theme-matcha {
+        --color-background: 240 253 244; --color-surface: 220 252 231;
+        --color-text: 21 94 53; --color-text-muted: 22 121 68;
+        --color-border: 187 247 208; --color-primary: 22 163 74; --color-primary-hover: 21 128 61;
+      }
+      html.theme-latte {
+        --color-background: 255 251 235; --color-surface: 254 243 199;
+        --color-text: 113 63 18; --color-text-muted: 146 88 28;
+        --color-border: 253 224 138; --color-primary: 217 119 6; --color-primary-hover: 180 83 9;
+      }
+      html.theme-sky {
+        --color-background: 240 249 255; --color-surface: 224 242 254;
+        --color-text: 7 89 133; --color-text-muted: 8 126 164;
+        --color-border: 186 230 253; --color-primary: 14 165 233; --color-primary-hover: 2 132 199;
+      }
+      html.theme-sunrise {
+        --color-background: 255 251 235; --color-surface: 254 243 199;
+        --color-text: 124 45 18; --color-text-muted: 154 52 18;
+        --color-border: 252 211 77; --color-primary: 249 115 22; --color-primary-hover: 234 88 12;
+      }
+      html.theme-lavender {
+        --color-background: 245 243 255; --color-surface: 237 233 254;
+        --color-text: 76 29 149; --color-text-muted: 91 33 182;
+        --color-border: 221 214 254; --color-primary: 124 58 237; --color-primary-hover: 109 40 217;
+      }
+      html.theme-terracotta {
+        --color-background: 250 243 232; --color-surface: 245 233 218;
+        --color-text: 93 64 55; --color-text-muted: 141 110 99;
+        --color-border: 215 204 200; --color-primary: 226 114 91; --color-primary-hover: 209 93 70;
+      }
+      html.theme-alabaster {
+        --color-background: 252 252 252;
+        --color-surface: 255 255 255;
+        --color-text: 50 50 50;
+        --color-text-muted: 120 120 120;
+        --color-border: 238 238 238;
+        --color-primary: 96 165 250;
+        --color-primary-hover: 59 130 246;
+        --color-on-primary: 255 255 255;
+      }
+
+      /* New Dark Themes */
+      html.theme-espresso.dark {
+        --color-background: 33 23 19; --color-surface: 58 45 39;
+        --color-text: 224 213 208; --color-text-muted: 168 152 146;
+        --color-border: 84 66 59; --color-primary: 196 154 108; --color-primary-hover: 211 176 135; --color-on-primary: 33 23 19;
+      }
+      html.theme-midnight.dark {
+        --color-background: 12 13 17; --color-surface: 26 27 38;
+        --color-text: 200 201 215; --color-text-muted: 143 145 165;
+        --color-border: 45 47 61; --color-primary: 133 137 230; --color-primary-hover: 160 163 239; --color-on-primary: 12 13 17;
+      }
+    </style>
+
     <script>
       // Immediately set theme on page load to prevent FOUC (Flash of Unstyled Content)
       (function() {
-        const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-        const themeMode = localStorage.getItem('cogniflow-themeMode') || 'system';
-        let isDark;
+        const THEMES = [
+          { id: 'system', name: 'System', metaColorLight: '#f9fafb', metaColorDark: '#111827' },
+          { id: 'light', name: 'Light', isDark: false, metaColor: '#f9fafb' },
+          { id: 'rose', name: 'Rose', isDark: false, metaColor: '#fff1f2' },
+          { id: 'matcha', name: 'Matcha', isDark: false, metaColor: '#f0fdf4' },
+          { id: 'latte', name: 'Latte', isDark: false, metaColor: '#fffbeb' },
+          { id: 'sky', name: 'Sky', isDark: false, metaColor: '#f0f9ff' },
+          { id: 'sunrise', name: 'Sunrise', isDark: false, metaColor: '#fffbeb' },
+          { id: 'lavender', name: 'Lavender', isDark: false, metaColor: '#f5f3ff' },
+          { id: 'terracotta', name: 'Terracotta', isDark: false, metaColor: '#faf3e8' },
+          { id: 'alabaster', name: 'Alabaster', isDark: false, metaColor: '#fcfcfc' },
+          { id: 'dark', name: 'Dark', isDark: true, metaColor: '#111827' },
+          { id: 'espresso', name: 'Espresso', isDark: true, metaColor: '#211713' },
+          { id: 'midnight', name: 'Midnight', isDark: true, metaColor: '#0c0d11' }
+        ];
 
-        if (themeMode === 'light') {
-          isDark = false;
-        } else if (themeMode === 'dark') {
-          isDark = true;
-        } else { // 'system'
-          isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        }
-        
-        if (isDark) {
-          document.documentElement.classList.add('dark');
-          if (themeColorMeta) themeColorMeta.setAttribute('content', '#111827');
-        } else {
-          document.documentElement.classList.remove('dark');
-          if (themeColorMeta) themeColorMeta.setAttribute('content', '#f9fafb');
+        try {
+          const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+          const savedThemeId = localStorage.getItem('cogniflow-themeId') || 'system';
+          
+          let theme = THEMES.find(t => t.id === savedThemeId);
+          if (!theme) theme = THEMES[0]; // Default to system
+
+          let isDark;
+          let metaColor;
+          let themeClass = '';
+
+          // Determine dark mode status and theme class
+          if (theme.id === 'system') {
+            isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            metaColor = isDark ? theme.metaColorDark : theme.metaColorLight;
+            // No specific theme class for system theme, just light/dark defaults
+          } else {
+            isDark = theme.isDark;
+            metaColor = theme.metaColor;
+            themeClass = `theme-${theme.id}`;
+          }
+
+          const docEl = document.documentElement;
+          
+          // Clean up old theme classes
+          THEMES.forEach(t => {
+            if (t.id !== 'system') docEl.classList.remove(`theme-${t.id}`);
+          });
+          // Also remove old bugged classes just in case
+          docEl.classList.remove('theme-dark', 'theme-light');
+
+
+          // Apply new classes
+          if (themeClass) {
+            docEl.classList.add(themeClass);
+          }
+          if (isDark) {
+            docEl.classList.add('dark');
+          } else {
+            docEl.classList.remove('dark');
+          }
+          
+          if (themeColorMeta && metaColor) {
+            themeColorMeta.setAttribute('content', metaColor);
+          }
+        } catch (e) {
+          // Gracefully fail if localStorage is not available
         }
       })();
     </script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              background: 'rgb(var(--color-background) / <alpha-value>)',
+              surface: 'rgb(var(--color-surface) / <alpha-value>)',
+              text: 'rgb(var(--color-text) / <alpha-value>)',
+              'text-muted': 'rgb(var(--color-text-muted) / <alpha-value>)',
+              border: 'rgb(var(--color-border) / <alpha-value>)',
+              primary: 'rgb(var(--color-primary) / <alpha-value>)',
+              'primary-hover': 'rgb(var(--color-primary-hover) / <alpha-value>)',
+              'on-primary': 'rgb(var(--color-on-primary) / <alpha-value>)',
+            }
+          }
+        }
+      }
+    </script>
+    <style type="text/css">
+      /* Custom Prose Styles for Theming */
+      .prose{color:rgb(var(--color-text));max-width:65ch}.prose :where(img):not(:where([class~=not-prose] *)){margin-top:2em;margin-bottom:2em}.prose :where(h2):not(:where([class~=not-prose] *)){font-weight:800;font-size:1.5em;margin-top:2em;margin-bottom:1em;line-height:1.3333333}.prose :where(h3):not(:where([class~=not-prose] *)){font-size:1.25em;margin-top:1.6em;margin-bottom:.6em;line-height:1.6}
+      .dark .dark\:prose-invert{--tw-prose-body:rgb(var(--color-text));--tw-prose-headings:rgb(var(--color-text));--tw-prose-lead:rgb(var(--color-text-muted));--tw-prose-links:rgb(var(--color-primary));--tw-prose-bold:rgb(var(--color-text));--tw-prose-counters:rgb(var(--color-text-muted));--tw-prose-bullets:rgb(var(--color-border));--tw-prose-hr:rgb(var(--color-border));--tw-prose-quotes:rgb(var(--color-text));--tw-prose-quote-borders:rgb(var(--color-border));--tw-prose-captions:rgb(var(--color-text-muted));--tw-prose-code:rgb(var(--color-text));--tw-prose-pre-code:rgb(var(--color-text));--tw-prose-pre-bg:rgba(0,0,0,.1);--tw-prose-th-borders:rgb(var(--color-border));--tw-prose-td-borders:rgb(var(--color-border))}
+      .prose-sm{font-size:.875rem;line-height:1.5}
 
-    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <style>
       /* For 3D card flip effect */
       .perspective-1000 { perspective: 1000px; }
       .transform-style-preserve-3d { transform-style: preserve-3d; }
-      .rotate-y-180 { transform: rotateY(180deg); }
-      .backface-hidden { backface-visibility: hidden; }
-
+      
       /* Toast animation */
       @keyframes fade-in-right {
         from {
@@ -73,7 +222,6 @@
       .animate-fade-in {
         animation: fade-in 0.3s ease-out forwards;
       }
-      
     </style>
 
 <link rel="stylesheet" href="/index.css">
@@ -86,13 +234,34 @@
     "jszip": "https://esm.sh/jszip@3.10.1",
     "sql.js": "https://esm.sh/sql.js@1.10.3",
     "sql.js/": "https://esm.sh/sql.js@1.10.3/",
-    "canvas-confetti": "https://esm.sh/canvas-confetti@1.9.3"
+    "canvas-confetti": "https://esm.sh/canvas-confetti@1.9.3",
+    "zustand": "https://esm.sh/zustand@4.5.2"
   }
 }
 </script>
-  <script type="module" crossorigin src="/CogniFlow/assets/index-Cs-gldoE.js"></script>
+  <script type="module" crossorigin src="/CogniFlow/assets/index-BDF1chrw.js"></script>
 </head>
-  <body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+  <body class="bg-background text-text transition-colors duration-300">
     <div id="root"></div>
+    <div class="hidden">
+      <span class="bg-background text-background border-background ring-background divide-background fill-background stroke-background"></span>
+      <span class="bg-surface text-surface border-surface ring-surface divide-surface fill-surface stroke-surface"></span>
+      <span class="bg-text text-text border-text ring-text divide-text fill-text stroke-text"></span>
+      <span class="bg-text-muted text-text-muted border-text-muted ring-text-muted divide-text-muted fill-text-muted stroke-text-muted"></span>
+      <span class="bg-border text-border border-border ring-border divide-border fill-border stroke-border"></span>
+      <span class="bg-primary text-primary border-primary ring-primary divide-primary fill-primary stroke-primary"></span>
+      <span class="bg-primary-hover text-primary-hover border-primary-hover ring-primary-hover divide-primary-hover fill-primary-hover stroke-primary-hover"></span>
+      <span class="bg-on-primary text-on-primary border-on-primary ring-on-primary divide-on-primary fill-on-primary stroke-on-primary"></span>
+      <span class="hover:bg-background hover:text-background hover:border-background"></span>
+      <span class="hover:bg-surface hover:text-surface hover:border-surface"></span>
+      <span class="hover:bg-primary-hover hover:text-primary-hover hover:border-primary-hover"></span>
+      <span class="focus:ring-offset-background focus:ring-offset-surface"></span>
+      <div class="dark">
+        <span class="dark:bg-background dark:text-background dark:border-background dark:ring-background dark:divide-background dark:fill-background dark:stroke-background"></span>
+        <span class="dark:bg-surface dark:text-surface dark:border-surface dark:ring-surface dark:divide-surface dark:fill-surface dark:stroke-surface"></span>
+        <span class="dark:hover:bg-background dark:hover:text-background dark:hover:border-background"></span>
+        <span class="dark:focus:ring-offset-background dark:focus:ring-offset-surface"></span>
+      </div>
+    </div>
   </body>
 </html>
