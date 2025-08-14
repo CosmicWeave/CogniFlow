@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DeckSeries, QuizDeck, Question } from '../types';
 import Button from './ui/Button';
@@ -13,6 +9,7 @@ import EditSeriesModal from './EditSeriesModal';
 import BulkAddModal from './BulkAddModal';
 import { useRouter } from '../contexts/RouterContext';
 import MasteryBar from './ui/MasteryBar';
+import ProgressBar from './ui/ProgressBar';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import { useStore } from '../store/store';
 
@@ -35,7 +32,9 @@ const getDueItemsCount = (deck: QuizDeck): number => {
 };
 
 const DropIndicator = () => (
-    <div className="h-1.5 my-2 w-full rounded-full bg-blue-400 dark:bg-blue-600" aria-hidden="true" />
+    <div className="h-12 w-full flex items-center" aria-hidden="true">
+        <div className="h-1.5 w-full rounded-full bg-primary/50" />
+    </div>
 );
 
 const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
@@ -49,13 +48,19 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
   onStartSeriesStudy,
   openConfirmModal
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
+  const { navigate } = useRouter();
+  
+  const initialEditMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1]);
+    return params.get('edit') === 'true';
+  }, []);
+
+  const [isOrganizing, setIsOrganizing] = useState(initialEditMode);
   const [isAddDeckModalOpen, setIsAddDeckModalOpen] = useState(false);
   const [isEditSeriesModalOpen, setIsEditSeriesModalOpen] = useState(false);
   const [deckForBulkAdd, setDeckForBulkAdd] = useState<QuizDeck | null>(null);
-  const { navigate } = useRouter();
-  const [menuOpenForDeck, setMenuOpenForDeck] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [editingLevel, setEditingLevel] = useState<{ index: number; name: string } | null>(null);
+
   const allDecks = useStore(state => state.decks);
   
   const decks = useMemo(() => {
@@ -63,11 +68,22 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
     return allDecks.filter(d => deckIdsInSeries.has(d.id)) as QuizDeck[];
   }, [series, allDecks]);
 
-  // Drag and drop state
   const [draggedItem, setDraggedItem] = useState<{ type: 'level' | 'deck', sourceLevelIndex: number, deckId?: string } | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ levelIndex: number, deckIndex?: number | null } | null>(null);
 
   const flatDeckIdsInOrder = useMemo(() => series.levels.flatMap(l => l.deckIds), [series.levels]);
+  const totalDecksInSeries = flatDeckIdsInOrder.length;
+
+  const nextUpDeckId = useMemo(() => {
+      return flatDeckIdsInOrder.find(id => !completedDeckIds.has(id)) || null;
+  }, [flatDeckIdsInOrder, completedDeckIds]);
+
+
+  useEffect(() => {
+    if (initialEditMode) {
+        navigate(`/series/${series.id}`);
+    }
+  }, [initialEditMode, navigate, series.id]);
 
   useEffect(() => {
     if (series.archived || series.deletedAt) {
@@ -75,30 +91,9 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
     }
   }, [series.archived, series.deletedAt, navigate]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-        if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-            setMenuOpenForDeck(null);
-        }
-    };
-    if (menuOpenForDeck) {
-        document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [menuOpenForDeck]);
-
-  const isDeckUnlocked = (deckId: string) => {
-    const deckIndex = flatDeckIdsInOrder.indexOf(deckId);
-    if (deckIndex === -1) return false;
-    return deckIndex <= completedDeckIds.size;
-  }
-  const isDeckCompleted = (deckId: string) => completedDeckIds.has(deckId);
-  
   const totalDueInSeries = useMemo(() => {
     return decks.reduce((total, deck) => {
-        if (isDeckUnlocked(deck.id)) {
+        if (flatDeckIdsInOrder.indexOf(deck.id) <= completedDeckIds.size) { // is unlocked
             return total + getDueItemsCount(deck);
         }
         return total;
@@ -120,10 +115,8 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
             const updatedLevels = series.levels.map(level => ({
                 ...level,
                 deckIds: level.deckIds.filter(id => id !== deckId)
-            })).filter(level => level.deckIds.length > 0);
-            
-            const updatedSeries = { ...series, levels: updatedLevels };
-            onUpdateSeries(updatedSeries);
+            })).filter(level => level.deckIds.length > 0 || isOrganizing);
+            onUpdateSeries({ ...series, levels: updatedLevels });
         }
     });
   };
@@ -136,70 +129,57 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
     });
   };
 
-  // --- Drag and Drop Handlers ---
+  const handleAddLevel = () => {
+    const newLevel = { title: 'New Level', deckIds: [] };
+    onUpdateSeries({ ...series, levels: [...series.levels, newLevel] });
+  };
+  
+  const handleUpdateLevelName = (levelIndex: number) => {
+    if (!editingLevel || editingLevel.name.trim() === '') return;
+    const newLevels = [...series.levels];
+    newLevels[levelIndex].title = editingLevel.name.trim();
+    onUpdateSeries({ ...series, levels: newLevels });
+    setEditingLevel(null);
+  };
+  
   const handleDragStart = (e: React.DragEvent, type: 'level' | 'deck', sourceLevelIndex: number, deckId?: string) => {
-    if (!isEditing) return;
+    if (!isOrganizing) return;
     setDraggedItem({ type, sourceLevelIndex, deckId });
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', ''); // Necessary for Firefox
+    try { e.dataTransfer.setData('text/plain', 'dummy'); } catch(e) {}
   };
 
-  const handleDragOver = (e: React.DragEvent, levelIndex: number, deckId?: string) => {
-    if (!isEditing || !draggedItem) return;
+  const handleDragOver = (e: React.DragEvent, levelIndex: number, deckIndex?: number) => {
+    if (!isOrganizing || !draggedItem) return;
     e.preventDefault();
-
-    if (draggedItem.type === 'level' && deckId) {
-      setDropIndicator(null);
-      return; // Cannot drop a level onto a deck
-    }
-    
-    const rect = e.currentTarget.getBoundingClientRect();
-    const midpoint = rect.top + rect.height / 2;
-
-    if (deckId) { // Dragging over a deck
-        const deckIndex = series.levels[levelIndex].deckIds.indexOf(deckId);
-        setDropIndicator({ levelIndex, deckIndex: e.clientY < midpoint ? deckIndex : deckIndex + 1 });
-    } else { // Dragging over a level header
-        setDropIndicator({ levelIndex: e.clientY < midpoint ? levelIndex : levelIndex + 1, deckIndex: null });
+    if (draggedItem.type === 'level') {
+        setDropIndicator({ levelIndex: levelIndex, deckIndex: null });
+    } else if (draggedItem.type === 'deck') {
+        setDropIndicator({ levelIndex: levelIndex, deckIndex: deckIndex });
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (!isEditing || !draggedItem || !dropIndicator) return;
+    if (!isOrganizing || !draggedItem || !dropIndicator) return;
     e.preventDefault();
 
     const { type: draggedType, sourceLevelIndex, deckId: draggedDeckId } = draggedItem;
-    const { levelIndex: targetLevelIndex, deckIndex: rawTargetDeckIndex } = dropIndicator;
+    let { levelIndex: targetLevelIndex, deckIndex: targetDeckIndex } = dropIndicator;
     
     const newLevels = JSON.parse(JSON.stringify(series.levels));
 
     if (draggedType === 'level') {
-        if (rawTargetDeckIndex !== null) return; // Should be prevented by onDragOver, but check again
-        
+        if (targetDeckIndex !== null) return;
+        if (sourceLevelIndex === targetLevelIndex) return;
         const [movedLevel] = newLevels.splice(sourceLevelIndex, 1);
         const effectiveTargetIndex = sourceLevelIndex < targetLevelIndex ? targetLevelIndex - 1 : targetLevelIndex;
         newLevels.splice(effectiveTargetIndex, 0, movedLevel);
-
     } else if (draggedType === 'deck' && draggedDeckId) {
-        // Remove from source level
-        const sourceDeckIds = newLevels[sourceLevelIndex].deckIds as string[];
-        const originalDeckIndexInSource = sourceDeckIds.indexOf(draggedDeckId);
-        if (originalDeckIndexInSource > -1) {
-            sourceDeckIds.splice(originalDeckIndexInSource, 1);
-        }
-
-        // Add to target level
-        let targetDeckIndex = rawTargetDeckIndex === null ? 0 : rawTargetDeckIndex;
-        const targetDeckIds = newLevels[targetLevelIndex].deckIds as string[];
-        
-        if (sourceLevelIndex === targetLevelIndex && originalDeckIndexInSource < targetDeckIndex) {
-             targetDeckIndex--;
-        }
-        targetDeckIds.splice(targetDeckIndex, 0, draggedDeckId);
+        newLevels[sourceLevelIndex].deckIds = newLevels[sourceLevelIndex].deckIds.filter((id: string) => id !== draggedDeckId);
+        newLevels[targetLevelIndex].deckIds.splice(targetDeckIndex!, 0, draggedDeckId);
     }
     
-    onUpdateSeries({ ...series, levels: newLevels.filter(l => l.deckIds.length > 0 || l.title.trim() !== '') });
-
+    onUpdateSeries({ ...series, levels: newLevels.filter(l => l.deckIds.length > 0) });
     setDraggedItem(null);
     setDropIndicator(null);
   };
@@ -208,40 +188,43 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
     setDraggedItem(null);
     setDropIndicator(null);
   };
-  // --- End Drag and Drop ---
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
-      {/* Series Info & Edit Section */}
-      <div className="bg-surface rounded-lg shadow-md p-6">
+      <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
         <div className="mb-4">
           <h2 className="text-3xl font-bold text-text break-words">{series.name}</h2>
           {series.description && <p className="text-text-muted mt-1">{series.description}</p>}
-          <div className="mt-4">
-            <MasteryBar level={seriesMastery} />
-          </div>
         </div>
-        
-        <div className="flex flex-wrap gap-4 items-center">
-            <Button 
-                variant="primary"
-                onClick={() => onStartSeriesStudy(series.id)}
-                disabled={totalDueInSeries === 0}
-            >
+         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 items-center">
+            <div>
+              <div className="text-sm font-semibold text-text-muted flex justify-between">
+                  <span>Overall Mastery</span>
+                  <span>{Math.round(seriesMastery * 100)}%</span>
+              </div>
+              <MasteryBar level={seriesMastery} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-text-muted flex justify-between">
+                  <span>Completion</span>
+                  <span>{completedDeckIds.size} / {totalDecksInSeries}</span>
+              </div>
+              <ProgressBar current={completedDeckIds.size} total={totalDecksInSeries} />
+            </div>
+        </div>
+        <div className="flex flex-wrap gap-4 items-center mt-6 border-t border-border pt-6">
+            <Button variant="primary" onClick={() => onStartSeriesStudy(series.id)} disabled={totalDueInSeries === 0}>
                 <Icon name="zap" className="mr-2"/> Study All Due ({totalDueInSeries})
             </Button>
-            <Button variant="ghost" onClick={() => setIsEditing(!isEditing)}>
-              <Icon name={isEditing ? 'x-circle' : 'edit'} className="mr-2"/> {isEditing ? 'Finish Editing' : 'Edit Series'}
+            <Button variant="ghost" onClick={() => setIsOrganizing(!isOrganizing)}>
+              <Icon name={isOrganizing ? 'x-circle' : 'edit'} className="mr-2"/> {isOrganizing ? 'Finish Organizing' : 'Organize Series'}
             </Button>
             <Button variant="ghost" onClick={() => onUpdateSeries({ ...series, archived: true })}>
-                <Icon name="archive" className="mr-2" /> Archive Series
+                <Icon name="archive" className="mr-2" /> Archive
             </Button>
-            {isEditing && (
+            {isOrganizing && (
                 <>
-                    <div className="w-full border-t border-border/50 my-2"></div>
-                    <Button variant="secondary" onClick={() => setIsAddDeckModalOpen(true)}>
-                        <Icon name="plus" className="mr-2" /> Add New Deck
-                    </Button>
+                    <div className="w-full border-t border-border/50 my-2 md:hidden"></div>
                     <Button variant="secondary" onClick={() => setIsEditSeriesModalOpen(true)}>
                         <Icon name="edit" className="mr-2" /> Edit Info
                     </Button>
@@ -252,184 +235,139 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
             )}
         </div>
       </div>
-
-      {/* Deck List */}
-      <div className="space-y-6" onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
-        {isEditing && dropIndicator?.levelIndex === 0 && dropIndicator.deckIndex === null && <DropIndicator />}
-        {series.levels.map((level, levelIndex) => (
-          <div key={level.title + levelIndex}>
-            <div
-                draggable={isEditing}
-                onDragStart={(e) => handleDragStart(e, 'level', levelIndex)}
-                onDragOver={(e) => handleDragOver(e, levelIndex)}
-                onDragEnd={handleDragEnd}
-                className={`transition-opacity ${isEditing ? 'cursor-grab' : ''} ${draggedItem?.type === 'level' && draggedItem.sourceLevelIndex === levelIndex ? 'opacity-40' : ''}`}
-            >
-                <h3 className="text-2xl font-bold text-text mb-3 border-b-2 border-border pb-2">{level.title}</h3>
-            </div>
-            <div className="space-y-4">
-            {level.deckIds.map((deckId, deckIndex) => {
-              const deck = decks.find(d => d.id === deckId);
-              if (!deck) return null;
-
-              const unlocked = isDeckUnlocked(deck.id);
-              const completed = isDeckCompleted(deck.id);
-              const dueCount = getDueItemsCount(deck);
-              const canResume = sessionsToResume.has(deck.id);
-              const deckMastery = (() => {
-                  const activeItems = deck.questions.filter(q => !q.suspended);
-                  if (activeItems.length === 0) return 0;
-                  const totalMastery = activeItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0);
-                  return totalMastery / activeItems.length;
-              })();
-
-              return (
-                <div key={deck.id}>
-                    {isEditing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === deckIndex && <DropIndicator />}
+      
+      <div className="relative pl-4" onDrop={handleDrop} onDragOver={e => e.preventDefault()} onDragEnd={handleDragEnd}>
+        <div className="absolute top-0 bottom-0 left-8 w-0.5 bg-border -z-10"></div>
+        <div className="space-y-2">
+            {isOrganizing && dropIndicator?.levelIndex === 0 && dropIndicator.deckIndex === null && <DropIndicator />}
+            {series.levels.map((level, levelIndex) => (
+                <div key={`${level.title}-${levelIndex}`} onDragOver={e => isOrganizing && handleDragOver(e, levelIndex, 0)}>
                     <div
-                        draggable={isEditing}
-                        onDragStart={(e) => handleDragStart(e, 'deck', levelIndex, deckId)}
-                        onDragOver={(e) => handleDragOver(e, levelIndex, deckId)}
-                        onDragEnd={handleDragEnd}
-                        className={`bg-surface rounded-lg shadow-md transition-all duration-200 ${isEditing ? 'cursor-grab' : ''} ${draggedItem?.type === 'deck' && draggedItem.deckId === deckId ? 'opacity-40' : ''}`}
+                        draggable={isOrganizing}
+                        onDragStart={e => handleDragStart(e, 'level', levelIndex)}
+                        className={`flex items-center group transition-opacity ${isOrganizing ? 'cursor-grab' : ''} ${draggedItem?.type === 'level' && draggedItem.sourceLevelIndex === levelIndex ? 'opacity-40' : ''}`}
                     >
-                        <div className={`p-4 flex items-start justify-between ${!unlocked && !isEditing ? 'opacity-60' : ''}`}>
-                            <div className="flex-1 mr-4 min-w-0">
-                                <div className="flex items-start">
-                                <div className="flex-shrink-0 flex flex-col items-center mr-4 w-10 text-center">
-                                        {!unlocked && !isEditing && <Icon name="lock" className="w-6 h-6 text-text-muted" />}
-                                        {unlocked && !completed && <Icon name="unlock" className="w-6 h-6 text-primary" />}
-                                        {completed && <Icon name="check-circle" className="w-6 h-6 text-green-500" />}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <Link
-                                        href={`/decks/${deck.id}?seriesId=${series.id}`}
-                                        className="text-xl font-bold text-text break-words hover:text-primary transition-colors"
+                        <div className="w-8 flex-shrink-0"></div>
+                        <div className="flex-grow py-4">
+                            {editingLevel?.index === levelIndex ? (
+                                <input
+                                    type="text"
+                                    value={editingLevel.name}
+                                    onChange={e => setEditingLevel({ ...editingLevel, name: e.target.value })}
+                                    onBlur={() => handleUpdateLevelName(levelIndex)}
+                                    onKeyDown={e => e.key === 'Enter' && handleUpdateLevelName(levelIndex)}
+                                    className="text-2xl font-bold bg-background/50 border-b-2 border-primary focus:outline-none"
+                                    autoFocus
+                                />
+                            ) : (
+                                <h3 className="text-2xl font-bold text-text">{level.title}</h3>
+                            )}
+                        </div>
+                         {isOrganizing && (
+                            <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setEditingLevel({ index: levelIndex, name: level.title })}>
+                                <Icon name="edit" className="w-4 h-4" />
+                            </Button>
+                        )}
+                    </div>
+                    {isOrganizing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === 0 && <DropIndicator />}
+
+                    <div className="space-y-2">
+                        {level.deckIds.map((deckId, deckIndex) => {
+                            const deck = decks.find(d => d.id === deckId);
+                            if (!deck) return null;
+
+                            const isCompleted = completedDeckIds.has(deckId);
+                            const isNextUp = nextUpDeckId === deck.id;
+                            const isLocked = !completedDeckIds.has(deckId) && nextUpDeckId !== deckId;
+                            const dueCount = getDueItemsCount(deck);
+
+                            const status = isLocked ? 'locked' : (isCompleted ? 'completed' : (isNextUp ? 'next' : 'unlocked'));
+                            const lineClass = isCompleted || isNextUp ? 'bg-primary' : 'bg-border';
+                            
+                            const nodeIcon = {
+                                locked: <Icon name="lock" className="w-3 h-3 text-text-muted" />,
+                                completed: <Icon name="check-circle" className="w-5 h-5 text-white bg-green-500 rounded-full" />,
+                                next: <div className="w-3 h-3 bg-primary rounded-full ring-4 ring-primary/30"></div>,
+                                unlocked: <div className="w-3 h-3 bg-border rounded-full"></div>
+                            };
+
+                            return (
+                                <div key={deck.id}>
+                                <div
+                                    onDragOver={e => isOrganizing && handleDragOver(e, levelIndex, deckIndex)}
+                                    className={`relative flex items-center gap-4 transition-opacity ${draggedItem?.deckId === deckId ? 'opacity-40' : ''}`}
+                                >
+                                    <div className="absolute top-0 bottom-0 left-8 w-0.5 -z-10">
+                                        <div className={`h-1/2 w-full ${deckIndex > 0 ? lineClass : ''}`}></div>
+                                        <div className={`h-1/2 w-full ${deckIndex < level.deckIds.length -1 ? lineClass : ''}`}></div>
+                                    </div>
+                                    <div className="absolute left-8 -translate-x-1/2 h-8 w-8 rounded-full bg-surface flex items-center justify-center">
+                                        {nodeIcon[status]}
+                                    </div>
+                                    <div className="w-8 flex-shrink-0"></div>
+                                    
+                                    <div
+                                        draggable={isOrganizing}
+                                        onDragStart={e => handleDragStart(e, 'deck', levelIndex, deck.id)}
+                                        className={`flex-grow my-4 bg-surface rounded-lg shadow-md border hover:shadow-lg transition-all ${status === 'next' ? 'border-primary' : 'border-border'} ${status === 'locked' && !isOrganizing ? 'opacity-60' : ''}`}
                                     >
-                                        {deck.name}
-                                    </Link>
-                                    <div className="flex items-center space-x-4 text-sm text-text-muted">
-                                        <span>{deck.questions.length} question{deck.questions.length !== 1 ? 's' : ''}</span>
-                                        {unlocked && dueCount > 0 && (
-                                            <span className="font-semibold text-primary">
-                                                {dueCount} due
-                                            </span>
-                                        )}
+                                        <div className="p-4 flex items-center justify-between gap-2">
+                                            <div className="flex-grow min-w-0">
+                                                <Link href={`/decks/${deck.id}?seriesId=${series.id}`} className="font-bold text-text break-words hover:text-primary transition-colors">{deck.name}</Link>
+                                                <div className="text-sm text-text-muted">{deck.questions.length} questions</div>
+                                            </div>
+                                            <div className="flex-shrink-0 flex items-center gap-1">
+                                                {isOrganizing ? (
+                                                    <>
+                                                    <Button variant="ghost" size="sm" className="p-2 h-auto text-red-500" onClick={() => handleRemoveDeck(deck.id, deck.name)}>
+                                                        <Icon name="x" />
+                                                    </Button>
+                                                    <div className="cursor-grab p-2 text-text-muted">
+                                                        <Icon name="grip-vertical"/>
+                                                    </div>
+                                                    </>
+                                                ) : (
+                                                    <Link href={`/decks/${deck.id}/study?seriesId=${series.id}`} passAs={Button} variant="secondary" size="sm" disabled={isLocked || dueCount === 0 && !sessionsToResume.has(deck.id)}>
+                                                        {sessionsToResume.has(deck.id) ? 'Resume' : 'Study'} {dueCount > 0 && `(${dueCount})`}
+                                                    </Link>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
+                                {isOrganizing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === deckIndex + 1 && <DropIndicator />}
                                 </div>
-                                <div className="mt-3 pl-14">
-                                    <MasteryBar level={deckMastery} />
-                                </div>
+                            );
+                        })}
+                        {isOrganizing && (
+                            <div className="pl-16 py-2">
+                                <Button variant="ghost" size="sm" onClick={() => setIsAddDeckModalOpen(true)}>
+                                    <Icon name="plus" className="w-4 h-4 mr-2" /> Add Deck to Level
+                                </Button>
                             </div>
-                            <div className="flex-shrink-0 flex items-center space-x-1">
-                                {isEditing ? (
-                                    <>
-                                        <Button variant="secondary" size="sm" onClick={() => setDeckForBulkAdd(deck)}>
-                                            <Icon name="plus" className="w-4 h-4 mr-1"/> Questions
-                                        </Button>
-                                        <Button variant="danger" size="sm" onClick={() => handleRemoveDeck(deck.id, deck.name)}>
-                                            <Icon name="trash-2" className="w-4 h-4"/>
-                                        </Button>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Link href={`/decks/${deck.id}/study?seriesId=${series.id}`} passAs={Button} variant="primary" disabled={!unlocked || (dueCount === 0 && !canResume)}>
-                                            {completed ? 'Completed' : (canResume ? 'Resume' : 'Study')}
-                                        </Link>
-                                        <div className="relative">
-                                            <Button
-                                                variant="ghost"
-                                                className="p-2 h-auto"
-                                                onClick={(e) => {
-                                                    e.preventDefault(); e.stopPropagation();
-                                                    setMenuOpenForDeck(menuOpenForDeck === deck.id ? null : deck.id);
-                                                }}
-                                                aria-haspopup="true"
-                                                aria-expanded={menuOpenForDeck === deck.id}
-                                                aria-label={`More options for ${deck.name}`}
-                                            >
-                                                <Icon name="more-vertical" className="w-5 h-5" />
-                                            </Button>
-                                            {menuOpenForDeck === deck.id && (
-                                                <div
-                                                    ref={menuRef}
-                                                    className="absolute right-0 mt-2 w-56 bg-surface rounded-md shadow-lg py-1 z-10 ring-1 ring-black ring-opacity-5 animate-fade-in"
-                                                    style={{ animationDuration: '150ms' }}
-                                                >
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault(); e.stopPropagation();
-                                                            setDeckForBulkAdd(deck);
-                                                            setMenuOpenForDeck(null);
-                                                        }}
-                                                        className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20"
-                                                    >
-                                                        <Icon name="plus" className="w-4 h-4 mr-3" />
-                                                        Bulk Add Questions
-                                                    </button>
-                                                    <div className="border-t border-border my-1"></div>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault(); e.stopPropagation();
-                                                            handleRemoveDeck(deck.id, deck.name);
-                                                            setMenuOpenForDeck(null);
-                                                        }}
-                                                        className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                                    >
-                                                        <Icon name="trash-2" className="w-4 h-4 mr-3" />
-                                                        Remove from Series
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        </div>
+                        )}
                     </div>
-                    {isEditing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === deckIndex + 1 && <DropIndicator />}
+                    {isOrganizing && dropIndicator?.levelIndex === levelIndex + 1 && dropIndicator.deckIndex === null && <DropIndicator />}
                 </div>
-              );
-            })}
-            </div>
-            {isEditing && dropIndicator?.levelIndex === levelIndex + 1 && dropIndicator.deckIndex === null && <DropIndicator />}
-          </div>
-        ))}
+            ))}
+            {isOrganizing && (
+                <div className="pl-16 pt-4">
+                    <Button variant="secondary" onClick={handleAddLevel}>
+                        <Icon name="plus" className="w-4 h-4 mr-2" /> Add New Level
+                    </Button>
+                </div>
+            )}
+        </div>
       </div>
-
-      {/* Modals */}
+      
       {isAddDeckModalOpen && (
-        <AddDeckToSeriesModal
-            isOpen={isAddDeckModalOpen}
-            onClose={() => setIsAddDeckModalOpen(false)}
-            onAddDeck={(newDeck) => onAddDeckToSeries(series.id, newDeck)}
-        />
+        <AddDeckToSeriesModal isOpen={isAddDeckModalOpen} onClose={() => setIsAddDeckModalOpen(false)} onAddDeck={(newDeck) => onAddDeckToSeries(series.id, newDeck)} />
       )}
       {isEditSeriesModalOpen && (
-        <EditSeriesModal
-            series={series}
-            onClose={() => setIsEditSeriesModalOpen(false)}
-            onSave={(data) => {
-                onUpdateSeries({ ...series, name: data.name, description: data.description });
-                setIsEditSeriesModalOpen(false);
-            }}
-        />
+        <EditSeriesModal series={series} onClose={() => setIsEditSeriesModalOpen(false)} onSave={(data) => { onUpdateSeries({ ...series, name: data.name, description: data.description }); setIsEditSeriesModalOpen(false); }} />
       )}
       {deckForBulkAdd && (
-        <BulkAddModal
-            isOpen={!!deckForBulkAdd}
-            onClose={() => setDeckForBulkAdd(null)}
-            deckType={deckForBulkAdd.type}
-            onAddItems={(items) => {
-                const updatedDeck = {
-                    ...deckForBulkAdd,
-                    questions: [...deckForBulkAdd.questions, ...(items as Question[])]
-                };
-                onUpdateDeck(updatedDeck);
-                setDeckForBulkAdd(null);
-            }}
-        />
+        <BulkAddModal isOpen={!!deckForBulkAdd} onClose={() => setDeckForBulkAdd(null)} deckType={deckForBulkAdd.type} onAddItems={(items) => { const updatedDeck = { ...deckForBulkAdd, questions: [...deckForBulkAdd.questions, ...(items as Question[])]}; onUpdateDeck(updatedDeck); setDeckForBulkAdd(null); }} />
       )}
     </div>
   );

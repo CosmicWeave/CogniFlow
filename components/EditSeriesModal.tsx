@@ -32,6 +32,21 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
     }
   }, [series]);
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const pastedText = e.clipboardData.getData('text');
+    if (pastedText.trim().startsWith('{')) {
+        try {
+            const parsed = JSON.parse(pastedText);
+            if (typeof parsed.seriesName === 'string' && typeof parsed.seriesDescription === 'string') {
+                e.preventDefault(); // Prevent the raw JSON from being pasted into the input
+                setName(parsed.seriesName);
+                setDescription(parsed.seriesDescription);
+                addToast('Series details populated from JSON!', 'success');
+            }
+        } catch (error) { /* Not a valid JSON, or not the format we want. Ignore and let the default paste happen. */ }
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -62,6 +77,7 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onPaste={handlePaste}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                 placeholder="e.g., Introduction to Algebra"
               />
@@ -72,6 +88,7 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
                 id="series-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                onPaste={handlePaste}
                 rows={3}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                 placeholder="A collection of decks covering core concepts."

@@ -407,9 +407,10 @@ export const useDataManagement = ({
             dispatch({ type: 'ADD_SERIES', payload: newSeries });
             addToast(`Series "${newSeries.name}" created.`, 'success');
             await db.addDeckSeries([newSeries]);
+            navigate(`/series/${newSeries.id}?edit=true`);
         }
         setSeriesToEdit(null);
-    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit]);
+    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit, navigate]);
     
     const handleDeleteSeries = useCallback(async (seriesId: string) => {
         const { deckSeries, decks } = useStore.getState();

@@ -126,7 +126,7 @@ const quizFields = [
       "title": "Level 1: The Foundation",
       "decks": [
         {
-          "name": "Deck 1.1: HTML Basics",
+          "name": "Level 1.1: HTML Basics",
           "description": "The building blocks of the web.",
           "questions": [
             {
@@ -142,7 +142,7 @@ const quizFields = [
             }
           ]
         },
-        { "name": "Deck 1.2: CSS Fundamentals", "description": "...", "questions": [] }
+        { "name": "Level 1.2: CSS Fundamentals", "description": "...", "questions": [] }
       ]
     }
   ]
@@ -167,7 +167,7 @@ The goal is to create a structured and progressive learning path that guides the
 1.  **Learning Path Structure:**
     -   Organize the learning path into logical "Levels" (e.g., Level 1, Level 2, up to Level 4 or 5). Each level must have a title and represent a significant step up in knowledge.
     -   Each Level should contain one or more related "Decks".
-    -   The name of each deck must reflect this structure, e.g., "Deck 1.1: Foundations of X", "Deck 1.2: Core Concepts of Y", "Deck 2.1: Advanced Techniques in Z".
+    -   The name of each deck must reflect this structure, e.g., "Level 1.1: Foundations of X", "Level 1.2: Core Concepts of Y", "Level 2.1: Advanced Techniques in Z".
 
 2.  **High-Quality Content (Crucial):**
     -   **Series Name & Description:** Create a compelling and descriptive name (e.g., "Topic Mastery Path: The Contextual Approach") and a comprehensive summary for the entire learning path.
@@ -183,16 +183,22 @@ This learning path provides a deep understanding of...
 Level 1: Core Principles & Historical Context in Skåne
 Goal: Define ecological sustainable forestry...
 Focus: Shifting from purely extractive forestry...
-Deck 1.1: Foundations of Sustainable Forest Management (SFM) in Skåne
+Level 1.1: Foundations of Sustainable Forest Management (SFM) in Skåne
 Topics: Definitional evolution of forestry...
 Approx. Questions: 30-40
 
 ---
 
 Now, based on all the above requirements, generate the complete text outline.
+
+Finally, at the very end of your response, provide a JSON object with the series name and description you created, like this:
+{
+  "seriesName": "The full series name you generated above",
+  "seriesDescription": "The full series description you generated above"
+}
 `;
 
-  const deckFromOutlinePromptTemplate = `You are an expert content creator. I have provided a text outline for a learning path. Your task is to generate the JSON for the **first deck (e.g., Deck 1.1)** from that outline.
+  const deckFromOutlinePromptTemplate = `You are an expert content creator. I have provided a text outline for a learning path. Your task is to generate the JSON for the **first deck (e.g., Level 1.1)** from that outline.
 
 **PRIMARY INSTRUCTIONS:**
 
@@ -212,7 +218,7 @@ Now, based on all the above requirements, generate the complete text outline.
 - The final output MUST be ONLY a single, raw JSON object, starting with \`{\` and ending with \`}\`. Do not include any surrounding text, explanations, or markdown formatting.
 - The JSON object must follow this exact schema:
 {
-  "name": "The exact name for the deck from your outline, e.g., 'Deck 1.1: Foundations...'",
+  "name": "The exact name for the deck from your outline, e.g., 'Level 1.1: Foundations...'",
   "description": "A concise description of this specific deck's content, based on its topics.",
   "questions": [
     {
@@ -253,7 +259,7 @@ The final output MUST be ONLY a single, raw JSON object without any surrounding 
       "title": "Level 1: The Basics",
       "decks": [
         {
-          "name": "Deck 1.1: Deck Name",
+          "name": "Level 1.1: Deck Name",
           "description": "Description of this deck's content.",
           "questions": [
             {
@@ -398,7 +404,7 @@ Now, generate the complete JSON deck based on all the above requirements.`;
       <AccordionItem title="Step 2: Generate Individual Decks (JSON)" iconName="zap">
          <div className="space-y-4 bg-blue-900/10 dark:bg-blue-900/20 p-6 rounded-lg border border-blue-500/20">
             <p className="text-blue-800/90 dark:text-blue-200/90">
-              After the AI generates your text outline, use this prompt to generate the JSON for the <strong>first deck</strong>. Copy your text outline and paste it into the AI chat first, then copy this prompt. After the first deck is generated, you can copy the prompt again, edit it to ask for the next deck (e.g., "second deck (Deck 1.2)"), and continue the process.
+              After the AI generates your text outline, use this prompt to generate the JSON for the <strong>first deck</strong>. Copy your text outline and paste it into the AI chat first, then copy this prompt. After the first deck is generated, you can copy the prompt again, edit it to ask for the next deck (e.g., "second deck (Level 1.2)"), and continue the process.
             </p>
             <div className="relative">
                 <CodeBlock>{deckFromOutlinePromptTemplate}</CodeBlock>
