@@ -220,6 +220,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
             description: seriesDescription,
             levels: newLevels,
             archived: false,
+            createdAt: new Date().toISOString(),
         };
 
         onAddSeriesWithDecks(newSeries, allNewDecks);

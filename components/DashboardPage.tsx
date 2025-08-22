@@ -1,6 +1,5 @@
 
 
-
 import React, { useMemo } from 'react';
 import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck } from '../types';
 import Button from './ui/Button';
@@ -58,9 +57,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
     const recentSeries = [...activeSeriesList].sort((a,b) => {
         const decksA = (a.levels || []).flatMap(l => l.deckIds || []).map(id => decks.find(d => d.id === id)).filter(Boolean);
         const decksB = (b.levels || []).flatMap(l => l.deckIds || []).map(id => decks.find(d => d.id === id)).filter(Boolean);
+        
         const lastOpenedA = Math.max(0, ...decksA.map(d => new Date(d.lastOpened || 0).getTime()));
         const lastOpenedB = Math.max(0, ...decksB.map(d => new Date(d.lastOpened || 0).getTime()));
-        return lastOpenedB - lastOpenedA;
+
+        const effectiveTimeA = Math.max(lastOpenedA, new Date(a.createdAt || 0).getTime());
+        const effectiveTimeB = Math.max(lastOpenedB, new Date(b.createdAt || 0).getTime());
+
+        return effectiveTimeB - effectiveTimeA;
     }).slice(0, 2);
 
     const recentDecks = [...standaloneDecks].sort((a,b) => (b.lastOpened || '').localeCompare(a.lastOpened || '')).slice(0, 2);
@@ -116,7 +120,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {recentSeries.map(series => {
               const data = seriesData.get(series.id) || { dueCount: 0, mastery: 0 };
-              const totalDecks = (series.levels || []).reduce((sum, level) => sum + (level.deckIds || []).length, 0);
               return (
                 <SeriesListItem
                   key={series.id}

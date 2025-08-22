@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { DeckSeries } from '../types';
 import Button from './ui/Button';
@@ -9,12 +10,13 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 interface EditSeriesModalProps {
   series: DeckSeries | null;
   onClose: () => void;
-  onSave: (data: { id: string | null; name: string; description: string }) => void;
+  onSave: (data: { id: string | null; name: string; description: string; scaffold?: any; }) => void;
 }
 
 const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSave }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [scaffold, setScaffold] = useState<any | null>(null);
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, true);
@@ -25,23 +27,27 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
     if (series) {
       setName(series.name);
       setDescription(series.description);
+      setScaffold(null);
     } else {
       // Reset for "new series" case
       setName('');
       setDescription('');
+      setScaffold(null);
     }
   }, [series]);
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (!isNew) return;
     const pastedText = e.clipboardData.getData('text');
     if (pastedText.trim().startsWith('{')) {
         try {
             const parsed = JSON.parse(pastedText);
-            if (typeof parsed.seriesName === 'string' && typeof parsed.seriesDescription === 'string') {
+            if (typeof parsed.seriesName === 'string' && typeof parsed.seriesDescription === 'string' && Array.isArray(parsed.levels)) {
                 e.preventDefault(); // Prevent the raw JSON from being pasted into the input
                 setName(parsed.seriesName);
                 setDescription(parsed.seriesDescription);
-                addToast('Series details populated from JSON!', 'success');
+                setScaffold(parsed);
+                addToast('Series details and structure populated from JSON scaffold!', 'success');
             }
         } catch (error) { /* Not a valid JSON, or not the format we want. Ignore and let the default paste happen. */ }
     }
@@ -57,6 +63,7 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
       id: isNew ? null : series.id,
       name: name.trim(),
       description: description.trim(),
+      scaffold: isNew ? scaffold : null,
     });
   };
 
@@ -81,6 +88,7 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                 placeholder="e.g., Introduction to Algebra"
               />
+               {isNew && <p className="text-xs text-text-muted mt-1">You can paste a full JSON scaffold object here to auto-populate.</p>}
             </div>
             <div>
               <label htmlFor="series-description" className="block text-sm font-medium text-text-muted mb-1">Description</label>
@@ -94,6 +102,36 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
                 placeholder="A collection of decks covering core concepts."
               />
             </div>
+            {isNew && scaffold && (
+              <div className="space-y-2 animate-fade-in">
+                <h4 className="text-sm font-semibold text-text-muted">Structure Preview</h4>
+                <div className="bg-background border border-border rounded-md p-3 max-h-48 overflow-y-auto text-sm">
+                  <ul className="space-y-3">
+                    {scaffold.levels.map((level: any, levelIndex: number) => (
+                      <li key={levelIndex}>
+                        <div className="flex items-center gap-2 font-medium text-text">
+                          <Icon name="layers" className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                          <span className="font-semibold">{level.title}</span>
+                        </div>
+                        <ul className="pl-6 mt-1 space-y-1">
+                          {(level.decks || []).map((deck: any, deckIndex: number) => (
+                            <li key={deckIndex} className="flex items-center gap-2 text-text-muted">
+                              <Icon name="help-circle" className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span>{deck.name}</span>
+                            </li>
+                          ))}
+                           {(!level.decks || level.decks.length === 0) && (
+                                <li className="flex items-center gap-2 text-xs text-text-muted/70 italic">
+                                    (No decks in this level)
+                                </li>
+                           )}
+                        </ul>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end p-4 bg-background/50 border-t border-border">

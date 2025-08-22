@@ -7,7 +7,7 @@ import DeckSortControl from './ui/DeckSortControl';
 import { useStore } from '../store/store';
 import { getEffectiveMasteryLevel } from '../services/srs';
 
-type SortPreference = 'name' | 'progress' | 'mastery';
+type SortPreference = 'recent' | 'name' | 'progress' | 'mastery';
 type FilterPreference = 'all' | 'inProgress' | 'completed';
 
 interface AllSeriesPageProps {
@@ -35,7 +35,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
 }) => {
     const { deckSeries: allSeries, decks } = useStore();
     const [searchTerm, setSearchTerm] = useState('');
-    const [sort, setSort] = useState<SortPreference>('name');
+    const [sort, setSort] = useState<SortPreference>('recent');
     const [filter, setFilter] = useState<FilterPreference>('all');
     
     const series = useMemo(() => allSeries.filter(s => !s.archived && !s.deletedAt), [allSeries]);
@@ -87,6 +87,19 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
         }
         
         switch(sort) {
+            case 'recent':
+                return filteredSeries.sort((a, b) => {
+                    const decksA = (a.levels || []).flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter((d): d is Deck => !!d);
+                    const decksB = (b.levels || []).flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter((d): d is Deck => !!d);
+                    
+                    const lastOpenedA = Math.max(0, ...decksA.map(d => new Date(d.lastOpened || 0).getTime()));
+                    const lastOpenedB = Math.max(0, ...decksB.map(d => new Date(d.lastOpened || 0).getTime()));
+
+                    const effectiveTimeA = Math.max(lastOpenedA, new Date(a.createdAt || 0).getTime());
+                    const effectiveTimeB = Math.max(lastOpenedB, new Date(b.createdAt || 0).getTime());
+
+                    return effectiveTimeB - effectiveTimeA;
+                });
             case 'progress':
                 return filteredSeries.sort((a, b) => {
                     const progressA = (seriesProgress.get(a.id)?.size || 0) / ((a.levels || []).reduce((acc, l) => acc + (l.deckIds || []).length, 0) || 1);
@@ -104,9 +117,10 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                 return filteredSeries.sort((a,b) => a.name.localeCompare(b.name));
         }
 
-    }, [series, searchTerm, sort, filter, seriesProgress, seriesData]);
+    }, [series, searchTerm, sort, filter, seriesProgress, seriesData, decks]);
 
     const sortOptions: readonly { key: SortPreference; label: string }[] = [
+      { key: 'recent', label: 'Recent' },
       { key: 'name', label: 'Name' },
       { key: 'progress', label: 'Progress' },
       { key: 'mastery', label: 'Mastery' },

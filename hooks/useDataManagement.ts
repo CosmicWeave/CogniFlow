@@ -9,6 +9,7 @@ import { createNatureSampleDeck, createSampleSeries } from '../services/sampleDa
 import { resetReviewable } from '../services/srs';
 import { RestoreData } from '../services/googleDriveService';
 import { useStore } from '../store/store';
+import { createQuestionsFromImport } from '../services/importService';
 
 interface UseDataManagementProps {
     sessionsToResume: Set<string>;
@@ -395,22 +396,73 @@ export const useDataManagement = ({
         }
     }, [addToast, dispatch]);
 
-    const handleSaveSeries = useCallback(async (data: { id: string | null, name: string, description: string }) => {
+    const handleAddSeriesWithDecks = useCallback(async (series: DeckSeries, decks: Deck[]) => {
+        try {
+            dispatch({ type: 'ADD_SERIES_WITH_DECKS', payload: { series, decks }});
+
+            await Promise.all([
+                db.addDecks(decks),
+                db.addDeckSeries([series])
+            ]);
+
+            addToast(`Successfully imported series "${series.name}" with ${decks.length} decks.`, "success");
+        } catch (error) {
+            console.error("Failed to create series with decks:", error);
+            addToast("There was an error creating the new series.", "error");
+        }
+    }, [dispatch, addToast]);
+    
+    const handleSaveSeries = useCallback(async (data: { id: string | null, name: string, description: string, scaffold?: any }) => {
         if (data.id) {
             const seriesToUpdate = useStore.getState().deckSeries.find(s => s.id === data.id);
             if(seriesToUpdate) {
                 const updatedSeries = { ...seriesToUpdate, name: data.name, description: data.description };
                 await handleUpdateSeries(updatedSeries);
             }
-        } else {
-            const newSeries: DeckSeries = { id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description, levels: [] };
-            dispatch({ type: 'ADD_SERIES', payload: newSeries });
-            addToast(`Series "${newSeries.name}" created.`, 'success');
-            await db.addDeckSeries([newSeries]);
-            navigate(`/series/${newSeries.id}?edit=true`);
+        } else { // creating new series
+            if (data.scaffold && Array.isArray(data.scaffold.levels)) {
+                // Create series from scaffold
+                const { levels: levelsData } = data.scaffold;
+                const allNewDecks: QuizDeck[] = [];
+                const newLevels: SeriesLevel[] = levelsData.map((levelData: any) => {
+                    const decksForLevel: QuizDeck[] = (levelData.decks || []).map((d: any) => ({
+                        id: crypto.randomUUID(),
+                        name: d.name,
+                        description: d.description,
+                        type: DeckType.Quiz,
+                        questions: createQuestionsFromImport(d.questions || [])
+                    }));
+                    allNewDecks.push(...decksForLevel);
+                    return {
+                        title: levelData.title,
+                        deckIds: decksForLevel.map(deck => deck.id)
+                    };
+                });
+                
+                const newSeries: DeckSeries = {
+                    id: crypto.randomUUID(),
+                    type: 'series',
+                    name: data.name,
+                    description: data.description,
+                    levels: newLevels,
+                    archived: false,
+                    createdAt: new Date().toISOString(),
+                };
+    
+                await handleAddSeriesWithDecks(newSeries, allNewDecks);
+                addToast(`Series "${newSeries.name}" created from scaffold.`, 'success');
+                navigate(`/series/${newSeries.id}?edit=true`);
+            } else {
+                // Original logic for creating an empty series
+                const newSeries: DeckSeries = { id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description, levels: [], createdAt: new Date().toISOString() };
+                dispatch({ type: 'ADD_SERIES', payload: newSeries });
+                addToast(`Series "${newSeries.name}" created.`, 'success');
+                await db.addDeckSeries([newSeries]);
+                navigate(`/series/${newSeries.id}?edit=true`);
+            }
         }
         setSeriesToEdit(null);
-    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit, navigate]);
+    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit, navigate, handleAddSeriesWithDecks]);
     
     const handleDeleteSeries = useCallback(async (seriesId: string) => {
         const { deckSeries, decks } = useStore.getState();
@@ -449,22 +501,6 @@ export const useDataManagement = ({
         const updatedSeries = { ...series, levels: [...series.levels, newLevel] };
         await handleUpdateSeries(updatedSeries);
     }, [handleAddDecks, handleUpdateSeries]);
-    
-    const handleAddSeriesWithDecks = useCallback(async (series: DeckSeries, decks: Deck[]) => {
-        try {
-            dispatch({ type: 'ADD_SERIES_WITH_DECKS', payload: { series, decks }});
-
-            await Promise.all([
-                db.addDecks(decks),
-                db.addDeckSeries([series])
-            ]);
-
-            addToast(`Successfully imported series "${series.name}" with ${decks.length} decks.`, "success");
-        } catch (error) {
-            console.error("Failed to create series with decks:", error);
-            addToast("There was an error creating the new series.", "error");
-        }
-    }, [dispatch, addToast]);
 
     const handleRestoreDeck = useCallback(async (deckId: string) => {
         const deck = useStore.getState().decks.find(d => d.id === deckId);

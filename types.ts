@@ -1,4 +1,5 @@
 
+
 export enum ReviewRating {
   Again = 1,
   Hard = 2,
@@ -91,6 +92,7 @@ export interface DeckSeries {
     levels: SeriesLevel[]; // A nested structure for decks
     archived?: boolean;
     deletedAt?: string; // ISO string for date
+    createdAt?: string; // ISO string for date
 }
 
 // Map of seriesId -> Set of completed deck IDs
