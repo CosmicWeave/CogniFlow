@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { Deck, Folder } from '../types';
 import DeckListItem from './DeckListItem';
@@ -50,21 +49,21 @@ const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle
 
   return (
     <div
-      className={`rounded-lg transition-colors ${isDragOver ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100/50 dark:bg-gray-800/20'}`}
+      className={`rounded-lg transition-all duration-200 ${isDragOver ? 'bg-primary/20 ring-2 ring-primary ring-inset' : 'bg-surface border border-border'}`}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
-      <div className="border-b border-gray-200 dark:border-gray-700/50">
+      <div className="border-b border-border">
         <button
           onClick={onToggle}
           className="w-full flex justify-between items-center text-left p-4"
           aria-expanded={isOpen}
         >
           <div className="flex items-center">
-            <Icon name="chevron-down" className={`w-5 h-5 transition-transform duration-300 mr-3 ${isOpen ? '' : '-rotate-90'} text-gray-500`}/>
+            <Icon name="chevron-down" className={`w-5 h-5 transition-transform duration-300 mr-3 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
             <Icon name="folder" className="w-6 h-6 mr-3 text-yellow-600 dark:text-yellow-500" />
-            <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200">{folder.name}</h3>
+            <h3 className="text-xl font-bold text-text">{folder.name}</h3>
           </div>
           <div className="flex items-center gap-1">
              <Button variant="ghost" className="p-2 h-auto" onClick={(e) => { e.stopPropagation(); onEditFolder(folder); }} aria-label={`Edit folder ${folder.name}`}>
@@ -95,7 +94,10 @@ const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle
               />
             ))
           ) : (
-            <p className="text-center text-gray-500 dark:text-gray-400 py-4">This folder is empty. Drag a deck here to add it.</p>
+            <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-border rounded-md m-4 text-center">
+                <Icon name="grip-vertical" className="w-8 h-8 text-text-muted mb-2" />
+                <p className="text-sm font-medium text-text-muted">Drag a deck here to organize it!</p>
+            </div>
           )}
         </div>
       )}

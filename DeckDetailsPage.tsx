@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating } from '../types';
 import Button from './ui/Button';
@@ -361,11 +360,6 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                   <Link href={`/decks/${deck.id}/cram`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={allItems.length === 0} className="font-semibold w-full sm:w-auto" title="Review all cards in random order, without affecting your SRS schedule.">
                     <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> Cram
                   </Link>
-                  {deck.type === DeckType.Flashcard && activeItems.length > 0 && (
-                     <Link href={`/decks/${deck.id}/study-reversed`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={!!deck.locked} className="font-semibold w-full sm:w-auto" title="Study cards from back to front.">
-                        <Icon name="repeat" className="w-5 h-5 mr-2" /> Study Reversed
-                    </Link>
-                  )}
                   {deck.type === DeckType.Quiz && activeItems.length > 0 && (
                      <Link href={`/decks/${deck.id}/study-flip`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={!!deck.locked} className="font-semibold w-full sm:w-auto">
                         <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> Review as Flashcards

@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useMemo } from 'react';
 import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck } from '../types';
 import DeckList from './DeckList';
@@ -110,11 +105,22 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
                 </div>
             </div>
 
-            <DeckList 
-                decks={filteredAndSortedDecks} 
-                folders={sortedFolders}
-                {...props}
-            />
+            {filteredAndSortedDecks.length === 0 && searchTerm ? (
+                <div className="text-center py-20">
+                    <Icon name="search" className="w-16 h-16 mx-auto text-text-muted/50"/>
+                    <h2 className="mt-4 text-2xl font-bold text-text-muted">No Decks Found</h2>
+                    <p className="mt-2 text-text-muted">Your search for "{searchTerm}" did not match any decks.</p>
+                    <Button variant="secondary" onClick={() => setSearchTerm('')} className="mt-6">
+                        Clear Search
+                    </Button>
+                </div>
+            ) : (
+                <DeckList 
+                    decks={filteredAndSortedDecks} 
+                    folders={sortedFolders}
+                    {...props}
+                />
+            )}
         </div>
     );
 };

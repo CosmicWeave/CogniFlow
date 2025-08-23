@@ -1,5 +1,6 @@
 
 
+
 import { useCallback } from 'react';
 import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel, ReviewRating, ReviewLog } from '../types';
 import * as db from '../services/db';
@@ -165,18 +166,17 @@ export const useDataManagement = ({
         if (!deck) return;
 
         let newDeck: Deck;
+        
+        // Extract only SRS properties from the reviewed item. This is crucial.
+        // It prevents overwriting content fields (like front/back) which might be
+        // temporarily swapped for features like "Study Reversed".
+        const { id, dueDate, interval, easeFactor, suspended, masteryLevel, lastReviewed, lapses } = reviewedItem;
+        const srsUpdates = { dueDate, interval, easeFactor, suspended, masteryLevel, lastReviewed, lapses };
+
         if (deck.type === DeckType.Flashcard) {
-            newDeck = { ...deck, cards: deck.cards.map(c => c.id === reviewedItem.id ? (reviewedItem as Card) : c) };
+            newDeck = { ...deck, cards: deck.cards.map(c => c.id === id ? { ...c, ...srsUpdates } : c) };
         } else { // QuizDeck
-            newDeck = { 
-                ...deck, 
-                questions: deck.questions.map(q => {
-                    if (q.id === reviewedItem.id) {
-                        return { ...q, ...reviewedItem };
-                    }
-                    return q;
-                }) 
-            };
+            newDeck = { ...deck, questions: deck.questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
         }
         
         await handleUpdateDeck(newDeck, { silent: true });
@@ -205,7 +205,7 @@ export const useDataManagement = ({
             setSeriesProgress(prev => {
                 const isAlreadyCompleted = (prev.get(seriesId) || new Set()).has(deckId);
                 
-                if (!hasNewItems && !isAlreadyCompleted) {
+                if (!hasNewItems && !isAlreadyCompleted && items.length > 0) {
                     const newProgress = new Map(prev);
                     const currentSeriesProgress = new Set(newProgress.get(seriesId) || []);
                     
@@ -623,7 +623,7 @@ export const useDataManagement = ({
                     const items = deck.type === DeckType.Quiz ? deck.questions : deck.cards;
                     const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
 
-                    if (!hasNewItems) {
+                    if (!hasNewItems && items.length > 0) {
                         completedInSeries.add(deckId);
                         seriesWasUpdated = true;
                     }
@@ -664,8 +664,9 @@ export const useDataManagement = ({
         handleUpdateDeck,
         handleMoveDeck,
         handleItemReviewed,
-        handleResetDeckProgress,
         handleExportData,
+        handleResetDeckProgress,
+        handleFactoryReset,
         handleStartGeneralStudy,
         handleStartSeriesStudy,
         handleSaveFolder,
@@ -679,7 +680,6 @@ export const useDataManagement = ({
         handleRestoreSeries,
         handleDeleteDeckPermanently,
         handleDeleteSeriesPermanently,
-        handleFactoryReset,
         reconcileSeriesProgress,
     };
 };

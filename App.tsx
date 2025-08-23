@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress } from './types';
+import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel } from './types';
 import * as db from './services/db';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import OfflineIndicator from './components/ui/OfflineIndicator';
@@ -23,8 +22,11 @@ import { usePullToRefresh } from './hooks/usePullToRefresh';
 import Header from './components/Header';
 import AppRouter from './components/AppRouter';
 import CommandPalette from './components/CommandPalette';
-import { IconName } from './components/ui/Icon';
+import Icon, { IconName } from './components/ui/Icon';
 import { useStore } from './store/store';
+import { analyzeFileContent, createCardsFromImport, createQuestionsFromImport } from './services/importService';
+import DroppedFileConfirmModal, { DroppedFileAnalysis } from './components/DroppedFileConfirmModal';
+import Breadcrumbs, { BreadcrumbItem } from './components/ui/Breadcrumbs';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -50,6 +52,10 @@ const App: React.FC = () => {
   const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
   const [openFolderIds, setOpenFolderIds] = useState(new Set<string>());
   const [seriesProgress, setSeriesProgress] = useState<SeriesProgress>(new Map());
+
+  const [isDraggingOverWindow, setIsDraggingOverWindow] = useState(false);
+  const [droppedFileAnalysis, setDroppedFileAnalysis] = useState<DroppedFileAnalysis | null>(null);
+  const dragCounter = useRef(0);
 
   const [installPrompt, handleInstall] = useInstallPrompt();
   const { addToast } = useToast();
@@ -112,7 +118,79 @@ const App: React.FC = () => {
     setFolderToEdit: openFolderEditor,
     setSeriesToEdit: openSeriesEditor,
   });
-  const { handleAddDecks } = dataHandlers;
+  const { handleAddDecks, handleAddSeriesWithDecks, handleRestoreData } = dataHandlers;
+
+    const handleDroppedFileConfirm = (analysis: DroppedFileAnalysis, deckName?: string) => {
+    setDroppedFileAnalysis(null);
+    try {
+        switch (analysis.type) {
+            case 'backup':
+                handleRestoreData(analysis.data);
+                break;
+            case 'quiz_series':
+                const { seriesName, seriesDescription, levels: levelsData } = analysis.data;
+                const allNewDecks: QuizDeck[] = [];
+                const newLevels: SeriesLevel[] = levelsData.map((levelData: any) => {
+                    const decksForLevel: QuizDeck[] = levelData.decks.map((d: any) => ({
+                        id: crypto.randomUUID(),
+                        name: d.name,
+                        description: d.description,
+                        type: DeckType.Quiz,
+                        questions: createQuestionsFromImport(d.questions)
+                    }));
+                    allNewDecks.push(...decksForLevel);
+                    return {
+                        title: levelData.title,
+                        deckIds: decksForLevel.map(deck => deck.id)
+                    };
+                });
+                const newSeries: DeckSeries = {
+                    id: crypto.randomUUID(),
+                    type: 'series',
+                    name: seriesName,
+                    description: seriesDescription,
+                    levels: newLevels,
+                    createdAt: new Date().toISOString(),
+                };
+                handleAddSeriesWithDecks(newSeries, allNewDecks);
+                break;
+            
+            case 'quiz':
+            case 'flashcard':
+                const finalDeckName = deckName || (analysis.type === 'quiz' ? analysis.data.name : '');
+                if (!finalDeckName) {
+                    addToast('A deck name is required.', 'error');
+                    return;
+                }
+                let newDeck: Deck;
+                if (analysis.type === 'flashcard') {
+                    const cards = createCardsFromImport(analysis.data);
+                    newDeck = {
+                        id: crypto.randomUUID(),
+                        name: finalDeckName,
+                        type: DeckType.Flashcard,
+                        cards: cards,
+                        description: `${cards.length} imported flashcard${cards.length === 1 ? '' : 's'}.`
+                    } as FlashcardDeck;
+                } else { // Quiz
+                    const questions = createQuestionsFromImport(analysis.data.questions);
+                    newDeck = {
+                        id: crypto.randomUUID(),
+                        name: finalDeckName,
+                        description: analysis.data.description,
+                        type: DeckType.Quiz,
+                        questions: questions
+                    } as QuizDeck;
+                }
+                handleAddDecks([newDeck]);
+                addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
+                break;
+        }
+    } catch (error) {
+        console.error("Failed to confirm dropped file action:", error);
+        addToast(`An error occurred: ${error instanceof Error ? error.message : "Unknown error"}`, 'error');
+    }
+};
 
   // Global keydown listener for Command Palette
   useEffect(() => {
@@ -121,7 +199,7 @@ const App: React.FC = () => {
         e.preventDefault();
         const target = e.target as HTMLElement;
         const isInputFocused = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-        const isAnyModalOpen = isImportModalOpen || isRestoreModalOpen || isResetProgressModalOpen || isConfirmModalOpen || folderToEdit !== null || seriesToEdit !== null;
+        const isAnyModalOpen = isImportModalOpen || isRestoreModalOpen || isResetProgressModalOpen || isConfirmModalOpen || folderToEdit !== null || seriesToEdit !== null || droppedFileAnalysis !== null;
         if (!isInputFocused && !isAnyModalOpen) {
           openCommandPalette();
         }
@@ -129,7 +207,89 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isImportModalOpen, isRestoreModalOpen, isResetProgressModalOpen, isConfirmModalOpen, folderToEdit, seriesToEdit, openCommandPalette]);
+  }, [isImportModalOpen, isRestoreModalOpen, isResetProgressModalOpen, isConfirmModalOpen, folderToEdit, seriesToEdit, droppedFileAnalysis, openCommandPalette]);
+
+  // Global Drag and Drop handler
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) => {
+        return e.dataTransfer?.types.includes('Files');
+    };
+
+    const handleDragEnter = (e: DragEvent) => {
+        if (isFileDrag(e)) {
+            e.preventDefault();
+            dragCounter.current++;
+            setIsDraggingOverWindow(true);
+        }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+        if (isFileDrag(e)) {
+            e.preventDefault();
+        }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+        if (dragCounter.current > 0) {
+            e.preventDefault();
+            dragCounter.current--;
+            if (dragCounter.current === 0) {
+                setIsDraggingOverWindow(false);
+            }
+        }
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+        if (isFileDrag(e)) {
+            e.preventDefault();
+            dragCounter.current = 0;
+            setIsDraggingOverWindow(false);
+
+            const file = e.dataTransfer?.files?.[0];
+            if (!file) return;
+
+            addToast(`Processing ${file.name}...`, 'info');
+
+            try {
+                if (file.name.toLowerCase().endsWith('.apkg')) {
+                    const buffer = await file.arrayBuffer();
+                    const decks = await parseAnkiPkg(buffer);
+                    if (decks.length > 0) {
+                        await handleAddDecks(decks);
+                        addToast(`Successfully imported ${decks.length} deck(s) from ${file.name}.`, 'success');
+                    } else {
+                        addToast('No valid decks found in the Anki package.', 'info');
+                    }
+                } else if (file.name.toLowerCase().endsWith('.json')) {
+                    const text = await file.text();
+                    const analysis = analyzeFileContent(text);
+                    if (analysis) {
+                        setDroppedFileAnalysis({ ...analysis, fileName: file.name } as DroppedFileAnalysis);
+                    } else {
+                        addToast(`"${file.name}" is not a recognized CogniFlow file format.`, 'error');
+                    }
+                } else {
+                    addToast(`Unsupported file type: "${file.name}".`, 'error');
+                }
+            } catch (error) {
+                console.error("Failed to process dropped file:", error);
+                addToast(`An error occurred: ${error instanceof Error ? error.message : "Unknown error"}`, 'error');
+            }
+        }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+        window.removeEventListener('dragenter', handleDragEnter);
+        window.removeEventListener('dragover', handleDragOver);
+        window.removeEventListener('dragleave', handleDragLeave);
+        window.removeEventListener('drop', handleDrop);
+    };
+  }, [handleAddDecks, handleRestoreData, handleAddSeriesWithDecks, addToast]);
 
 
   const loadData = useCallback(async (isInitialLoad = false) => {
@@ -310,6 +470,47 @@ const App: React.FC = () => {
     return state.deckSeries.find(s => s.id === activeSeriesId);
   }, [path, state.deckSeries]);
 
+  const breadcrumbItems = useMemo((): BreadcrumbItem[] => {
+    const items: BreadcrumbItem[] = [{ label: 'Home', href: '/' }];
+    const pathSegments = path.split('?')[0].split('/').filter(Boolean);
+
+    if (pathSegments[0] === 'series') {
+        items.push({ label: 'Series', href: '/series' });
+        if (pathSegments[1] && activeSeries) {
+            items.push({ label: activeSeries.name, href: `/series/${activeSeries.id}` });
+        }
+    } else if (pathSegments[0] === 'decks') {
+        const params = new URLSearchParams(window.location.hash.split('?')[1]);
+        const seriesId = params.get('seriesId');
+        
+        if (seriesId) {
+            const series = state.deckSeries.find(s => s.id === seriesId);
+            if (series) {
+                items.push({ label: 'Series', href: '/series' });
+                items.push({ label: series.name, href: `/series/${series.id}` });
+            }
+        } else {
+             items.push({ label: 'Decks', href: '/decks' });
+        }
+
+        if (pathSegments[1] && activeDeck) {
+            items.push({ label: activeDeck.name });
+        }
+    } else if (pathSegments[0] === 'archive') {
+        items.push({ label: 'Archive' });
+    } else if (pathSegments[0] === 'trash') {
+        items.push({ label: 'Trash' });
+    } else if (pathSegments[0] === 'settings') {
+        items.push({ label: 'Settings' });
+    } else if (pathSegments[0] === 'progress') {
+        items.push({ label: 'Progress' });
+    } else if (pathSegments[0] === 'instructions' && pathSegments[1] === 'json') {
+        items.push({ label: 'JSON Guide' });
+    }
+    
+    return items;
+  }, [path, activeDeck, activeSeries, state.deckSeries]);
+
   const commandPaletteActions = useMemo(() => {
     const goToSettingSection = (sectionId: string) => {
       navigate('/settings');
@@ -346,6 +547,12 @@ const App: React.FC = () => {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
+      {isDraggingOverWindow && (
+        <div className="fixed inset-0 bg-primary/20 backdrop-blur-sm flex flex-col items-center justify-center z-[100] border-4 border-dashed border-primary pointer-events-none">
+          <Icon name="upload-cloud" className="w-24 h-24 text-primary drop-shadow-lg animate-pulse" />
+          <p className="mt-4 text-2xl font-bold text-white drop-shadow-lg">Drop File Anywhere to Import</p>
+        </div>
+      )}
       <PullToRefreshIndicator
         pullDistance={pullToRefreshState.pullDistance}
         isRefreshing={pullToRefreshState.isRefreshing}
@@ -365,6 +572,7 @@ const App: React.FC = () => {
           onOpenCommandPalette={openCommandPalette}
         />
         <main className="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <Breadcrumbs items={breadcrumbItems} />
           <AppRouter
             sessionsToResume={sessionsToResume}
             sortPreference={sortPreference}
@@ -399,6 +607,12 @@ const App: React.FC = () => {
       {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={closeConfirm} {...confirmModalProps} />}
       {folderToEdit !== null && <FolderModal folder={folderToEdit === 'new' ? null : folderToEdit} onClose={() => setFolderToEdit(null)} onSave={dataHandlers.handleSaveFolder} />}
       {seriesToEdit !== null && <EditSeriesModal series={seriesToEdit === 'new' ? null : seriesToEdit} onClose={() => setSeriesToEdit(null)} onSave={dataHandlers.handleSaveSeries} />}
+      {droppedFileAnalysis && <DroppedFileConfirmModal
+        isOpen={!!droppedFileAnalysis}
+        onClose={() => setDroppedFileAnalysis(null)}
+        analysis={droppedFileAnalysis}
+        onConfirm={handleDroppedFileConfirm}
+      />}
     </div>
   );
 };

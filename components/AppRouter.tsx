@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useMemo } from 'react';
 import { useRouter } from '../contexts/RouterContext';
 import { Deck, DeckType, Folder, DeckSeries, QuizDeck, SeriesProgress, Reviewable, Card, FlashcardDeck, Question, ReviewRating } from '../types';
@@ -231,6 +232,31 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onItemReviewed={props.handleItemReviewed} 
                 onUpdateLastOpened={props.updateLastOpened}
                 sessionKeySuffix="_flip"
+            />;
+        }
+    }
+
+    if (pathname.startsWith('/decks/') && pathname.endsWith('/study-reversed')) {
+        if (activeDeck && activeDeck.type === DeckType.Flashcard) {
+            const reversedDeck: FlashcardDeck = {
+                ...activeDeck,
+                name: `${activeDeck.name} (Reversed)`,
+                cards: activeDeck.cards.map(card => ({
+                    ...card,
+                    front: card.back,
+                    back: card.front,
+                }))
+            };
+    
+            const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
+            return <StudySession 
+                key={`${activeDeck.id}-reversed`} 
+                deck={reversedDeck} 
+                seriesId={seriesId}
+                onSessionEnd={(deckId) => props.handleSessionEnd(deckId, seriesId)} 
+                onItemReviewed={props.handleItemReviewed}
+                onUpdateLastOpened={props.updateLastOpened}
+                sessionKeySuffix="_reversed"
             />;
         }
     }

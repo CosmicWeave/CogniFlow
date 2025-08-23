@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel, Question } from '../types';
+import React, { useState, useCallback, useRef } from 'react';
+import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel } from '../types';
 import { parseAndValidateImportData, createCardsFromImport, createQuestionsFromImport } from '../services/importService';
 import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService';
 import Button from './ui/Button';
@@ -25,10 +25,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
   const [jsonContent, setJsonContent] = useState('');
   const [fileName, setFileName] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isDraggingOverWindow, setIsDraggingOverWindow] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToast();
-  const dragCounter = useRef(0);
 
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, isOpen);
@@ -113,57 +111,6 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
         resetState();
     }
   }, [addToast, handleClose, handleJsonContentChange, onAddDecks, resetState]);
-
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    
-    const handleDragEnter = (e: DragEvent) => {
-      e.preventDefault();
-      dragCounter.current++;
-      if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
-        setIsDraggingOverWindow(true);
-      }
-    };
-
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault(); // Necessary to allow drop
-    };
-
-    const handleDragLeave = (e: DragEvent) => {
-      e.preventDefault();
-      dragCounter.current--;
-      if (dragCounter.current === 0) {
-        setIsDraggingOverWindow(false);
-      }
-    };
-
-    const handleDrop = (e: DragEvent) => {
-      e.preventDefault();
-      dragCounter.current = 0;
-      setIsDraggingOverWindow(false);
-      
-      const file = e.dataTransfer?.files?.[0];
-      if (file) {
-        setActiveTab('upload'); // Switch to upload tab for better UX
-        processFile(file);
-      }
-    };
-
-    window.addEventListener('dragenter', handleDragEnter);
-    window.addEventListener('dragover', handleDragOver);
-    window.addEventListener('dragleave', handleDragLeave);
-    window.addEventListener('drop', handleDrop);
-
-    return () => {
-      window.removeEventListener('dragenter', handleDragEnter);
-      window.removeEventListener('dragover', handleDragOver);
-      window.removeEventListener('dragleave', handleDragLeave);
-      window.removeEventListener('drop', handleDrop);
-    };
-  }, [isOpen, processFile]);
 
 
   const handleSubmit = useCallback(() => {
@@ -272,7 +219,6 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLLabelElement>) => e.preventDefault();
 
   if (!isOpen) return null;
 
@@ -297,9 +243,9 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
         return (
           <>
             <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json,.apkg,application/zip,application/x-zip-compressed,application/octet-stream" onChange={handleFileChange} />
-            <label onDragOver={handleDragOver} className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-background transition-colors">
+            <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-background transition-colors">
                 <Icon name="upload-cloud" className="w-10 h-10 text-text-muted mb-2"/>
-                <p className="text-sm text-text-muted"><span className="font-semibold text-primary" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}>Click to upload</span> or drag and drop</p>
+                <p className="text-sm text-text-muted"><span className="font-semibold text-primary" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}>Click to upload</span> or drag and drop anywhere</p>
                 <p className="text-xs text-text-muted/70">JSON or Anki Package (.apkg)</p>
                 {fileName && <p className="text-sm text-green-500 dark:text-green-400 mt-2 truncate" title={fileName}>{fileName}</p>}
             </label>
@@ -315,12 +261,6 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      {isDraggingOverWindow && (
-        <div className="absolute inset-0 bg-primary/20 backdrop-blur-sm flex flex-col items-center justify-center z-30 border-4 border-dashed border-primary pointer-events-none">
-          <Icon name="upload-cloud" className="w-24 h-24 text-primary drop-shadow-lg animate-pulse" />
-          <p className="mt-4 text-2xl font-bold text-white drop-shadow-lg">Drop File to Import</p>
-        </div>
-      )}
       <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-lg overflow-hidden transform transition-all relative">
         {isProcessing && (
             <div className="absolute inset-0 bg-surface/80 flex flex-col items-center justify-center z-20">

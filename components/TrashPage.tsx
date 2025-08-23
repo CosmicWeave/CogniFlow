@@ -55,15 +55,15 @@ const TrashPage: React.FC<TrashPageProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
-      <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Trash</h1>
-        <p className="mt-2 text-gray-500 dark:text-gray-400">Items in the trash will be permanently deleted after {TRASH_RETENTION_DAYS} days.</p>
+      <div className="border-b border-border pb-4">
+        <h1 className="text-3xl font-bold text-text">Trash</h1>
+        <p className="mt-2 text-text-muted">Items in the trash will be permanently deleted after {TRASH_RETENTION_DAYS} days.</p>
       </div>
       
       <section>
-        <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Trashed Series</h2>
+        <h2 className="text-2xl font-semibold text-text mb-4">Trashed Series</h2>
         {trashedSeries.length > 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="bg-surface rounded-lg shadow-md divide-y divide-border">
             {trashedSeries.map(series => {
               const daysLeft = calculateDaysLeft(series.deletedAt!);
               return (
@@ -71,8 +71,8 @@ const TrashPage: React.FC<TrashPageProps> = ({
                 <div className="flex items-center min-w-0">
                   <Icon name="list" className="w-6 h-6 mr-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="font-semibold truncate text-gray-900 dark:text-gray-100">{series.name}</p>
-                    <p className={`text-sm ${daysLeft <= 2 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                    <p className="font-semibold truncate text-text">{series.name}</p>
+                    <p className={`text-sm ${daysLeft <= 2 ? 'text-red-500' : 'text-text-muted'}`}>
                       {daysLeft > 0 ? `${daysLeft} days left` : 'Deleting soon...'}
                     </p>
                   </div>
@@ -91,25 +91,29 @@ const TrashPage: React.FC<TrashPageProps> = ({
             )})}
           </div>
         ) : (
-          <div className="text-center py-6 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-            <p className="text-gray-500 dark:text-gray-400">Trash is empty.</p>
+          <div className="text-center py-10 bg-surface rounded-lg border border-border">
+            <Icon name="trash-2" className="w-12 h-12 mx-auto text-text-muted/50" />
+            <h3 className="mt-2 text-xl font-medium text-text">Trash is Empty</h3>
+            <p className="mt-1 text-sm text-text-muted">
+              Deleted series will appear here for {TRASH_RETENTION_DAYS} days.
+            </p>
           </div>
         )}
       </section>
 
       <section>
-        <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Trashed Decks</h2>
+        <h2 className="text-2xl font-semibold text-text mb-4">Trashed Decks</h2>
         {trashedDecks.length > 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="bg-surface rounded-lg shadow-md divide-y divide-border">
             {trashedDecks.map(deck => {
               const daysLeft = calculateDaysLeft(deck.deletedAt!);
               return (
               <div key={deck.id} className="p-4 flex justify-between items-center">
                  <div className="flex items-center min-w-0">
-                    <Icon name={deck.type === 'quiz' ? 'help-circle' : 'laptop'} className="w-6 h-6 mr-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                    <Icon name={deck.type === 'quiz' ? 'help-circle' : 'laptop'} className="w-6 h-6 mr-4 text-text-muted flex-shrink-0" />
                     <div className="min-w-0">
-                        <p className="font-semibold truncate text-gray-900 dark:text-gray-100">{deck.name}</p>
-                        <p className={`text-sm ${daysLeft <= 2 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                        <p className="font-semibold truncate text-text">{deck.name}</p>
+                        <p className={`text-sm ${daysLeft <= 2 ? 'text-red-500' : 'text-text-muted'}`}>
                           {daysLeft > 0 ? `${daysLeft} days left` : 'Deleting soon...'}
                         </p>
                     </div>
@@ -128,8 +132,12 @@ const TrashPage: React.FC<TrashPageProps> = ({
             )})}
           </div>
         ) : (
-          <div className="text-center py-6 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-             <p className="text-gray-500 dark:text-gray-400">Trash is empty.</p>
+          <div className="text-center py-10 bg-surface rounded-lg border border-border">
+             <Icon name="trash-2" className="w-12 h-12 mx-auto text-text-muted/50" />
+             <h3 className="mt-2 text-xl font-medium text-text">Trash is Empty</h3>
+             <p className="mt-1 text-sm text-text-muted">
+               Deleted decks will appear here for {TRASH_RETENTION_DAYS} days.
+             </p>
           </div>
         )}
       </section>

@@ -32,8 +32,11 @@ const getDueItemsCount = (deck: QuizDeck): number => {
 };
 
 const DropIndicator = () => (
-    <div className="h-12 w-full flex items-center" aria-hidden="true">
-        <div className="h-1.5 w-full rounded-full bg-primary/50" />
+    <div className="h-16 my-2 -ml-4" aria-hidden="true">
+        <div className="h-full w-full rounded-md bg-primary/10 border-2 border-dashed border-primary flex items-center justify-center">
+            <Icon name="arrow-down" className="w-5 h-5 text-primary animate-bounce" />
+            <span className="ml-2 font-medium text-primary">Move Here</span>
+        </div>
     </div>
 );
 
@@ -144,9 +147,14 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
   
   const handleDragStart = (e: React.DragEvent, type: 'level' | 'deck', sourceLevelIndex: number, deckId?: string) => {
     if (!isOrganizing) return;
-    setDraggedItem({ type, sourceLevelIndex, deckId });
+    
     e.dataTransfer.effectAllowed = 'move';
-    try { e.dataTransfer.setData('text/plain', 'dummy'); } catch(e) {}
+    try { e.dataTransfer.setData('text/plain', deckId || `level-${sourceLevelIndex}`); } catch(e) {}
+    
+    // Defer state update to allow browser to capture clean drag image
+    setTimeout(() => {
+      setDraggedItem({ type, sourceLevelIndex, deckId });
+    }, 0);
   };
 
   const handleDragOver = (e: React.DragEvent, levelIndex: number, deckIndex?: number) => {
@@ -245,7 +253,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
                     <div
                         draggable={isOrganizing}
                         onDragStart={e => handleDragStart(e, 'level', levelIndex)}
-                        className={`flex items-center group transition-opacity ${isOrganizing ? 'cursor-grab' : ''} ${draggedItem?.type === 'level' && draggedItem.sourceLevelIndex === levelIndex ? 'opacity-40' : ''}`}
+                        className={`flex items-center group transition-opacity -ml-4 pl-4 ${isOrganizing ? 'cursor-grab' : ''} ${draggedItem?.type === 'level' && draggedItem.sourceLevelIndex === levelIndex ? 'opacity-20' : ''}`}
                     >
                         <div className="w-8 flex-shrink-0"></div>
                         <div className="flex-grow py-4">
@@ -264,9 +272,14 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
                             )}
                         </div>
                          {isOrganizing && (
-                            <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setEditingLevel({ index: levelIndex, name: level.title })}>
-                                <Icon name="edit" className="w-4 h-4" />
-                            </Button>
+                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button variant="ghost" size="sm" className="p-2 h-auto" onClick={() => setEditingLevel({ index: levelIndex, name: level.title })}>
+                                    <Icon name="edit" className="w-4 h-4" />
+                                </Button>
+                                <div className="p-2 text-text-muted/60">
+                                    <Icon name="grip-vertical" />
+                                </div>
+                            </div>
                         )}
                     </div>
                     {isOrganizing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === 0 && <DropIndicator />}
@@ -295,7 +308,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
                                 <div key={deck.id}>
                                 <div
                                     onDragOver={e => isOrganizing && handleDragOver(e, levelIndex, deckIndex)}
-                                    className={`relative flex items-center gap-4 transition-opacity ${draggedItem?.deckId === deckId ? 'opacity-40' : ''}`}
+                                    className="relative flex items-center gap-4"
                                 >
                                     <div className="absolute top-0 bottom-0 left-8 w-0.5 -z-10">
                                         <div className={`h-1/2 w-full ${deckIndex > 0 ? lineClass : ''}`}></div>
@@ -309,23 +322,23 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
                                     <div
                                         draggable={isOrganizing}
                                         onDragStart={e => handleDragStart(e, 'deck', levelIndex, deck.id)}
-                                        className={`flex-grow my-4 bg-surface rounded-lg shadow-md border hover:shadow-lg transition-all ${status === 'next' ? 'border-primary' : 'border-border'} ${status === 'locked' && !isOrganizing ? 'opacity-60' : ''}`}
+                                        className={`flex-grow my-4 bg-surface rounded-lg shadow-md border hover:shadow-lg transition-all ${status === 'next' ? 'border-primary' : 'border-border'} ${status === 'locked' && !isOrganizing ? 'opacity-60' : ''} ${draggedItem?.deckId === deckId ? 'border-2 border-dashed border-border bg-background/50' : ''}`}
                                     >
-                                        <div className="p-4 flex items-center justify-between gap-2">
+                                        <div className={`p-4 flex items-center justify-between gap-2 ${draggedItem?.deckId === deckId ? 'opacity-0' : ''}`}>
                                             <div className="flex-grow min-w-0">
                                                 <Link href={`/decks/${deck.id}?seriesId=${series.id}`} className="font-bold text-text break-words hover:text-primary transition-colors">{deck.name}</Link>
                                                 <div className="text-sm text-text-muted">{deck.questions.length} questions</div>
                                             </div>
                                             <div className="flex-shrink-0 flex items-center gap-1">
                                                 {isOrganizing ? (
-                                                    <>
-                                                    <Button variant="ghost" size="sm" className="p-2 h-auto text-red-500" onClick={() => handleRemoveDeck(deck.id, deck.name)}>
-                                                        <Icon name="x" />
-                                                    </Button>
-                                                    <div className="cursor-grab p-2 text-text-muted">
-                                                        <Icon name="grip-vertical"/>
+                                                    <div className="flex items-center">
+                                                        <Button variant="ghost" size="sm" className="p-2 h-auto text-red-500" onClick={() => handleRemoveDeck(deck.id, deck.name)}>
+                                                            <Icon name="x" />
+                                                        </Button>
+                                                        <div className="cursor-grab p-2 text-text-muted/60">
+                                                            <Icon name="grip-vertical"/>
+                                                        </div>
                                                     </div>
-                                                    </>
                                                 ) : (
                                                     <Link href={`/decks/${deck.id}/study?seriesId=${series.id}`} passAs={Button} variant="secondary" size="sm" disabled={isLocked || dueCount === 0 && !sessionsToResume.has(deck.id)}>
                                                         {sessionsToResume.has(deck.id) ? 'Resume' : 'Study'} {dueCount > 0 && `(${dueCount})`}

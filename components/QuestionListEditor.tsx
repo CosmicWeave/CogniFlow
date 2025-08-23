@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Question } from '../types';
 import Button from './ui/Button';
@@ -197,7 +196,10 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                 })}
               </ul>
             ) : (
-              <p className="text-text-muted text-center py-4">This deck has no questions.</p>
+              <div className="text-center text-text-muted py-8">
+                <Icon name="help-circle" className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>This deck has no questions yet.</p>
+              </div>
             )}
           </div>
           <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">

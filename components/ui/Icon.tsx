@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 export type IconName = 
@@ -8,7 +9,7 @@ export type IconName =
   | 'eye' | 'eye-off' | 'zap' | 'help-circle' | 'google'
   | 'folder' | 'folder-plus' | 'folder-edit'
   | 'list' | 'lock' | 'unlock' | 'archive' | 'unarchive' | 'arrow-down' | 'monitor' | 'more-vertical'
-  | 'search' | 'filter' | 'layers' | 'terminal' | 'trending-up' | 'grip-vertical';
+  | 'search' | 'filter' | 'layers' | 'terminal' | 'trending-up' | 'grip-vertical' | 'repeat';
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName;
@@ -58,6 +59,7 @@ const ICONS: Record<IconName, React.ReactNode> = {
   'terminal': <><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></>,
   'trending-up': <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></>,
   'grip-vertical': <><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></>,
+  'repeat': <><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></>
 };
 
 const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6', ...props }) => {

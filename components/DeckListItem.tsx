@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Deck, DeckType, FlashcardDeck, QuizDeck } from '../types';
 import Button from './ui/Button';
@@ -66,8 +61,6 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
     }, [isMenuOpen]);
 
     const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
-        // This is more robust. It checks if the click originated from an interactive element.
-        // If so, it lets that element's own handler take over. Otherwise, it navigates.
         if ((e.target as HTMLElement).closest('button, a')) {
             return;
         }
@@ -104,12 +97,14 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
             onClick={handleContainerClick}
             onDragStart={(e) => {
                 e.dataTransfer.setData('text/plain', deck.id);
+                // The browser creates the drag image from the element's current state.
+                // We defer the state update that changes its appearance to a "placeholder".
                 setTimeout(() => onDragStart(deck.id), 0);
             }}
             onDragEnd={onDragEnd}
-            className={`bg-surface rounded-lg shadow-md hover:shadow-lg transition-all duration-200 group relative cursor-pointer ${draggedDeckId === deck.id ? 'opacity-40 scale-95' : 'opacity-100'}`}
+            className={`bg-surface rounded-lg shadow-md hover:shadow-lg transition-all duration-200 group relative ${draggedDeckId === deck.id ? 'border-2 border-dashed border-border bg-background/50' : 'cursor-pointer'}`}
         >
-             <div className="p-4 flex flex-col justify-between h-full space-y-3">
+            <div className={`p-4 pr-10 flex flex-col justify-between h-full space-y-3 ${draggedDeckId === deck.id ? 'opacity-0' : ''}`}>
                 <div>
                     <h3 className="text-xl font-bold text-text break-words group-hover:text-primary transition-colors">{deck.name}</h3>
                     {deck.description && (
@@ -176,6 +171,9 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
                         </div>
                     </div>
                 </div>
+            </div>
+            <div className="absolute top-0 right-0 h-full flex items-center px-3 text-text-muted/60 cursor-grab" aria-hidden="true">
+                <Icon name="grip-vertical" className="w-5 h-5"/>
             </div>
         </div>
     );

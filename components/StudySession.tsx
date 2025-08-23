@@ -22,9 +22,18 @@ interface StudySessionProps {
   seriesId?: string;
 }
 
+const getMasteryLabel = (level: number): 'Novice' | 'Learning' | 'Familiar' | 'Proficient' | 'Mastered' => {
+  const percentage = Math.round(level * 100);
+  if (percentage > 85) return 'Mastered';
+  if (percentage > 65) return 'Proficient';
+  if (percentage > 40) return 'Familiar';
+  if (percentage > 15) return 'Learning';
+  return 'Novice';
+};
+
 const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemReviewed, onUpdateLastOpened, sessionKeySuffix = '', seriesId }) => {
   const [reviewQueue, setReviewQueue] = useState<(Card | Question)[]>([]);
-  const [reviewedItems, setReviewedItems] = useState<Array<{ item: Card | Question; rating: ReviewRating | null }>>([]);
+  const [reviewedItems, setReviewedItems] = useState<Array<{ oldItem: Card | Question; newItem: Card | Question; rating: ReviewRating | null }>>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [displayIndex, setDisplayIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -179,7 +188,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     if (oldPercent <= 85 && newPercent > 85) addToast('Item Mastered!', 'success');
     
-    setReviewedItems(prev => [...prev, { item: updatedItem, rating }]);
+    setReviewedItems(prev => [...prev, { oldItem: displayedItem, newItem: updatedItem, rating }]);
     
     try {
       const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
@@ -201,7 +210,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     
     setIsReviewing(true);
     const suspendedItem = { ...displayedItem, suspended: true };
-    setReviewedItems(prev => [...prev, { item: suspendedItem, rating: null }]);
+    setReviewedItems(prev => [...prev, { oldItem: displayedItem, newItem: suspendedItem, rating: null }]);
     
     try {
         const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
@@ -306,18 +315,36 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     let dueTomorrowCount = 0;
     let dueNextWeekCount = 0;
 
-    reviewedItems.forEach(({ item }) => {
-        if (item.suspended) return;
-        const dueDate = new Date(item.dueDate);
+    reviewedItems.forEach(({ newItem }) => {
+        if (newItem.suspended) return;
+        const dueDate = new Date(newItem.dueDate);
         if (dueDate.getTime() > today.getTime() && dueDate.getTime() <= tomorrow.getTime()) dueTomorrowCount++;
         if (dueDate.getTime() > tomorrow.getTime() && dueDate.getTime() <= nextWeek.getTime()) dueNextWeekCount++;
     });
+
+    const masteryTransitions: Record<string, number> = {};
+    reviewedItems.forEach(({ oldItem, newItem, rating }) => {
+        if (rating !== null) { // Only count items that were actually reviewed, not suspended
+            const oldMasteryLevel = getEffectiveMasteryLevel(oldItem);
+            const newMasteryLevel = newItem.masteryLevel || 0;
+            
+            const oldLabel = getMasteryLabel(oldMasteryLevel);
+            const newLabel = getMasteryLabel(newMasteryLevel);
+    
+            if (oldLabel !== newLabel) {
+                const transitionKey = `${oldLabel} → ${newLabel}`;
+                masteryTransitions[transitionKey] = (masteryTransitions[transitionKey] || 0) + 1;
+            }
+        }
+    });
+    const sortedTransitions = Object.entries(masteryTransitions).sort(([, a], [, b]) => b - a);
+    const maxTransitionCount = Math.max(...Object.values(masteryTransitions), 1);
     
     const mostDifficultItems = reviewedItems
       .filter(reviewed => reviewed.rating === ReviewRating.Again || reviewed.rating === ReviewRating.Hard)
       .sort((a, b) => (a.rating ?? 5) - (b.rating ?? 5))
       .slice(0, 5)
-      .map(reviewed => reviewed.item);
+      .map(reviewed => reviewed.newItem);
 
     return (
       <div className="text-center p-8 animate-fade-in relative">
@@ -328,6 +355,31 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             <div className="flex justify-between items-center text-text"><span>Due tomorrow:</span><span className="font-bold">{dueTomorrowCount} items</span></div>
             <div className="flex justify-between items-center text-text"><span>Due in the next 7 days:</span><span className="font-bold">{dueNextWeekCount} items</span></div>
         </div>
+
+        {sortedTransitions.length > 0 && (
+            <div className="mt-6 bg-surface rounded-lg p-4 max-w-sm mx-auto space-y-3 border border-border">
+                <h4 className="font-bold text-text text-left flex items-center gap-2">
+                    <Icon name="trending-up" className="w-5 h-5" />
+                    Session Impact
+                </h4>
+                <ul className="text-left text-sm space-y-3">
+                    {sortedTransitions.map(([transitionKey, count]) => (
+                        <li key={transitionKey}>
+                            <div className="flex justify-between items-center mb-1 text-xs text-text-muted">
+                                <span className="font-medium">{transitionKey}</span>
+                                <span className="font-semibold">{count} item{count > 1 ? 's' : ''}</span>
+                            </div>
+                            <div className="w-full bg-border/30 rounded-full h-2">
+                                <div
+                                    className="bg-primary h-2 rounded-full transition-all duration-500"
+                                    style={{ width: `${(count / maxTransitionCount) * 100}%` }}
+                                ></div>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        )}
 
         {mostDifficultItems.length > 0 && (
             <div className="mt-6 bg-orange-500/10 rounded-lg p-4 max-w-sm mx-auto space-y-3 border border-orange-500/20">

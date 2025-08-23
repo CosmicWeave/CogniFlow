@@ -88,7 +88,7 @@ const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, o
                 onDrop={handleUngroupedDrop}
                 onDragOver={handleUngroupedDragOver}
                 onDragLeave={() => setIsUngroupedAreaOver(false)}
-                className={`p-2 -m-2 rounded-lg transition-colors ${isUngroupedAreaOver ? 'bg-primary/10' : ''}`}
+                className={`p-2 -m-2 rounded-lg transition-all duration-200 ${isUngroupedAreaOver ? 'bg-primary/20 ring-2 ring-primary ring-inset' : ''}`}
             >
                 <div className="space-y-4">
                 {ungroupedDecks.map(deck => (
