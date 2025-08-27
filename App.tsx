@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel } from './types';
 import * as db from './services/db';
@@ -27,12 +30,15 @@ import { useStore } from './store/store';
 import { analyzeFileContent, createCardsFromImport, createQuestionsFromImport } from './services/importService';
 import DroppedFileConfirmModal, { DroppedFileAnalysis } from './components/DroppedFileConfirmModal';
 import Breadcrumbs, { BreadcrumbItem } from './components/ui/Breadcrumbs';
+import AIGenerationModal from './components/AIGenerationModal';
+import { useSettings } from './hooks/useSettings';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
 const App: React.FC = () => {
   const { dispatch, ...state } = useStore();
   const [isImportModalOpen, setImportModalOpen] = useState(false);
+  const [isAIGenerationModalOpen, setAIGenerationModalOpen] = useState(false);
   const [isRestoreModalOpen, setRestoreModalOpen] = useState(false);
   const [isResetProgressModalOpen, setResetProgressModalOpen] = useState(false);
   const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
@@ -51,7 +57,6 @@ const App: React.FC = () => {
   const [sortPreference, setSortPreference] = useState<SortPreference>('lastOpened');
   const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
   const [openFolderIds, setOpenFolderIds] = useState(new Set<string>());
-  const [seriesProgress, setSeriesProgress] = useState<SeriesProgress>(new Map());
 
   const [isDraggingOverWindow, setIsDraggingOverWindow] = useState(false);
   const [droppedFileAnalysis, setDroppedFileAnalysis] = useState<DroppedFileAnalysis | null>(null);
@@ -62,6 +67,7 @@ const App: React.FC = () => {
   const modalTriggerRef = useRef<HTMLElement | null>(null);
   const { path, navigate } = useRouter();
   const initialLoadComplete = useRef(false);
+  const { aiFeaturesEnabled } = useSettings();
 
   const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd, REFRESH_THRESHOLD } = usePullToRefresh();
   
@@ -86,6 +92,8 @@ const App: React.FC = () => {
   const closeCommandPalette = useCallback(() => closeModal(setIsCommandPaletteOpen), [closeModal]);
   const openImportModal = useCallback(() => openModal(setImportModalOpen), [openModal]);
   const closeImportModal = useCallback(() => closeModal(setImportModalOpen), [closeModal]);
+  const openAIGenerationModal = useCallback(() => openModal(setAIGenerationModalOpen), [openModal]);
+  const closeAIGenerationModal = useCallback(() => closeModal(setAIGenerationModalOpen), [closeModal]);
   const openRestoreModal = useCallback(() => openModal(setRestoreModalOpen), [openModal]);
   const closeRestoreModal = useCallback(() => closeModal(setRestoreModalOpen), [closeModal]);
   const openResetProgressModal = useCallback(() => openModal(setResetProgressModalOpen), [openModal]);
@@ -111,8 +119,6 @@ const App: React.FC = () => {
   const dataHandlers = useDataManagement({
     sessionsToResume,
     setSessionsToResume,
-    seriesProgress,
-    setSeriesProgress,
     setGeneralStudyDeck,
     openConfirmModal,
     setFolderToEdit: openFolderEditor,
@@ -359,7 +365,7 @@ const App: React.FC = () => {
           }
       }
       setSessionsToResume(resumable);
-      setSeriesProgress(loadedProgress);
+      dispatch({ type: 'SET_SERIES_PROGRESS', payload: loadedProgress });
 
       const savedSort = localStorage.getItem('cogniflow-sortPreference');
       if (savedSort && ['lastOpened', 'name', 'dueCount'].includes(savedSort)) {
@@ -374,7 +380,7 @@ const App: React.FC = () => {
         console.error("Failed to load local settings from storage. This can happen if cookies/site data are disabled.", error);
         addToast("Could not load saved settings.", "error");
     }
-  }, [addToast]);
+  }, [addToast, dispatch]);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -454,14 +460,14 @@ const App: React.FC = () => {
             const flatDeckIds = series.levels.flatMap(l => l.deckIds);
             const deckIndex = flatDeckIds.indexOf(activeDeckId);
             if (deckIndex > -1) {
-                const completedInSeries = seriesProgress.get(series.id)?.size || 0;
+                const completedInSeries = state.seriesProgress.get(series.id)?.size || 0;
                 const isLocked = deckIndex > completedInSeries;
                 return { ...baseDeck, locked: isLocked };
             }
         }
     }
     return baseDeck;
-  }, [path, state.decks, state.deckSeries, seriesProgress]);
+  }, [path, state.decks, state.deckSeries, state.seriesProgress]);
 
   const activeSeries = useMemo(() => {
     const getActiveSeriesId = (p: string) => p.match(/^\/series\/([^/?]+)/)?.[1] || null;
@@ -518,7 +524,7 @@ const App: React.FC = () => {
         document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
     };
-    return [
+    const baseActions = [
       { id: 'new-deck', label: 'New / Import Deck', icon: 'plus' as IconName, action: openImportModal },
       { id: 'new-series', label: 'Create New Series', icon: 'layers' as IconName, action: () => openSeriesEditor('new') },
       { id: 'go-decks', label: 'Go to All Decks', icon: 'folder' as IconName, action: () => navigate('/decks') },
@@ -534,7 +540,13 @@ const App: React.FC = () => {
       { id: 'go-reset-progress', label: 'Go to Reset Progress', icon: 'refresh-ccw' as IconName, action: () => goToSettingSection('settings-reset-progress'), searchableOnly: true, keywords: ['srs', 'spaced repetition', 'start over', 'danger'] },
       { id: 'go-factory-reset', label: 'Go to Factory Reset', icon: 'trash-2' as IconName, action: () => goToSettingSection('settings-factory-reset'), searchableOnly: true, keywords: ['delete all', 'wipe', 'clean', 'erase', 'danger'] },
     ];
-  }, [navigate, openImportModal, openSeriesEditor]);
+    
+    if(aiFeaturesEnabled) {
+        baseActions.unshift({ id: 'ai-generate', label: 'Generate Series with AI', icon: 'zap' as IconName, action: openAIGenerationModal });
+    }
+    
+    return baseActions;
+  }, [navigate, openImportModal, openSeriesEditor, aiFeaturesEnabled, openAIGenerationModal]);
 
 
   if (state.isLoading) {
@@ -563,6 +575,7 @@ const App: React.FC = () => {
         onClose={closeMenu}
         onImport={() => { openImportModal(); closeMenu(); }}
         onCreateSeries={() => { closeMenu(); openSeriesEditor('new'); }}
+        onGenerateAI={() => { openAIGenerationModal(); closeMenu(); }}
         onInstall={installPrompt ? () => { handleInstall(); closeMenu(); } : null}
       />
       <div className="flex-grow flex flex-col">
@@ -581,7 +594,6 @@ const App: React.FC = () => {
             setDraggedDeckId={setDraggedDeckId}
             openFolderIds={openFolderIds}
             onToggleFolder={handleToggleFolder}
-            seriesProgress={seriesProgress}
             generalStudyDeck={generalStudyDeck}
             activeDeck={activeDeck}
             activeSeries={activeSeries}
@@ -591,6 +603,9 @@ const App: React.FC = () => {
             openFolderModal={openFolderEditor}
             openConfirmModal={openConfirmModal}
             openCreateSeriesModal={() => openSeriesEditor('new')}
+            openAIGenerationModal={openAIGenerationModal}
+            handleAiAddLevelsToSeries={dataHandlers.handleAiAddLevelsToSeries}
+            handleAiAddDecksToLevel={dataHandlers.handleAiAddDecksToLevel}
             {...dataHandlers}
           />
         </main>
@@ -602,6 +617,7 @@ const App: React.FC = () => {
         actions={commandPaletteActions}
       />
       {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={closeImportModal} onAddDecks={dataHandlers.handleAddDecks} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
+      {aiFeaturesEnabled && isAIGenerationModalOpen && <AIGenerationModal isOpen={isAIGenerationModalOpen} onClose={closeAIGenerationModal} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
       {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={closeRestoreModal} onRestore={dataHandlers.handleRestoreData} />}
       {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={closeResetProgressModal} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}
       {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={closeConfirm} {...confirmModalProps} />}

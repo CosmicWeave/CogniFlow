@@ -2,15 +2,15 @@
 
 This document provides a set of expert-led prompts and best practices for generating high-quality learning content for CogniFlow using external AI tools like Google's Gemini, OpenAI's ChatGPT, or Anthropic's Claude.
 
-**Core Philosophy:** CogniFlow is a focused learning tool. It does *not* have a built-in AI. This ensures your study environment remains private, fast, and distraction-free. You use these prompts with your preferred external AI service and then import the generated content.
+**Core Philosophy:** CogniFlow is a focused learning tool. The optional, built-in AI feature generates a structural "scaffold" for a learning path. You then populate each deck with content on demand, giving you fine-grained control.
 
 ## 🏆 The Expert-Led Workflow (Recommended)
 
-For the best results, we strongly recommend a two-step process. This allows you to guide the AI and review the structure of your learning path before committing to full content generation.
+For the best results, we strongly recommend a multi-step process. This allows you to guide the AI and review the structure of your learning path before committing to full content generation.
 
 ### Step 1: Generate a Learning Path Outline (Plain Text)
 
-First, generate a human-readable outline. This lets you check the structure, topics, and progression without dealing with complex JSON.
+First, generate a human-readable outline. This lets you check the structure, topics, and progression without dealing with complex JSON. This step is performed with an external AI chat service.
 
 **The Prompt:**
 Use this prompt with your AI chat service. Fill in the `[YOUR TOPIC HERE]` and `[USER'S LEVEL HERE]` fields.
@@ -59,60 +59,56 @@ Finally, at the very end of your response, provide a JSON object with the series
 }
 ```
 
-### Step 2: Generate JSON for Each Deck Individually
+### Step 2: Generate JSON Scaffold from Outline
 
-Once you are happy with the text outline, generate the JSON for each deck one at a time. This makes the process manageable and allows you to review content as you go.
+Once you have the text outline, you can create the structure in CogniFlow. You can do this automatically with the in-app AI generator, or manually by creating a JSON scaffold.
 
-**The Prompt:**
-First, paste your entire text outline into the AI chat. Then, use this prompt to generate the JSON for the *first* deck.
+**The Prompt (for manual creation):**
+Paste your entire text outline into the AI chat. Then, use this prompt to convert it into a JSON "scaffold".
 
 ```
-You are an expert content creator. I have provided a text outline for a learning path. Your task is to generate the JSON for the **first deck (e.g., Level 1.1)** from that outline.
+You are an expert content creator. I have provided a text outline for a learning path. Your task is to convert this outline into a structured JSON object that will serve as a scaffold.
 
 **PRIMARY INSTRUCTIONS:**
 
 1.  **Source Material:** Use ONLY the text outline I've provided as your source.
-2.  **Question Quantity:** Generate the approximate number of questions specified in the outline for this first deck.
-3.  **Content Generation:** Create world-class questions and answers based *only* on the "Topics" listed for this specific deck in the outline.
-
-**CRITICAL CONTENT QUALITY REQUIREMENTS:**
-- **Factual Accuracy:** This is paramount. The correct answer and all parts of the explanation must be unequivocally correct and verifiable.
-- **Relevance & Practical Application:** Frame questions in real-world scenarios to help a user apply the information. Questions must be relevant to the deck's topics.
-- **Clarity & Simplicity:** Questions must be easy to understand, unambiguous, and free of jargon (unless the jargon is the learning objective). Test only one core concept per question.
-- **Problem-Solving Focus:** Design questions that require applying knowledge, not just recalling facts. Avoid trivial pursuit and focus on genuinely useful information. For practical topics, ask skill-based questions that test the ability to perform a task or make a decision.
-- **High-Quality Explanations:** The `detailedExplanation` is crucial. It must explain the reasoning, principles, or facts behind the correct answer. Provide additional context, examples, or connections to related concepts to deepen understanding. If applicable, cite sources for complex information.
-- **Engaging Content:** While factual, make the questions and explanations as engaging as possible to maintain learner interest.
+2.  **Structure:** Create a single JSON object with `seriesName`, `seriesDescription`, and a `levels` array.
+3.  **Levels and Decks:** Inside the `levels` array, create objects for each level, including its `title`. Each level object should have a `decks` array. Populate this with deck objects, each containing its `name` and `description` from the outline.
+4.  **Empty Questions:** For every deck object, include a `"questions": []` key-value pair. The questions array MUST be empty.
 
 **JSON OUTPUT FORMAT:**
 - The final output MUST be ONLY a single, raw JSON object, starting with `{` and ending with `}`. Do not include any surrounding text, explanations, or markdown formatting.
 - The JSON object must follow this exact schema:
 {
-  "name": "The exact name for the deck from your outline, e.g., 'Level 1.1: Foundations...'",
-  "description": "A concise description of this specific deck's content, based on its topics.",
-  "questions": [
+  "seriesName": "The full series name from the outline",
+  "seriesDescription": "The full series description from the outline",
+  "levels": [
     {
-      "questionType": "multipleChoice",
-      "questionText": "The text of the first question...",
-      "tags": ["relevant", "tags"],
-      "detailedExplanation": "A thorough explanation that meets all quality requirements.",
-      "options": [
-        { "id": "q1_opt1", "text": "First answer option" },
-        { "id": "q1_opt2", "text": "Second answer option" }
-      ],
-      "correctAnswerId": "q1_opt2"
+      "title": "The title of the first level",
+      "decks": [
+        {
+          "name": "The name of the first deck in this level",
+          "description": "The description for this deck",
+          "questions": []
+        }
+      ]
     }
   ]
 }
 
-Now, based on the text outline I provided, please generate the JSON for the **first deck**.
+Now, based on the text outline I provided, please generate the complete JSON scaffold.
 ```
-- **To get the next deck**, simply send another message like: "Great, now please generate the JSON for the **second deck (Level 1.2)** from the outline."
+- **To import:** Use the `Create / Import Deck` modal in CogniFlow and paste the generated JSON scaffold. This will create the series with empty decks.
+
+### Step 3: Generate Questions for Each Deck
+
+Now that the series exists in CogniFlow, navigate to the series page. You will see a "Generate Questions" button on each empty deck. Clicking this button will automatically generate the questions for that specific deck.
 
 ---
 
 ## ⚡ Quick-Start Prompts (Alternatives)
 
-These prompts generate full JSON objects in one go. They are faster but offer less control and may result in very large outputs that some AI models struggle with.
+These prompts generate full JSON objects in one go. They are faster but offer less control.
 
 ### Generate a Full Series (JSON)
 ```

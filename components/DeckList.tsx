@@ -10,7 +10,6 @@ interface DeckListProps {
   folders: Folder[];
   sessionsToResume: Set<string>;
   onUpdateLastOpened: (deckId: string) => void;
-  onEditFolder: (folder: Folder) => void;
   onDeleteFolder: (folderId: string) => void;
   draggedDeckId: string | null;
   onDragStart: (deckId: string) => void;
@@ -21,9 +20,10 @@ interface DeckListProps {
   onUpdateDeck: (deck: Deck, options?: { toastMessage?: string }) => void;
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
+  onSaveFolder: (folderData: { id: string; name: string; }) => void;
 }
 
-const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, onUpdateLastOpened, onEditFolder, onDeleteFolder, draggedDeckId, onDragStart, onDragEnd, onMoveDeck, openFolderIds, onToggleFolder, onUpdateDeck, onDeleteDeck, openConfirmModal }) => {
+const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, onUpdateLastOpened, onDeleteFolder, draggedDeckId, onDragStart, onDragEnd, onMoveDeck, openFolderIds, onToggleFolder, onUpdateDeck, onDeleteDeck, openConfirmModal, onSaveFolder }) => {
 
     const { decksByFolder, ungroupedDecks } = useMemo(() => {
         const decksByFolder = new Map<string, Deck[]>();
@@ -72,7 +72,6 @@ const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, o
                     onToggle={() => onToggleFolder(folder.id)}
                     sessionsToResume={sessionsToResume}
                     onUpdateLastOpened={onUpdateLastOpened}
-                    onEditFolder={onEditFolder}
                     onDeleteFolder={onDeleteFolder}
                     draggedDeckId={draggedDeckId}
                     onDragStart={onDragStart}
@@ -81,6 +80,7 @@ const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, o
                     onUpdateDeck={onUpdateDeck}
                     onDeleteDeck={onDeleteDeck}
                     openConfirmModal={openConfirmModal}
+                    onSaveFolder={onSaveFolder}
                 />
             ))}
             

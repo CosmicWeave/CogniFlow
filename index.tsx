@@ -7,6 +7,8 @@ import { ToastProvider } from './contexts/ToastContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { RouterProvider } from './contexts/RouterContext';
 
+console.log(window.location);
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");

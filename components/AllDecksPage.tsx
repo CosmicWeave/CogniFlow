@@ -1,11 +1,12 @@
 
+
 import React, { useState, useMemo } from 'react';
-import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck } from '../types';
+import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck, Card, Question } from '../types';
 import DeckList from './DeckList';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import DeckSortControl, { SortPreference } from './ui/DeckSortControl';
-import { useStore } from '../store/store';
+import { useStore, useStandaloneDecks } from '../store/store';
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
@@ -17,13 +18,21 @@ const getDueItemsCount = (deck: Deck): number => {
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };
 
+const stripHtml = (html: string | undefined): string => {
+    if (!html) return "";
+    try {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        return doc.body.textContent || "";
+    } catch (e) {
+        return html; // Fallback for invalid HTML
+    }
+};
+
 interface AllDecksPageProps {
-  decks: Deck[];
   sessionsToResume: Set<string>;
   sortPreference: SortPreference;
   onSortChange: (pref: SortPreference) => void;
   onUpdateLastOpened: (deckId: string) => void;
-  onEditFolder: (folder: Folder) => void;
   onDeleteFolder: (folderId: string) => Promise<void>;
   draggedDeckId: string | null;
   onDragStart: (deckId: string) => void;
@@ -37,28 +46,86 @@ interface AllDecksPageProps {
   onNewFolder: () => void;
   onImportDecks: () => void;
   onCreateSampleDeck: () => void;
+  handleSaveFolder: (folderData: { id: string; name: string; }) => void;
 }
 
 const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
     const [searchTerm, setSearchTerm] = useState('');
     const folders = useStore(state => state.folders);
+    const decks = useStandaloneDecks();
 
     const filteredAndSortedDecks = useMemo(() => {
-        const filtered = props.decks.filter(deck =>
-            deck.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            deck.description?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
+        const lowercasedSearchTerm = searchTerm.toLowerCase().trim();
 
-        switch (props.sortPreference) {
-            case 'name': return filtered.sort((a, b) => a.name.localeCompare(b.name));
-            case 'dueCount': return filtered.sort((a, b) => getDueItemsCount(b) - getDueItemsCount(a));
-            case 'lastOpened': default: return filtered.sort((a,b) => (b.lastOpened || '').localeCompare(a.lastOpened || ''));
+        if (!lowercasedSearchTerm) {
+            const sorted = [...decks];
+            switch (props.sortPreference) {
+                case 'name': return sorted.sort((a, b) => a.name.localeCompare(b.name));
+                case 'dueCount': return sorted.sort((a, b) => getDueItemsCount(b) - getDueItemsCount(a));
+                case 'lastOpened': default: return sorted.sort((a,b) => (b.lastOpened || '').localeCompare(a.lastOpened || ''));
+            }
         }
-    }, [props.decks, searchTerm, props.sortPreference]);
+        
+        const searchTokens = lowercasedSearchTerm.split(/\s+/).filter(Boolean);
+
+        const scoredDecks = decks.map(deck => {
+            let score = 0;
+            const name = deck.name.toLowerCase();
+            const description = stripHtml(deck.description).toLowerCase();
+
+            // High score for exact or prefix matches in title
+            if (name.startsWith(lowercasedSearchTerm)) score += 20;
+            else if (name.includes(lowercasedSearchTerm)) score += 10;
+            
+            // Lower score for matches in description
+            if (description.includes(lowercasedSearchTerm)) score += 2;
+
+            // Score for individual token matches
+            for (const token of searchTokens) {
+                if (name.includes(token)) score += 5;
+                if (description.includes(token)) score += 1;
+            }
+
+            // Score for content matches, capped to prevent very large decks from always winning
+            const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions;
+            let contentMatchCount = 0;
+            if (items) {
+                for (const item of items) {
+                    let itemText: string;
+                    if (deck.type === DeckType.Flashcard) {
+                        const card = item as Card;
+                        itemText = stripHtml(`${card.front} ${card.back}`).toLowerCase();
+                    } else {
+                        const question = item as Question;
+                        const optionsText = question.options.map(o => o.text).join(' ');
+                        itemText = stripHtml(`${question.questionText} ${optionsText} ${question.detailedExplanation}`).toLowerCase();
+                    }
+                    if (searchTokens.some(token => itemText.includes(token))) {
+                        contentMatchCount++;
+                    }
+                }
+            }
+            score += Math.min(contentMatchCount, 20) * 0.5; // Up to 10 points for content matches
+
+            return { deck, score };
+        }).filter(({ score }) => score > 0);
+
+        // Sort by score descending, then by user's preference
+        scoredDecks.sort((a, b) => {
+            if (a.score !== b.score) return b.score - a.score;
+            switch (props.sortPreference) {
+                case 'name': return a.deck.name.localeCompare(b.deck.name);
+                case 'dueCount': return getDueItemsCount(b.deck) - getDueItemsCount(a.deck);
+                case 'lastOpened': default: return (b.deck.lastOpened || '').localeCompare(a.deck.lastOpened || '');
+            }
+        });
+
+        return scoredDecks.map(({ deck }) => deck);
+    }, [decks, searchTerm, props.sortPreference]);
 
     const sortedFolders = useMemo(() => [...folders].sort((a, b) => a.name.localeCompare(b.name)), [folders]);
     
-    const hasData = props.decks.length > 0 || folders.length > 0;
+    const hasData = decks.length > 0 || folders.length > 0;
     
     if (!hasData) {
         return (
@@ -118,7 +185,19 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
                 <DeckList 
                     decks={filteredAndSortedDecks} 
                     folders={sortedFolders}
-                    {...props}
+                    sessionsToResume={props.sessionsToResume}
+                    onUpdateLastOpened={props.onUpdateLastOpened}
+                    onDeleteFolder={props.onDeleteFolder}
+                    draggedDeckId={props.draggedDeckId}
+                    onDragStart={props.onDragStart}
+                    onDragEnd={props.onDragEnd}
+                    onMoveDeck={props.onMoveDeck}
+                    openFolderIds={props.openFolderIds}
+                    onToggleFolder={props.onToggleFolder}
+                    onUpdateDeck={props.onUpdateDeck}
+                    onDeleteDeck={props.onDeleteDeck}
+                    openConfirmModal={props.openConfirmModal}
+                    onSaveFolder={props.handleSaveFolder}
                 />
             )}
         </div>

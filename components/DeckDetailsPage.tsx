@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating } from '../types';
 import Button from './ui/Button';
@@ -277,23 +278,38 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         {isEditing ? (
           <div className="space-y-4 animate-fade-in">
             <div>
-              <label htmlFor="deck-name" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
-              <input type="text" id="deck-name" value={editedName} onChange={(e) => setEditedName(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold" />
+              <label htmlFor="deck-name-edit" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
+              <input
+                id="deck-name-edit"
+                type="text"
+                value={editedName}
+                onChange={(e) => setEditedName(e.target.value)}
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold"
+                autoFocus
+              />
             </div>
-             <div>
+            <div>
               <label htmlFor="deck-folder" className="block text-sm font-medium text-text-muted mb-1">Folder</label>
               <select id="deck-folder" value={editedFolderId} onChange={(e) => setEditedFolderId(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
                 <option value="">No folder</option>
                 {folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
               </select>
             </div>
+            
             <div>
               <label htmlFor="deck-desc" className="block text-sm font-medium text-text-muted mb-1">Description</label>
-              <textarea id="deck-desc" value={editedDescription} onChange={(e) => setEditedDescription(e.target.value)} rows={3} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" />
+              <textarea
+                id="deck-desc"
+                value={editedDescription}
+                onChange={(e) => setEditedDescription(e.target.value)}
+                rows={4}
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+              />
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={handleCancelEdit}>Cancel</Button>
+            
+            <div className="flex justify-start gap-2 pt-2">
               <Button onClick={handleSaveChanges}><Icon name="save" className="mr-2" /> Save Changes</Button>
+              <Button variant="secondary" onClick={handleCancelEdit}>Cancel</Button>
             </div>
           </div>
         ) : (

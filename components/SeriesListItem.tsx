@@ -1,6 +1,4 @@
 
-
-
 import React from 'react';
 import { DeckSeries } from '../types';
 import Link from './ui/Link';
@@ -15,9 +13,10 @@ interface SeriesListItemProps {
   dueCount: number;
   onStartSeriesStudy: (seriesId: string) => Promise<void>;
   masteryLevel: number;
+  nextUpDeckId: string | null;
 }
 
-const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount, dueCount, onStartSeriesStudy, masteryLevel }) => {
+const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount, dueCount, onStartSeriesStudy, masteryLevel, nextUpDeckId }) => {
     const totalCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
     const isCompleted = completedCount >= totalCount && totalCount > 0;
 
@@ -58,7 +57,21 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
                         </div>
                     </div>
                 )}
-                <div className="mt-4 pt-4 border-t border-border/50 flex justify-end">
+                <div className="mt-4 pt-4 border-t border-border/50 flex justify-end gap-2">
+                    {nextUpDeckId && (
+                         <Link
+                            href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
+                            passAs={Button}
+                            variant="primary"
+                            size="sm"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                            }}
+                        >
+                            <Icon name="laptop" className="w-4 h-4 mr-2"/>
+                            Continue
+                        </Link>
+                    )}
                      <Button 
                         variant="secondary"
                         size="sm"

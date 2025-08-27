@@ -2,7 +2,8 @@ import React, { createContext, useState, useEffect, useContext, ReactNode, useCa
 
 interface RouterContextType {
   path: string;
-  navigate: (to: string) => void;
+  // FIX: Update navigate function signature to support an options object
+  navigate: (to: string, options?: { replace?: boolean }) => void;
 }
 
 const RouterContext = createContext<RouterContextType | undefined>(undefined);
@@ -34,9 +35,16 @@ export const RouterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
   }, [handleHashChange]);
 
-  const navigate = useCallback((to: string) => {
-    // Set the hash with the #/ prefix to make it a valid hash route
-    window.location.hash = `#${to}`;
+  // FIX: Update navigate function to handle `replace` option.
+  const navigate = useCallback((to: string, options?: { replace?: boolean }) => {
+    const newHash = `#${to}`;
+    if (options?.replace) {
+        const url = new URL(window.location.href);
+        url.hash = newHash;
+        window.location.replace(url.toString());
+    } else {
+        window.location.hash = newHash;
+    }
   }, []);
 
   const value = { path, navigate };

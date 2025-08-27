@@ -1,9 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Deck, Folder } from '../types';
 import DeckListItem from './DeckListItem';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
+import { useToast } from '../hooks/useToast';
 
 interface FolderViewProps {
   folder: Folder;
@@ -12,7 +13,6 @@ interface FolderViewProps {
   onToggle: () => void;
   sessionsToResume: Set<string>;
   onUpdateLastOpened: (deckId: string) => void;
-  onEditFolder: (folder: Folder) => void;
   onDeleteFolder: (folderId: string) => void;
   draggedDeckId: string | null;
   onDragStart: (deckId: string) => void;
@@ -21,10 +21,43 @@ interface FolderViewProps {
   onUpdateDeck: (deck: Deck, options?: { toastMessage?: string }) => void;
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
+  onSaveFolder: (folderData: { id: string; name: string }) => void;
 }
 
-const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle, sessionsToResume, onUpdateLastOpened, onEditFolder, onDeleteFolder, draggedDeckId, onDragStart, onDragEnd, onMoveDeck, onUpdateDeck, onDeleteDeck, openConfirmModal }) => {
+const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle, sessionsToResume, onUpdateLastOpened, onDeleteFolder, draggedDeckId, onDragStart, onDragEnd, onMoveDeck, onUpdateDeck, onDeleteDeck, openConfirmModal, onSaveFolder }) => {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedName, setEditedName] = useState(folder.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { addToast } = useToast();
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+    }
+  }, [isEditing]);
+  
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditedName(folder.name); // Reset on each edit start
+    setIsEditing(true);
+  };
+  
+  const handleCancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(false);
+  };
+  
+  const handleSave = (e?: React.MouseEvent | React.KeyboardEvent) => {
+    e?.stopPropagation();
+    if (editedName.trim() === '') {
+        addToast("Folder name cannot be empty.", "error");
+        return;
+    }
+    onSaveFolder({ id: folder.id, name: editedName.trim() });
+    setIsEditing(false);
+  };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -55,25 +88,53 @@ const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle
       onDragLeave={handleDragLeave}
     >
       <div className="border-b border-border">
-        <button
-          onClick={onToggle}
-          className="w-full flex justify-between items-center text-left p-4"
+        <div
+          onClick={isEditing ? undefined : onToggle}
+          className="w-full flex justify-between items-center text-left p-4 cursor-pointer"
           aria-expanded={isOpen}
         >
-          <div className="flex items-center">
+          <div className="flex items-center flex-grow min-w-0">
             <Icon name="chevron-down" className={`w-5 h-5 transition-transform duration-300 mr-3 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
-            <Icon name="folder" className="w-6 h-6 mr-3 text-yellow-600 dark:text-yellow-500" />
-            <h3 className="text-xl font-bold text-text">{folder.name}</h3>
+            {isEditing ? (
+                <div className="flex items-center flex-grow gap-2 min-w-0" onClick={e => e.stopPropagation()}>
+                    <Icon name="folder" className="w-6 h-6 text-yellow-600 dark:text-yellow-500 flex-shrink-0" />
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={editedName}
+                      onChange={e => setEditedName(e.target.value)}
+                      onKeyDown={e => {
+                          if (e.key === 'Enter') handleSave(e);
+                          if (e.key === 'Escape') handleCancel(e as any);
+                      }}
+                      className="text-xl font-bold p-1 bg-background rounded-md w-full"
+                    />
+                </div>
+            ) : (
+                <>
+                    <Icon name="folder" className="w-6 h-6 mr-3 text-yellow-600 dark:text-yellow-500" />
+                    <h3 className="text-xl font-bold text-text truncate">{folder.name}</h3>
+                </>
+            )}
           </div>
-          <div className="flex items-center gap-1">
-             <Button variant="ghost" className="p-2 h-auto" onClick={(e) => { e.stopPropagation(); onEditFolder(folder); }} aria-label={`Edit folder ${folder.name}`}>
-                <Icon name="edit" className="w-4 h-4"/>
-            </Button>
-            <Button variant="ghost" className="p-2 h-auto hover:text-red-500" onClick={(e) => { e.stopPropagation(); onDeleteFolder(folder.id); }} aria-label={`Delete folder ${folder.name}`}>
-                <Icon name="trash-2" className="w-4 h-4"/>
-            </Button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+             {isEditing ? (
+                <>
+                    <Button variant="primary" size="sm" onClick={handleSave} aria-label={`Save changes for folder ${folder.name}`}>Save</Button>
+                    <Button variant="secondary" size="sm" onClick={handleCancel} aria-label="Cancel editing">Cancel</Button>
+                </>
+             ) : (
+                <>
+                    <Button variant="ghost" className="p-2 h-auto" onClick={handleStartEdit} aria-label={`Edit folder ${folder.name}`}>
+                        <Icon name="edit" className="w-4 h-4"/>
+                    </Button>
+                    <Button variant="ghost" className="p-2 h-auto hover:text-red-500" onClick={(e) => { e.stopPropagation(); onDeleteFolder(folder.id); }} aria-label={`Delete folder ${folder.name}`}>
+                        <Icon name="trash-2" className="w-4 h-4"/>
+                    </Button>
+                </>
+             )}
           </div>
-        </button>
+        </div>
       </div>
 
       {isOpen && (

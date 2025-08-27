@@ -56,7 +56,7 @@ const AccordionSection: React.FC<{
 
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onRestoreData, onResetProgress, onFactoryReset }) => {
-  const { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled } = useSettings();
+  const { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled } = useSettings();
   const { addToast } = useToast();
   const { themeId, setThemeById } = useTheme();
   const [openSection, setOpenSection] = useState<string | null>('data');
@@ -390,6 +390,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore,
           </div>
       </AccordionSection>
 
+      <AccordionSection id="ai-features" title="AI Features" openSection={openSection} setOpenSection={setOpenSection}>
+        <div className="space-y-4">
+            <ToggleSwitch
+              label="Enable AI Content Generation"
+              checked={aiFeaturesEnabled}
+              onChange={setAiFeaturesEnabled}
+              description="Use Google's Gemini API to generate new study series and decks from a topic."
+            />
+            <div className="text-xs text-text-muted p-3 bg-background rounded-md border border-border">
+                <p>By enabling this feature, you agree to send prompts to Google's servers to generate content. This feature requires a valid Gemini API key to be configured in the application's environment. CogniFlow does not store your prompts or the generated content.</p>
+            </div>
+        </div>
+      </AccordionSection>
+
       <AccordionSection id="danger-zone" title="Danger Zone" openSection={openSection} setOpenSection={setOpenSection} isDanger>
           <div className="space-y-6">
               <div id="settings-reset-progress">
@@ -415,6 +429,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore,
               </div>
           </div>
       </AccordionSection>
+
+      <div className="text-center text-xs text-text-muted pt-4 pb-2">
+        <p>CogniFlow v1.2.0</p>
+        <p>Running on: <strong>{window.location.hostname || 'localhost'}</strong></p>
+      </div>
     </div>
     </>
   );
