@@ -1,4 +1,8 @@
 
+
+
+
+
 export enum ReviewRating {
   Again = 1,
   Hard = 2,
@@ -62,6 +66,7 @@ interface BaseDeck {
   archived?: boolean;
   deletedAt?: string; // ISO string for date
   locked?: boolean;
+  suggestedQuestionCount?: number;
 }
 
 export interface FlashcardDeck extends BaseDeck {
@@ -91,6 +96,9 @@ export interface DeckSeries {
     levels: SeriesLevel[]; // A nested structure for decks
     archived?: boolean;
     deletedAt?: string; // ISO string for date
+    createdAt?: string; // ISO string for date
+    lastOpened?: string; // ISO string for date
+    aiChatHistory?: any[]; // Stores the AI chat history for content generation
 }
 
 // Map of seriesId -> Set of completed deck IDs

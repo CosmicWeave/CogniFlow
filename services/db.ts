@@ -4,7 +4,7 @@ import { broadcastDataChange } from './syncService';
 import { getStockholmFilenameTimestamp } from './time';
 
 const DB_NAME = 'CogniFlowDB';
-const DB_VERSION = 5; // Incremented version
+const DB_VERSION = 6; // Incremented version
 const DECK_STORE_NAME = 'decks';
 const FOLDER_STORE_NAME = 'folders';
 const SERIES_STORE_NAME = 'deckSeries';
@@ -58,9 +58,20 @@ function initDB(): Promise<IDBDatabase> {
       if (event.oldVersion < 4 && !dbInstance.objectStoreNames.contains(SESSION_STORE_NAME)) {
         dbInstance.createObjectStore(SESSION_STORE_NAME, { keyPath: 'id' });
       }
-      if (event.oldVersion < 5 && !dbInstance.objectStoreNames.contains(REVIEW_STORE_NAME)) {
-        const reviewStore = dbInstance.createObjectStore(REVIEW_STORE_NAME, { keyPath: 'id', autoIncrement: true });
-        reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
+      if (event.oldVersion < 5) {
+        if (!dbInstance.objectStoreNames.contains(REVIEW_STORE_NAME)) {
+            const reviewStore = dbInstance.createObjectStore(REVIEW_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+            reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      }
+       if (event.oldVersion < 6) {
+        const transaction = (event.target as IDBOpenDBRequest).transaction;
+        if (transaction) {
+            const reviewStore = transaction.objectStore(REVIEW_STORE_NAME);
+            if (!reviewStore.indexNames.contains('deckId')) {
+                reviewStore.createIndex('deckId', 'deckId', { unique: false });
+            }
+        }
       }
     };
   });
@@ -358,6 +369,19 @@ export async function getReviewsSince(sinceDate: Date): Promise<ReviewLog[]> {
     const request = index.getAll(range);
 
     request.onerror = () => reject('Error fetching review logs');
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+export async function getReviewsForDeck(deckId: string): Promise<ReviewLog[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(REVIEW_STORE_NAME, 'readonly');
+    const store = transaction.objectStore(REVIEW_STORE_NAME);
+    const index = store.index('deckId');
+    const request = index.getAll(deckId);
+
+    request.onerror = () => reject('Error fetching reviews for deck');
     request.onsuccess = () => resolve(request.result);
   });
 }

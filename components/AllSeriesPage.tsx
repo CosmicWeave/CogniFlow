@@ -1,20 +1,23 @@
+
+
 import React, { useState, useMemo } from 'react';
-import { Deck, DeckSeries, SeriesProgress, Reviewable, DeckType, FlashcardDeck, QuizDeck } from '../types';
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, Reviewable } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import SeriesListItem from './SeriesListItem';
 import DeckSortControl from './ui/DeckSortControl';
 import { useStore } from '../store/store';
 import { getEffectiveMasteryLevel } from '../services/srs';
+import { useSettings } from '../hooks/useSettings';
 
-type SortPreference = 'name' | 'progress' | 'mastery';
+type SortPreference = 'recent' | 'name' | 'progress' | 'mastery';
 type FilterPreference = 'all' | 'inProgress' | 'completed';
 
 interface AllSeriesPageProps {
-  seriesProgress: SeriesProgress;
   onStartSeriesStudy: (seriesId: string) => Promise<void>;
   onCreateNewSeries: () => void;
   onCreateSampleSeries: () => void;
+  onGenerateAI: () => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
@@ -28,14 +31,15 @@ const getDueItemsCount = (deck: Deck): number => {
 };
 
 const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
-  seriesProgress,
   onStartSeriesStudy,
   onCreateNewSeries,
-  onCreateSampleSeries
+  onCreateSampleSeries,
+  onGenerateAI,
 }) => {
-    const { deckSeries: allSeries, decks } = useStore();
+    const { deckSeries: allSeries, decks, seriesProgress } = useStore();
+    const { aiFeaturesEnabled } = useSettings();
     const [searchTerm, setSearchTerm] = useState('');
-    const [sort, setSort] = useState<SortPreference>('name');
+    const [sort, setSort] = useState<SortPreference>('recent');
     const [filter, setFilter] = useState<FilterPreference>('all');
     
     const series = useMemo(() => allSeries.filter(s => !s.archived && !s.deletedAt), [allSeries]);
@@ -87,6 +91,12 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
         }
         
         switch(sort) {
+            case 'recent':
+                return filteredSeries.sort((a, b) => {
+                    const timeA = new Date(a.lastOpened || a.createdAt || 0).getTime();
+                    const timeB = new Date(b.lastOpened || b.createdAt || 0).getTime();
+                    return timeB - timeA;
+                });
             case 'progress':
                 return filteredSeries.sort((a, b) => {
                     const progressA = (seriesProgress.get(a.id)?.size || 0) / ((a.levels || []).reduce((acc, l) => acc + (l.deckIds || []).length, 0) || 1);
@@ -107,6 +117,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
     }, [series, searchTerm, sort, filter, seriesProgress, seriesData]);
 
     const sortOptions: readonly { key: SortPreference; label: string }[] = [
+      { key: 'recent', label: 'Recent' },
       { key: 'name', label: 'Name' },
       { key: 'progress', label: 'Progress' },
       { key: 'mastery', label: 'Mastery' },
@@ -122,10 +133,18 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                 <h1 className="text-3xl font-bold text-text">All Series</h1>
-                 <Button variant="primary" onClick={onCreateNewSeries}>
-                    <Icon name="layers" className="w-5 h-5 mr-2" />
-                    Create New Series
-                </Button>
+                <div className="flex gap-2">
+                    {aiFeaturesEnabled && (
+                        <Button variant="primary" onClick={onGenerateAI}>
+                            <Icon name="zap" className="w-5 h-5 mr-2" />
+                            Generate with AI
+                        </Button>
+                    )}
+                    <Button variant="secondary" onClick={onCreateNewSeries}>
+                        <Icon name="layers" className="w-5 h-5 mr-2" />
+                        Create New Series
+                    </Button>
+                </div>
             </div>
             
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 p-4 bg-surface rounded-lg border border-border">
@@ -152,14 +171,18 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredAndSortedSeries.map(s => {
                     const data = seriesData.get(s.id) || { dueCount: 0, mastery: 0 };
+                    const completedDeckIds = seriesProgress.get(s.id) || new Set();
+                    const flatDeckIds = (s.levels || []).flatMap(l => l.deckIds || []);
+                    const nextUpDeckId = flatDeckIds.find(id => !completedDeckIds.has(id)) || null;
                     return (
                       <SeriesListItem
                         key={s.id}
                         series={s}
-                        completedCount={seriesProgress.get(s.id)?.size || 0}
+                        completedCount={completedDeckIds.size}
                         dueCount={data.dueCount}
                         masteryLevel={data.mastery}
                         onStartSeriesStudy={onStartSeriesStudy}
+                        nextUpDeckId={nextUpDeckId}
                       />
                   )})}
                 </div>

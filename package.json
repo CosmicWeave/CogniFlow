@@ -16,7 +16,8 @@
     "jszip": "3.10.1",
     "sql.js": "1.10.3",
     "canvas-confetti": "1.9.3",
-    "zustand": "4.5.2"
+    "zustand": "4.5.2",
+    "@google/genai": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

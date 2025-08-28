@@ -1,17 +1,25 @@
 
+
 import { create } from 'zustand';
-import { Deck, Folder, DeckSeries } from '../types';
+import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck } from '../types';
 import { RestoreData } from '../services/googleDriveService';
 
 export type AppState = {
   decks: Deck[];
   folders: Folder[];
   deckSeries: DeckSeries[];
+  seriesProgress: SeriesProgress;
   isLoading: boolean;
+  aiGenerationStatus: {
+    isGenerating: boolean;
+    generatingDeckId: string | null;
+    generatingSeriesId: string | null;
+  };
 };
 
 export type AppAction =
   | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_SERIES_PROGRESS'; payload: SeriesProgress }
   | { type: 'LOAD_DATA'; payload: { decks: Deck[]; folders: Folder[]; deckSeries: DeckSeries[] } }
   | { type: 'ADD_DECKS'; payload: Deck[] }
   | { type: 'DELETE_DECK'; payload: string }
@@ -24,12 +32,15 @@ export type AppAction =
   | { type: 'ADD_SERIES_WITH_DECKS', payload: { series: DeckSeries, decks: Deck[] } }
   | { type: 'UPDATE_SERIES'; payload: DeckSeries }
   | { type: 'DELETE_SERIES'; payload: string }
-  | { type: 'RESTORE_DATA', payload: RestoreData };
+  | { type: 'RESTORE_DATA', payload: RestoreData }
+  | { type: 'SET_AI_GENERATION_STATUS'; payload: { isGenerating: boolean; generatingDeckId: string | null; generatingSeriesId: string | null; } };
 
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+    case 'SET_SERIES_PROGRESS':
+      return { ...state, seriesProgress: action.payload };
     case 'LOAD_DATA':
       return { ...state, ...action.payload, isLoading: false };
     case 'ADD_DECKS': {
@@ -102,6 +113,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         return { ...state, deckSeries: state.deckSeries.map(s => s.id === action.payload.id ? action.payload : s) };
     case 'DELETE_SERIES':
         return { ...state, deckSeries: state.deckSeries.filter(s => s.id !== action.payload) };
+    case 'SET_AI_GENERATION_STATUS':
+      return { ...state, aiGenerationStatus: action.payload };
     default:
       return state;
   }
@@ -111,7 +124,13 @@ const initialState: AppState = {
   decks: [],
   folders: [],
   deckSeries: [],
+  seriesProgress: new Map(),
   isLoading: true,
+  aiGenerationStatus: {
+    isGenerating: false,
+    generatingDeckId: null,
+    generatingSeriesId: null,
+  },
 };
 
 type AppStore = AppState & {
@@ -122,3 +141,57 @@ export const useStore = create<AppStore>((set) => ({
   ...initialState,
   dispatch: (action: AppAction) => set((state) => appReducer(state, action)),
 }));
+
+
+// --- Selectors ---
+
+const getDueItemsCount = (deck: Deck): number => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    if (!Array.isArray(items)) {
+        return 0;
+    }
+    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
+};
+
+export const useStandaloneDecks = () => useStore(state => {
+    const seriesDeckIds = new Set<string>();
+    state.deckSeries.forEach(series => {
+        (series.levels || []).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
+    });
+    return state.decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
+});
+
+export const useActiveSeriesList = () => useStore(state => 
+    state.deckSeries.filter(s => !s.archived && !s.deletedAt)
+);
+
+export const useTotalDueCount = () => useStore(state => {
+    const seriesDeckIds = new Set<string>();
+    state.deckSeries.forEach(series => {
+        series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
+    });
+
+    const unlockedSeriesDeckIds = new Set<string>();
+    state.deckSeries.forEach(series => {
+        if (!series.archived && !series.deletedAt) {
+            const completedCount = state.seriesProgress.get(series.id)?.size || 0;
+            const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
+            flatDeckIds.forEach((deckId, index) => {
+                if (index <= completedCount) {
+                    unlockedSeriesDeckIds.add(deckId);
+                }
+            });
+        }
+    });
+
+    return state.decks
+        .filter(deck => {
+            if (deck.archived || deck.deletedAt) return false;
+            // It's a series deck that is locked
+            if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
+            return true;
+        })
+        .reduce((total, deck) => total + getDueItemsCount(deck), 0);
+});

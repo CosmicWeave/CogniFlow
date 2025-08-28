@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useMemo } from 'react';
 import { Deck, DeckSeries } from '../types';
 import Button from './ui/Button';
@@ -79,8 +75,12 @@ const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries,
             ))}
           </div>
         ) : (
-          <div className="text-center py-6 bg-background/50 rounded-lg">
-            <p className="text-text-muted">No archived series.</p>
+          <div className="text-center py-10 bg-surface rounded-lg border border-border">
+            <Icon name="archive" className="w-12 h-12 mx-auto text-text-muted/50" />
+            <h3 className="mt-2 text-xl font-medium text-text">No Archived Series</h3>
+            <p className="mt-1 text-sm text-text-muted">
+              You can archive series from their page to hide them from the main list.
+            </p>
           </div>
         )}
       </section>
@@ -112,8 +112,12 @@ const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries,
             ))}
           </div>
         ) : (
-          <div className="text-center py-6 bg-background/50 rounded-lg">
-             <p className="text-text-muted">No archived decks.</p>
+          <div className="text-center py-10 bg-surface rounded-lg border border-border">
+             <Icon name="archive" className="w-12 h-12 mx-auto text-text-muted/50" />
+             <h3 className="mt-2 text-xl font-medium text-text">No Archived Decks</h3>
+             <p className="mt-1 text-sm text-text-muted">
+               You can archive decks from their details page to hide them from view.
+             </p>
           </div>
         )}
       </section>

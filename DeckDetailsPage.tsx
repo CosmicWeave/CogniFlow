@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating } from '../types';
 import Button from './ui/Button';
@@ -277,11 +276,12 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
       <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
         {isEditing ? (
           <div className="space-y-4 animate-fade-in">
+            {/* FIX: Wrapped inputs in divs with labels for correct layout */}
             <div>
-              <label htmlFor="deck-name-edit" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
+              <label htmlFor="deck-name" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
               <input
-                id="deck-name-edit"
                 type="text"
+                id="deck-name"
                 value={editedName}
                 onChange={(e) => setEditedName(e.target.value)}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold"

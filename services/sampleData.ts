@@ -1,4 +1,5 @@
 
+
 import { QuizDeck, DeckType, Question, DeckSeries } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
@@ -94,7 +95,8 @@ export const createSampleSeries = (): { series: DeckSeries, decks: QuizDeck[] } 
                 title: 'Level 2: Next Steps',
                 deckIds: [multiplicationDeck.id]
             }
-        ]
+        ],
+        createdAt: new Date().toISOString(),
     };
     
     return { series, decks };

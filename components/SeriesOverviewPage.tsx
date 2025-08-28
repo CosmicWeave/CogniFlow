@@ -1,374 +1,377 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { DeckSeries, QuizDeck, Question } from '../types';
+
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { DeckSeries, QuizDeck, Question, DeckType, ImportedQuestion } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Link from './ui/Link';
-import AddDeckToSeriesModal from './AddDeckToSeriesModal';
-import EditSeriesModal from './EditSeriesModal';
-import BulkAddModal from './BulkAddModal';
 import { useRouter } from '../contexts/RouterContext';
 import MasteryBar from './ui/MasteryBar';
 import ProgressBar from './ui/ProgressBar';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import { useStore } from '../store/store';
+import { useToast } from '../hooks/useToast';
+import { generateSeriesQuestionsInBatches } from '../services/aiService';
+import { createQuestionsFromImport } from '../services/importService';
+import Spinner from './ui/Spinner';
 
 interface SeriesOverviewPageProps {
   series: DeckSeries;
-  completedDeckIds: Set<string>;
   sessionsToResume: Set<string>;
-  onUpdateSeries: (updatedSeries: DeckSeries) => void;
+  onUpdateSeries: (updatedSeries: DeckSeries, options?: { silent?: boolean; toastMessage?: string }) => void;
   onDeleteSeries: (seriesId: string) => void;
   onAddDeckToSeries: (seriesId: string, newDeck: QuizDeck) => void;
   onUpdateDeck: (updatedDeck: QuizDeck) => void;
   onStartSeriesStudy: (seriesId: string) => void;
+  onUpdateLastOpened: (seriesId: string) => void;
   openConfirmModal: (props: any) => void;
+  onAiAddLevelsToSeries: (seriesId: string) => Promise<void>;
+  onAiAddDecksToLevel: (seriesId: string, levelIndex: number) => Promise<void>;
 }
 
-const getDueItemsCount = (deck: QuizDeck): number => {
+const getDueItemsCount = (deck?: QuizDeck): number => {
+    if (!deck) return 0;
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    return deck.questions.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
+    return deck.questions.filter(q => !q.suspended && new Date(q.dueDate) <= today).length;
 };
 
-const DropIndicator = () => (
-    <div className="h-12 w-full flex items-center" aria-hidden="true">
-        <div className="h-1.5 w-full rounded-full bg-primary/50" />
-    </div>
-);
-
-const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({
-  series,
-  completedDeckIds,
-  sessionsToResume,
-  onUpdateSeries,
-  onDeleteSeries,
-  onAddDeckToSeries,
-  onUpdateDeck,
-  onStartSeriesStudy,
-  openConfirmModal
-}) => {
-  const { navigate } = useRouter();
+const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, sessionsToResume, onUpdateSeries, onDeleteSeries, onAddDeckToSeries, onUpdateDeck, onStartSeriesStudy, onUpdateLastOpened, openConfirmModal, onAiAddLevelsToSeries, onAiAddDecksToLevel }) => {
+  const { decks: allDecks, seriesProgress, aiGenerationStatus, dispatch } = useStore();
+  const { navigate, path } = useRouter();
+  const { addToast } = useToast();
   
-  const initialEditMode = useMemo(() => {
-    const params = new URLSearchParams(window.location.hash.split('?')[1]);
-    return params.get('edit') === 'true';
-  }, []);
-
-  const [isOrganizing, setIsOrganizing] = useState(initialEditMode);
-  const [isAddDeckModalOpen, setIsAddDeckModalOpen] = useState(false);
-  const [isEditSeriesModalOpen, setIsEditSeriesModalOpen] = useState(false);
-  const [deckForBulkAdd, setDeckForBulkAdd] = useState<QuizDeck | null>(null);
-  const [editingLevel, setEditingLevel] = useState<{ index: number; name: string } | null>(null);
-
-  const allDecks = useStore(state => state.decks);
+  const [isOrganizeMode, setIsOrganizeMode] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedName, setEditedName] = useState(series.name);
+  const [editedDescription, setEditedDescription] = useState(series.description);
   
-  const decks = useMemo(() => {
-    const deckIdsInSeries = new Set(series.levels.flatMap(l => l.deckIds));
-    return allDecks.filter(d => deckIdsInSeries.has(d.id)) as QuizDeck[];
-  }, [series, allDecks]);
-
-  const [draggedItem, setDraggedItem] = useState<{ type: 'level' | 'deck', sourceLevelIndex: number, deckId?: string } | null>(null);
-  const [dropIndicator, setDropIndicator] = useState<{ levelIndex: number, deckIndex?: number | null } | null>(null);
-
-  const flatDeckIdsInOrder = useMemo(() => series.levels.flatMap(l => l.deckIds), [series.levels]);
-  const totalDecksInSeries = flatDeckIdsInOrder.length;
-
-  const nextUpDeckId = useMemo(() => {
-      return flatDeckIdsInOrder.find(id => !completedDeckIds.has(id)) || null;
-  }, [flatDeckIdsInOrder, completedDeckIds]);
-
+  const [isAddingLevels, setIsAddingLevels] = useState(false);
+  const [isAddingDecksToLevel, setIsAddingDecksToLevel] = useState<number | null>(null);
 
   useEffect(() => {
-    if (initialEditMode) {
-        navigate(`/series/${series.id}`);
+    const params = new URLSearchParams(path.split('?')[1]);
+    if(params.get('edit') === 'true') {
+        setIsOrganizeMode(true);
+        // Clean up URL after activating edit mode
+        navigate(`/series/${series.id}`, { replace: true });
     }
-  }, [initialEditMode, navigate, series.id]);
+  }, [path, series.id, navigate]);
+
+  useEffect(() => {
+      onUpdateLastOpened(series.id);
+  }, [series.id, onUpdateLastOpened]);
 
   useEffect(() => {
     if (series.archived || series.deletedAt) {
-      navigate('/');
+      navigate('/series');
     }
   }, [series.archived, series.deletedAt, navigate]);
-
-  const totalDueInSeries = useMemo(() => {
-    return decks.reduce((total, deck) => {
-        if (flatDeckIdsInOrder.indexOf(deck.id) <= completedDeckIds.size) { // is unlocked
-            return total + getDueItemsCount(deck);
-        }
-        return total;
-    }, 0);
-  }, [decks, completedDeckIds, flatDeckIdsInOrder]);
-
-  const seriesMastery = useMemo(() => {
-    const allItems = decks.flatMap(d => d.questions).filter(q => !q.suspended);
-    if (allItems.length === 0) return 0;
-    const totalMastery = allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0);
-    return totalMastery / allItems.length;
-  }, [decks]);
   
-  const handleRemoveDeck = (deckId: string, deckName: string) => {
-    openConfirmModal({
-        title: "Remove Deck from Series",
-        message: `Are you sure you want to remove "${deckName}" from this series? The deck itself will not be deleted.`,
-        onConfirm: () => {
-            const updatedLevels = series.levels.map(level => ({
-                ...level,
-                deckIds: level.deckIds.filter(id => id !== deckId)
-            })).filter(level => level.deckIds.length > 0 || isOrganizing);
-            onUpdateSeries({ ...series, levels: updatedLevels });
+  const seriesDecks = useMemo(() => {
+    const deckMap = new Map<string, QuizDeck>();
+    const allSeriesDeckIds = new Set(series.levels.flatMap(level => level.deckIds));
+    allDecks.forEach(deck => {
+        if (allSeriesDeckIds.has(deck.id) && deck.type === DeckType.Quiz) {
+            deckMap.set(deck.id, deck as QuizDeck);
         }
+    });
+    return deckMap;
+  }, [series.levels, allDecks]);
+
+  const completedDeckIds = useMemo(() => seriesProgress.get(series.id) || new Set(), [seriesProgress, series.id]);
+  const totalDecks = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
+
+  const { totalDueCount, averageMastery } = useMemo(() => {
+    let dueCount = 0;
+    const allItems = [];
+    let deckIndex = 0;
+
+    for (const level of series.levels) {
+        for (const deckId of level.deckIds) {
+            const deck = seriesDecks.get(deckId);
+            if (deck) {
+                if (deckIndex <= completedDeckIds.size) { // Unlocked
+                    dueCount += getDueItemsCount(deck);
+                }
+                allItems.push(...deck.questions.filter(q => !q.suspended));
+            }
+            deckIndex++;
+        }
+    }
+    
+    const mastery = allItems.length > 0
+        ? allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allItems.length
+        : 0;
+        
+    return { totalDueCount: dueCount, averageMastery: mastery };
+  }, [series.levels, seriesDecks, completedDeckIds]);
+  
+  const handleSaveChanges = () => {
+    onUpdateSeries({ ...series, name: editedName, description: editedDescription });
+    setIsEditing(false);
+  };
+  
+  const handleDelete = () => {
+    const deckCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
+    openConfirmModal({
+        title: 'Move Series to Trash',
+        message: `Are you sure you want to move the series "${series.name}" and all of its ${deckCount} deck(s) to the trash?`,
+        onConfirm: () => onDeleteSeries(series.id),
     });
   };
   
-  const handleDeleteSeries = () => {
-    openConfirmModal({
-        title: "Move Series to Trash",
-        message: `Are you sure you want to move the series "${series.name}" to the trash? All ${decks.length} deck(s) inside this series will also be moved to the trash.`,
-        onConfirm: () => onDeleteSeries(series.id)
-    });
-  };
-
-  const handleAddLevel = () => {
-    const newLevel = { title: 'New Level', deckIds: [] };
-    onUpdateSeries({ ...series, levels: [...series.levels, newLevel] });
-  };
-  
-  const handleUpdateLevelName = (levelIndex: number) => {
-    if (!editingLevel || editingLevel.name.trim() === '') return;
-    const newLevels = [...series.levels];
-    newLevels[levelIndex].title = editingLevel.name.trim();
-    onUpdateSeries({ ...series, levels: newLevels });
-    setEditingLevel(null);
-  };
-  
-  const handleDragStart = (e: React.DragEvent, type: 'level' | 'deck', sourceLevelIndex: number, deckId?: string) => {
-    if (!isOrganizing) return;
-    setDraggedItem({ type, sourceLevelIndex, deckId });
-    e.dataTransfer.effectAllowed = 'move';
-    try { e.dataTransfer.setData('text/plain', 'dummy'); } catch(e) {}
-  };
-
-  const handleDragOver = (e: React.DragEvent, levelIndex: number, deckIndex?: number) => {
-    if (!isOrganizing || !draggedItem) return;
-    e.preventDefault();
-    if (draggedItem.type === 'level') {
-        setDropIndicator({ levelIndex: levelIndex, deckIndex: null });
-    } else if (draggedItem.type === 'deck') {
-        setDropIndicator({ levelIndex: levelIndex, deckIndex: deckIndex });
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    if (!isOrganizing || !draggedItem || !dropIndicator) return;
-    e.preventDefault();
-
-    const { type: draggedType, sourceLevelIndex, deckId: draggedDeckId } = draggedItem;
-    let { levelIndex: targetLevelIndex, deckIndex: targetDeckIndex } = dropIndicator;
-    
-    const newLevels = JSON.parse(JSON.stringify(series.levels));
-
-    if (draggedType === 'level') {
-        if (targetDeckIndex !== null) return;
-        if (sourceLevelIndex === targetLevelIndex) return;
-        const [movedLevel] = newLevels.splice(sourceLevelIndex, 1);
-        const effectiveTargetIndex = sourceLevelIndex < targetLevelIndex ? targetLevelIndex - 1 : targetLevelIndex;
-        newLevels.splice(effectiveTargetIndex, 0, movedLevel);
-    } else if (draggedType === 'deck' && draggedDeckId) {
-        newLevels[sourceLevelIndex].deckIds = newLevels[sourceLevelIndex].deckIds.filter((id: string) => id !== draggedDeckId);
-        newLevels[targetLevelIndex].deckIds.splice(targetDeckIndex!, 0, draggedDeckId);
+  const handleGenerateQuestionsForDeck = (deck: QuizDeck) => {
+    if (aiGenerationStatus.isGenerating) {
+        addToast("An AI generation task is already in progress.", "info");
+        return;
     }
     
-    onUpdateSeries({ ...series, levels: newLevels.filter(l => l.deckIds.length > 0) });
-    setDraggedItem(null);
-    setDropIndicator(null);
+    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, generatingDeckId: deck.id, generatingSeriesId: series.id } });
+    addToast(`AI is now generating questions for "${deck.name}". This will continue in the background.`, 'info');
+    
+    (async () => {
+        try {
+            const history = await generateSeriesQuestionsInBatches(series, [deck], (deckId, questions) => {
+                const newQuestions = createQuestionsFromImport(questions);
+                const deckToUpdate = seriesDecks.get(deckId);
+                if(deckToUpdate) {
+                    const updatedDeck = { ...deckToUpdate, questions: newQuestions };
+                    onUpdateDeck(updatedDeck);
+                }
+            });
+            
+            // Save history after successful generation
+            onUpdateSeries({ ...series, aiChatHistory: history }, { silent: true });
+            addToast(`Successfully generated questions for "${deck.name}"!`, 'success');
+
+        } catch(e) {
+            const message = e instanceof Error ? e.message : "An unknown error occurred during AI generation.";
+            addToast(message, 'error');
+        } finally {
+             if (useStore.getState().aiGenerationStatus.generatingDeckId === deck.id) {
+                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, generatingDeckId: null, generatingSeriesId: null } });
+            }
+        }
+    })();
   };
   
-  const handleDragEnd = () => {
-    setDraggedItem(null);
-    setDropIndicator(null);
+  const handleGenerateQuestionsForEmptyDecks = () => {
+    if (aiGenerationStatus.isGenerating) {
+        addToast("An AI generation task is already in progress.", "info");
+        return;
+    }
+
+    const emptyDecks = Array.from(seriesDecks.values()).filter(d => (d.questions?.length || 0) === 0);
+    if (emptyDecks.length === 0) {
+        addToast("All decks in this series already have questions.", "info");
+        return;
+    }
+
+    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, generatingDeckId: emptyDecks[0].id, generatingSeriesId: series.id } });
+    addToast(`AI is generating questions for ${emptyDecks.length} empty decks. This will continue in the background.`, 'info');
+    
+    (async () => {
+        try {
+            const history = await generateSeriesQuestionsInBatches(series, emptyDecks, (deckId, questions) => {
+                const newQuestions = createQuestionsFromImport(questions);
+                const deckToUpdate = emptyDecks.find(d => d.id === deckId);
+                if(deckToUpdate) {
+                    const updatedDeck = { ...deckToUpdate, questions: newQuestions };
+                    onUpdateDeck(updatedDeck);
+                }
+                const currentIndex = emptyDecks.findIndex(d => d.id === deckId);
+                const nextDeck = emptyDecks[currentIndex + 1];
+                if (nextDeck) {
+                    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, generatingDeckId: nextDeck.id, generatingSeriesId: series.id } });
+                }
+            });
+
+            onUpdateSeries({ ...series, aiChatHistory: history }, { silent: true });
+            addToast(`Successfully generated questions for all empty decks!`, 'success');
+
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "An unknown error occurred during AI generation.";
+            addToast(message, 'error');
+        } finally {
+            if (useStore.getState().aiGenerationStatus.generatingSeriesId === series.id) {
+                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, generatingDeckId: null, generatingSeriesId: null } });
+            }
+        }
+    })();
   };
+  
+  const handleAddLevels = async () => {
+      setIsAddingLevels(true);
+      try {
+          await onAiAddLevelsToSeries(series.id);
+      } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to add levels.";
+          addToast(message, 'error');
+      } finally {
+          setIsAddingLevels(false);
+      }
+  };
+
+  const handleAddDecksToLevel = async (levelIndex: number) => {
+      setIsAddingDecksToLevel(levelIndex);
+      try {
+          await onAiAddDecksToLevel(series.id, levelIndex);
+      } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to add decks.";
+          addToast(message, 'error');
+      } finally {
+          setIsAddingDecksToLevel(null);
+      }
+  };
+  
+  const hasEmptyDecks = useMemo(() => Array.from(seriesDecks.values()).some(d => (d.questions?.length || 0) === 0), [seriesDecks]);
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
+    <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
       <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
-        <div className="mb-4">
-          <h2 className="text-3xl font-bold text-text break-words">{series.name}</h2>
-          {series.description && <p className="text-text-muted mt-1">{series.description}</p>}
-        </div>
-         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 items-center">
+        {isEditing ? (
+          <div className="space-y-4">
             <div>
-              <div className="text-sm font-semibold text-text-muted flex justify-between">
-                  <span>Overall Mastery</span>
-                  <span>{Math.round(seriesMastery * 100)}%</span>
-              </div>
-              <MasteryBar level={seriesMastery} />
+                <label htmlFor="series-name-edit" className="block text-sm font-medium text-text-muted mb-1">Series Name</label>
+                <input id="series-name-edit" type="text" value={editedName} onChange={(e) => setEditedName(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold" autoFocus />
             </div>
             <div>
-              <div className="text-sm font-semibold text-text-muted flex justify-between">
-                  <span>Completion</span>
-                  <span>{completedDeckIds.size} / {totalDecksInSeries}</span>
-              </div>
-              <ProgressBar current={completedDeckIds.size} total={totalDecksInSeries} />
+                <label htmlFor="series-desc-edit" className="block text-sm font-medium text-text-muted mb-1">Description</label>
+                <textarea id="series-desc-edit" value={editedDescription} onChange={(e) => setEditedDescription(e.target.value)} rows={3} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" />
             </div>
-        </div>
-        <div className="flex flex-wrap gap-4 items-center mt-6 border-t border-border pt-6">
-            <Button variant="primary" onClick={() => onStartSeriesStudy(series.id)} disabled={totalDueInSeries === 0}>
-                <Icon name="zap" className="mr-2"/> Study All Due ({totalDueInSeries})
-            </Button>
-            <Button variant="ghost" onClick={() => setIsOrganizing(!isOrganizing)}>
-              <Icon name={isOrganizing ? 'x-circle' : 'edit'} className="mr-2"/> {isOrganizing ? 'Finish Organizing' : 'Organize Series'}
-            </Button>
-            <Button variant="ghost" onClick={() => onUpdateSeries({ ...series, archived: true })}>
-                <Icon name="archive" className="mr-2" /> Archive
-            </Button>
-            {isOrganizing && (
-                <>
-                    <div className="w-full border-t border-border/50 my-2 md:hidden"></div>
-                    <Button variant="secondary" onClick={() => setIsEditSeriesModalOpen(true)}>
-                        <Icon name="edit" className="mr-2" /> Edit Info
-                    </Button>
-                    <Button variant="danger" onClick={handleDeleteSeries}>
-                        <Icon name="trash-2" className="mr-2" /> Move to Trash
-                    </Button>
-                </>
-            )}
-        </div>
+            <div className="flex justify-start gap-2 pt-2">
+              <Button onClick={handleSaveChanges}><Icon name="save" className="mr-2" /> Save Changes</Button>
+              <Button variant="secondary" onClick={() => setIsEditing(false)}>Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <h2 className="text-3xl font-bold mb-2 text-text break-words">{series.name}</h2>
+            <div className="flex items-center gap-2 mb-4">
+                <Button variant="ghost" onClick={() => setIsEditing(true)}><Icon name="edit" className="mr-2"/> Edit</Button>
+                <Button variant="ghost" onClick={() => onUpdateSeries({ ...series, archived: true })}><Icon name="archive" className="mr-2"/> Archive</Button>
+                <Button variant="ghost" onClick={() => setIsOrganizeMode(p => !p)}>
+                    <Icon name="list" className="mr-2"/> {isOrganizeMode ? 'Done Organizing' : 'Organize'}
+                </Button>
+            </div>
+            <p className="text-text-muted mt-1 prose dark:prose-invert max-w-none">{series.description}</p>
+          </div>
+        )}
       </div>
-      
-      <div className="relative pl-4" onDrop={handleDrop} onDragOver={e => e.preventDefault()} onDragEnd={handleDragEnd}>
-        <div className="absolute top-0 bottom-0 left-8 w-0.5 bg-border -z-10"></div>
-        <div className="space-y-2">
-            {isOrganizing && dropIndicator?.levelIndex === 0 && dropIndicator.deckIndex === null && <DropIndicator />}
-            {series.levels.map((level, levelIndex) => (
-                <div key={`${level.title}-${levelIndex}`} onDragOver={e => isOrganizing && handleDragOver(e, levelIndex, 0)}>
-                    <div
-                        draggable={isOrganizing}
-                        onDragStart={e => handleDragStart(e, 'level', levelIndex)}
-                        className={`flex items-center group transition-opacity ${isOrganizing ? 'cursor-grab' : ''} ${draggedItem?.type === 'level' && draggedItem.sourceLevelIndex === levelIndex ? 'opacity-40' : ''}`}
-                    >
-                        <div className="w-8 flex-shrink-0"></div>
-                        <div className="flex-grow py-4">
-                            {editingLevel?.index === levelIndex ? (
-                                <input
-                                    type="text"
-                                    value={editingLevel.name}
-                                    onChange={e => setEditingLevel({ ...editingLevel, name: e.target.value })}
-                                    onBlur={() => handleUpdateLevelName(levelIndex)}
-                                    onKeyDown={e => e.key === 'Enter' && handleUpdateLevelName(levelIndex)}
-                                    className="text-2xl font-bold bg-background/50 border-b-2 border-primary focus:outline-none"
-                                    autoFocus
-                                />
-                            ) : (
-                                <h3 className="text-2xl font-bold text-text">{level.title}</h3>
-                            )}
-                        </div>
-                         {isOrganizing && (
-                            <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setEditingLevel({ index: levelIndex, name: level.title })}>
-                                <Icon name="edit" className="w-4 h-4" />
-                            </Button>
-                        )}
-                    </div>
-                    {isOrganizing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === 0 && <DropIndicator />}
 
-                    <div className="space-y-2">
-                        {level.deckIds.map((deckId, deckIndex) => {
-                            const deck = decks.find(d => d.id === deckId);
-                            if (!deck) return null;
+       <div className="bg-surface rounded-lg shadow-md p-6 border border-border space-y-4">
+            <div>
+                <div className="flex justify-between items-center text-sm mb-1">
+                    <span className="font-medium text-text-muted">Completion</span>
+                    <span className="font-semibold text-text-muted">{completedDeckIds.size} / {totalDecks} Decks</span>
+                </div>
+                <ProgressBar current={completedDeckIds.size} total={totalDecks} />
+            </div>
+            <div>
+               <h4 className="text-sm font-medium text-text-muted mb-1">Overall Mastery</h4>
+               <MasteryBar level={averageMastery} />
+            </div>
+            <div className="border-t border-border pt-4 flex flex-wrap items-center justify-center gap-4">
+                <Button variant="primary" size="lg" onClick={() => onStartSeriesStudy(series.id)} disabled={totalDueCount === 0} className="font-semibold w-full sm:w-auto">
+                  <Icon name="zap" className="w-5 h-5 mr-2" />
+                  Study Due Items ({totalDueCount})
+                </Button>
+                {hasEmptyDecks && (
+                    <Button variant="secondary" size="lg" onClick={handleGenerateQuestionsForEmptyDecks} disabled={aiGenerationStatus.isGenerating} className="font-semibold w-full sm:w-auto">
+                        {aiGenerationStatus.isGenerating && aiGenerationStatus.generatingSeriesId === series.id ? <Spinner size="sm"/> : <Icon name="zap" className="w-5 h-5 mr-2" />}
+                        Generate All Questions
+                    </Button>
+                )}
+            </div>
+       </div>
 
-                            const isCompleted = completedDeckIds.has(deckId);
-                            const isNextUp = nextUpDeckId === deck.id;
-                            const isLocked = !completedDeckIds.has(deckId) && nextUpDeckId !== deckId;
-                            const dueCount = getDueItemsCount(deck);
+      <div className="space-y-6">
+        {series.levels.map((level, levelIndex) => {
+            let deckCounter = 0;
+            for(let i=0; i<levelIndex; i++) {
+                deckCounter += series.levels[i].deckIds.length;
+            }
 
-                            const status = isLocked ? 'locked' : (isCompleted ? 'completed' : (isNextUp ? 'next' : 'unlocked'));
-                            const lineClass = isCompleted || isNextUp ? 'bg-primary' : 'bg-border';
-                            
-                            const nodeIcon = {
-                                locked: <Icon name="lock" className="w-3 h-3 text-text-muted" />,
-                                completed: <Icon name="check-circle" className="w-5 h-5 text-white bg-green-500 rounded-full" />,
-                                next: <div className="w-3 h-3 bg-primary rounded-full ring-4 ring-primary/30"></div>,
-                                unlocked: <div className="w-3 h-3 bg-border rounded-full"></div>
-                            };
+            return (
+              <div key={levelIndex} className="bg-surface rounded-lg shadow-md border border-border p-6">
+                <h3 className="text-xl font-bold text-text mb-4">{level.title}</h3>
+                <div className="space-y-4">
+                    {level.deckIds.map((deckId, indexInLevel) => {
+                        const deck = seriesDecks.get(deckId);
+                        const absoluteIndex = deckCounter + indexInLevel;
+                        const isCompleted = completedDeckIds.has(deckId);
+                        const isLocked = absoluteIndex > completedDeckIds.size;
+                        const dueCount = getDueItemsCount(deck);
 
-                            return (
-                                <div key={deck.id}>
-                                <div
-                                    onDragOver={e => isOrganizing && handleDragOver(e, levelIndex, deckIndex)}
-                                    className={`relative flex items-center gap-4 transition-opacity ${draggedItem?.deckId === deckId ? 'opacity-40' : ''}`}
-                                >
-                                    <div className="absolute top-0 bottom-0 left-8 w-0.5 -z-10">
-                                        <div className={`h-1/2 w-full ${deckIndex > 0 ? lineClass : ''}`}></div>
-                                        <div className={`h-1/2 w-full ${deckIndex < level.deckIds.length -1 ? lineClass : ''}`}></div>
+                        if (!deck) return <div key={deckId} className="text-red-500">Deck with ID {deckId} not found.</div>;
+                        
+                        const isGeneratingThisDeck = aiGenerationStatus.isGenerating && aiGenerationStatus.generatingDeckId === deck.id;
+
+                        return (
+                            <div key={deckId} className={`p-4 rounded-lg flex items-center justify-between transition-opacity ${isLocked ? 'opacity-50 bg-background' : 'bg-background'}`}>
+                                <div className="flex items-center min-w-0">
+                                    <div className={`mr-4 flex-shrink-0 ${isLocked ? 'text-text-muted' : isCompleted ? 'text-green-500' : 'text-primary'}`}>
+                                        {isLocked ? <Icon name="lock" /> : isCompleted ? <Icon name="check-circle" /> : <Icon name="unlock" />}
                                     </div>
-                                    <div className="absolute left-8 -translate-x-1/2 h-8 w-8 rounded-full bg-surface flex items-center justify-center">
-                                        {nodeIcon[status]}
-                                    </div>
-                                    <div className="w-8 flex-shrink-0"></div>
-                                    
-                                    <div
-                                        draggable={isOrganizing}
-                                        onDragStart={e => handleDragStart(e, 'deck', levelIndex, deck.id)}
-                                        className={`flex-grow my-4 bg-surface rounded-lg shadow-md border hover:shadow-lg transition-all ${status === 'next' ? 'border-primary' : 'border-border'} ${status === 'locked' && !isOrganizing ? 'opacity-60' : ''}`}
-                                    >
-                                        <div className="p-4 flex items-center justify-between gap-2">
-                                            <div className="flex-grow min-w-0">
-                                                <Link href={`/decks/${deck.id}?seriesId=${series.id}`} className="font-bold text-text break-words hover:text-primary transition-colors">{deck.name}</Link>
-                                                <div className="text-sm text-text-muted">{deck.questions.length} questions</div>
-                                            </div>
-                                            <div className="flex-shrink-0 flex items-center gap-1">
-                                                {isOrganizing ? (
-                                                    <>
-                                                    <Button variant="ghost" size="sm" className="p-2 h-auto text-red-500" onClick={() => handleRemoveDeck(deck.id, deck.name)}>
-                                                        <Icon name="x" />
-                                                    </Button>
-                                                    <div className="cursor-grab p-2 text-text-muted">
-                                                        <Icon name="grip-vertical"/>
-                                                    </div>
-                                                    </>
-                                                ) : (
-                                                    <Link href={`/decks/${deck.id}/study?seriesId=${series.id}`} passAs={Button} variant="secondary" size="sm" disabled={isLocked || dueCount === 0 && !sessionsToResume.has(deck.id)}>
-                                                        {sessionsToResume.has(deck.id) ? 'Resume' : 'Study'} {dueCount > 0 && `(${dueCount})`}
-                                                    </Link>
-                                                )}
-                                            </div>
-                                        </div>
+                                    <div className="min-w-0">
+                                        <p className={`font-bold truncate ${isLocked ? 'text-text-muted' : 'text-text'}`}>{deck.name}</p>
+                                        <p className="text-sm text-text-muted truncate">{deck.description}</p>
+                                        <p className="text-xs text-text-muted mt-1">{deck.questions.length} questions
+                                         {!isLocked && ` • ${dueCount} due`}
+                                        </p>
                                     </div>
                                 </div>
-                                {isOrganizing && dropIndicator?.levelIndex === levelIndex && dropIndicator.deckIndex === deckIndex + 1 && <DropIndicator />}
+                                <div className="flex-shrink-0 ml-4 flex items-center gap-2">
+                                  {isOrganizeMode && (deck.questions?.length || 0) === 0 && (
+                                    <Button variant="ghost" size="sm" onClick={() => handleGenerateQuestionsForDeck(deck)} disabled={isGeneratingThisDeck || aiGenerationStatus.isGenerating}>
+                                      {isGeneratingThisDeck ? <Spinner size="sm"/> : <Icon name="zap" className="w-4 h-4 mr-1" />} Generate
+                                    </Button>
+                                  )}
+                                  <Link href={`/decks/${deck.id}/study?seriesId=${series.id}`} passAs={Button} variant="secondary" size="sm" disabled={isLocked}>
+                                    Study
+                                  </Link>
                                 </div>
-                            );
-                        })}
-                        {isOrganizing && (
-                            <div className="pl-16 py-2">
-                                <Button variant="ghost" size="sm" onClick={() => setIsAddDeckModalOpen(true)}>
-                                    <Icon name="plus" className="w-4 h-4 mr-2" /> Add Deck to Level
-                                </Button>
                             </div>
-                        )}
+                        )
+                    })}
+                </div>
+                {isOrganizeMode && (
+                    <div className="mt-4 pt-4 border-t border-border/50 flex justify-end">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleAddDecksToLevel(levelIndex)}
+                            disabled={isAddingDecksToLevel === levelIndex || isAddingLevels || aiGenerationStatus.isGenerating}
+                        >
+                            {isAddingDecksToLevel === levelIndex ? <Spinner size="sm" /> : <Icon name="zap" className="w-4 h-4 mr-2" />}
+                            Add Decks with AI
+                        </Button>
                     </div>
-                    {isOrganizing && dropIndicator?.levelIndex === levelIndex + 1 && dropIndicator.deckIndex === null && <DropIndicator />}
-                </div>
-            ))}
-            {isOrganizing && (
-                <div className="pl-16 pt-4">
-                    <Button variant="secondary" onClick={handleAddLevel}>
-                        <Icon name="plus" className="w-4 h-4 mr-2" /> Add New Level
-                    </Button>
-                </div>
-            )}
-        </div>
+                )}
+              </div>
+            )
+        })}
+        {isOrganizeMode && (
+            <div className="mt-4 pt-4 flex justify-center">
+              <Button
+                variant="secondary"
+                onClick={handleAddLevels}
+                disabled={isAddingLevels || isAddingDecksToLevel !== null || aiGenerationStatus.isGenerating}
+              >
+                {isAddingLevels ? <Spinner size="sm" /> : <Icon name="zap" className="w-5 h-5 mr-2" />}
+                Add Levels with AI
+              </Button>
+            </div>
+        )}
       </div>
-      
-      {isAddDeckModalOpen && (
-        <AddDeckToSeriesModal isOpen={isAddDeckModalOpen} onClose={() => setIsAddDeckModalOpen(false)} onAddDeck={(newDeck) => onAddDeckToSeries(series.id, newDeck)} />
-      )}
-      {isEditSeriesModalOpen && (
-        <EditSeriesModal series={series} onClose={() => setIsEditSeriesModalOpen(false)} onSave={(data) => { onUpdateSeries({ ...series, name: data.name, description: data.description }); setIsEditSeriesModalOpen(false); }} />
-      )}
-      {deckForBulkAdd && (
-        <BulkAddModal isOpen={!!deckForBulkAdd} onClose={() => setDeckForBulkAdd(null)} deckType={deckForBulkAdd.type} onAddItems={(items) => { const updatedDeck = { ...deckForBulkAdd, questions: [...deckForBulkAdd.questions, ...(items as Question[])]}; onUpdateDeck(updatedDeck); setDeckForBulkAdd(null); }} />
-      )}
+
+      <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
+        <h3 className="text-xl font-semibold text-red-400 dark:text-red-300 mb-2">Danger Zone</h3>
+        <p className="text-red-500/80 dark:text-red-300/80 mb-4">Moving a series to the trash will also move all of its decks to the trash.</p>
+        <Button variant="danger" onClick={handleDelete}><Icon name="trash-2" className="mr-2" /> Move to Trash</Button>
+      </div>
     </div>
   );
 };

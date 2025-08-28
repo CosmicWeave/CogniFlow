@@ -1,11 +1,10 @@
 
 
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useRouter } from '../contexts/RouterContext';
-import { Deck, DeckType, Folder, DeckSeries, QuizDeck, SeriesProgress, Reviewable, Card, FlashcardDeck, Question, ReviewRating } from '../types';
+import { Deck, Folder, DeckSeries, QuizDeck, Reviewable, ReviewRating, DeckType, FlashcardDeck, Card, Question } from '../types';
 import { RestoreData } from '../services/googleDriveService';
-import { getEffectiveMasteryLevel } from '../services/srs';
 
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -20,19 +19,11 @@ import DashboardPage from './DashboardPage';
 import AllDecksPage from './AllDecksPage';
 import AllSeriesPage from './AllSeriesPage';
 import ProgressPage from './ProgressPage';
-import { useStore } from '../store/store';
+// FIX: Import useStore and useTotalDueCount to get required props for DashboardPage
+import { useActiveSeriesList, useStandaloneDecks, useStore, useTotalDueCount } from '../store/store';
+import { useSettings } from '../hooks/useSettings';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
-
-const getDueItemsCount = (deck: Deck): number => {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
-    if (!Array.isArray(items)) {
-        return 0;
-    }
-    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
-};
 
 interface AppRouterProps {
     sessionsToResume: Set<string>;
@@ -42,7 +33,6 @@ interface AppRouterProps {
     setDraggedDeckId: (id: string | null) => void;
     openFolderIds: Set<string>;
     onToggleFolder: (folderId: string) => void;
-    seriesProgress: SeriesProgress;
     generalStudyDeck: QuizDeck | null;
     activeDeck: Deck | null;
     activeSeries: DeckSeries | null;
@@ -52,8 +42,10 @@ interface AppRouterProps {
     openFolderModal: (folder: Folder | 'new' | null) => void;
     openConfirmModal: (props: { title: string; message: string; onConfirm: () => void; confirmText?: string; }) => void;
     openCreateSeriesModal: () => void;
+    openAIGenerationModal: () => void;
     // Data Handlers
     updateLastOpened: (deckId: string) => Promise<void>;
+    updateLastOpenedSeries: (seriesId: string) => Promise<void>;
     handleSessionEnd: (deckId: string, seriesId?: string) => Promise<void>;
     handleCreateSampleDeck: () => Promise<void>;
     handleCreateSampleSeries: () => Promise<void>;
@@ -67,6 +59,7 @@ interface AppRouterProps {
     handleFactoryReset: () => void;
     handleStartGeneralStudy: () => void;
     handleStartSeriesStudy: (seriesId: string) => Promise<void>;
+    handleSaveFolder: (folderData: { id: string | null; name: string; }) => Promise<void>;
     handleDeleteFolder: (folderId: string) => Promise<void>;
     handleUpdateSeries: (series: DeckSeries, options?: { silent?: boolean; toastMessage?: string; }) => Promise<void>;
     handleSaveSeries: (data: { id: string | null; name: string; description: string; }) => Promise<void>;
@@ -76,49 +69,21 @@ interface AppRouterProps {
     handleRestoreSeries: (seriesId: string) => Promise<void>;
     handleDeleteDeckPermanently: (deckId: string) => Promise<void>;
     handleDeleteSeriesPermanently: (seriesId: string) => Promise<void>;
+    handleAiAddLevelsToSeries: (seriesId: string) => Promise<void>;
+    handleAiAddDecksToLevel: (seriesId: string, levelIndex: number) => Promise<void>;
 }
 
 const AppRouter: React.FC<AppRouterProps> = (props) => {
     const { path } = useRouter();
-    const { decks, folders, deckSeries } = useStore();
     const { activeDeck, activeSeries, generalStudyDeck } = props;
+    const { aiFeaturesEnabled } = useSettings();
     const [pathname] = path.split('?');
-
-    const {
-        standaloneDecks,
-        totalDueQuestions,
-    } = useMemo(() => {
-        const seriesDeckIds = new Set<string>();
-        deckSeries.forEach(series => {
-          (series.levels || []).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
-        });
-
-        const standaloneDecks = decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
-
-        const unlockedSeriesDeckIds = new Set<string>();
-        deckSeries.forEach(series => {
-            if (!series.archived && !series.deletedAt) {
-                const completedCount = props.seriesProgress.get(series.id)?.size || 0;
-                const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
-                flatDeckIds.forEach((deckId, index) => {
-                    if (index <= completedCount) {
-                        unlockedSeriesDeckIds.add(deckId);
-                    }
-                });
-            }
-        });
-
-        const totalDueQuestions = decks
-          .filter(deck => {
-            if (deck.archived || deck.deletedAt) return false;
-            // It's a series deck that is locked
-            if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
-            return true;
-          })
-          .reduce((total, deck) => total + getDueItemsCount(deck), 0);
-        
-        return { standaloneDecks, totalDueQuestions };
-    }, [decks, deckSeries, props.seriesProgress]);
+    
+    const standaloneDecks = useStandaloneDecks();
+    const activeSeriesList = useActiveSeriesList();
+    // FIX: Get totalDueQuestions and seriesProgress to pass to DashboardPage
+    const totalDueQuestions = useTotalDueCount();
+    const seriesProgress = useStore(state => state.seriesProgress);
 
     // --- Route Rendering ---
     
@@ -150,7 +115,6 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         return <SeriesOverviewPage
             key={activeSeries.id}
             series={activeSeries}
-            completedDeckIds={props.seriesProgress.get(activeSeries.id) || new Set()}
             sessionsToResume={props.sessionsToResume}
             onUpdateSeries={props.handleUpdateSeries}
             onDeleteSeries={props.handleDeleteSeries}
@@ -158,6 +122,9 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onUpdateDeck={props.handleUpdateDeck as any}
             onStartSeriesStudy={props.handleStartSeriesStudy}
             openConfirmModal={props.openConfirmModal}
+            onUpdateLastOpened={props.updateLastOpenedSeries}
+            onAiAddLevelsToSeries={props.handleAiAddLevelsToSeries}
+            onAiAddDecksToLevel={props.handleAiAddDecksToLevel}
         />;
     }
 
@@ -169,16 +136,13 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     if (pathname.startsWith('/decks/') && pathname.endsWith('/cram')) {
         if (activeDeck) {
             const items = (activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck).questions)
-                .filter(item => !item.suspended); // Cramming reviews all non-ignored items
+                .filter(item => !item.suspended);
             
             const shuffledItems = [...items].sort(() => Math.random() - 0.5);
 
-            let cramDeck: Deck;
-            if (activeDeck.type === DeckType.Flashcard) {
-                cramDeck = { ...activeDeck, name: `${activeDeck.name} (Cram)`, cards: shuffledItems as Card[] };
-            } else {
-                cramDeck = { ...activeDeck, name: `${activeDeck.name} (Cram)`, questions: shuffledItems as Question[] };
-            }
+            const cramDeck: Deck = activeDeck.type === DeckType.Flashcard 
+                ? { ...activeDeck, name: `${activeDeck.name} (Cram)`, cards: shuffledItems as Card[] } 
+                : { ...activeDeck, name: `${activeDeck.name} (Cram)`, questions: shuffledItems as Question[] };
 
             const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
             return <StudySession 
@@ -193,10 +157,35 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
     }
 
+    if (pathname.startsWith('/decks/') && pathname.endsWith('/study-reversed')) {
+        if (activeDeck && activeDeck.type === 'flashcard') {
+            const reversedDeck: FlashcardDeck = {
+                ...activeDeck,
+                name: `${activeDeck.name} (Reversed)`,
+                cards: activeDeck.cards.map(card => ({
+                    ...card,
+                    front: card.back,
+                    back: card.front,
+                }))
+            };
+    
+            const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
+            return <StudySession 
+                key={`${activeDeck.id}-reversed`} 
+                deck={reversedDeck} 
+                seriesId={seriesId}
+                onSessionEnd={(deckId) => props.handleSessionEnd(deckId, seriesId)} 
+                onItemReviewed={props.handleItemReviewed}
+                onUpdateLastOpened={props.updateLastOpened}
+                sessionKeySuffix="_reversed"
+            />;
+        }
+    }
+
     if (pathname.startsWith('/decks/') && pathname.endsWith('/study-flip')) {
-        if (activeDeck && activeDeck.type === DeckType.Quiz) {
+        if (activeDeck && activeDeck.type === 'quiz') {
             const quizDeck = activeDeck as QuizDeck;
-            const cards: Card[] = (quizDeck.questions || [])
+            const cards = (quizDeck.questions || [])
                 .filter(q => !q.suspended)
                 .map(q => {
                     const correctAnswer = q.options.find(o => o.id === q.correctAnswerId);
@@ -208,18 +197,14 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                             <div class="prose prose-sm dark:prose-invert max-w-none mt-2">${q.detailedExplanation || 'No detailed explanation provided.'}</div>
                         </div>
                     `;
-                    return {
-                        ...q,
-                        front: q.questionText,
-                        back: backContent,
-                    };
+                    return { ...q, front: q.questionText, back: backContent };
                 });
 
             const virtualFlashcardDeck: FlashcardDeck = {
                 ...quizDeck,
                 name: `${quizDeck.name} (Review)`,
                 type: DeckType.Flashcard,
-                cards: cards.sort(() => Math.random() - 0.5) // Shuffle for review
+                cards: cards.sort(() => Math.random() - 0.5)
             };
             
             const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
@@ -262,12 +247,10 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     
     if (pathname === '/decks') {
         return <AllDecksPage
-            decks={standaloneDecks}
             sessionsToResume={props.sessionsToResume}
             sortPreference={props.sortPreference}
             onSortChange={props.setSortPreference}
             onUpdateLastOpened={props.updateLastOpened}
-            onEditFolder={(folder) => props.openFolderModal(folder)}
             onDeleteFolder={props.handleDeleteFolder}
             draggedDeckId={props.draggedDeckId}
             onDragStart={props.setDraggedDeckId}
@@ -281,30 +264,31 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onNewFolder={() => props.openFolderModal('new')}
             onImportDecks={() => props.setImportModalOpen(true)}
             onCreateSampleDeck={props.handleCreateSampleDeck}
+            handleSaveFolder={props.handleSaveFolder}
         />;
     }
 
     if (pathname === '/series') {
         return <AllSeriesPage
-            seriesProgress={props.seriesProgress}
             onStartSeriesStudy={props.handleStartSeriesStudy}
             onCreateNewSeries={props.openCreateSeriesModal}
             onCreateSampleSeries={props.handleCreateSampleSeries}
+            onGenerateAI={props.openAIGenerationModal}
         />
     }
 
-    const activeSeriesList = deckSeries.filter(s => !s.archived && !s.deletedAt);
     if (standaloneDecks.length > 0 || activeSeriesList.length > 0) {
         return <DashboardPage
-            totalDueQuestions={totalDueQuestions}
             onStartGeneralStudy={props.handleStartGeneralStudy}
             sessionsToResume={props.sessionsToResume}
             onUpdateLastOpened={props.updateLastOpened}
             onUpdateDeck={props.handleUpdateDeck}
             onDeleteDeck={props.handleDeleteDeck}
             openConfirmModal={props.openConfirmModal}
-            seriesProgress={props.seriesProgress}
             onStartSeriesStudy={props.handleStartSeriesStudy}
+            // FIX: Pass missing props
+            totalDueQuestions={totalDueQuestions}
+            seriesProgress={seriesProgress}
         />
     }
     
@@ -314,6 +298,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
           <h2 className="text-3xl font-bold text-gray-600 dark:text-gray-400">Welcome to CogniFlow</h2>
           <p className="mt-4 text-gray-500 dark:text-gray-500">Create decks, import content, restore from a backup, or try a sample to get started.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 flex-wrap">
+            {aiFeaturesEnabled && <Button onClick={props.openAIGenerationModal} variant="primary"><Icon name="zap" className="w-5 h-5 mr-2" />Generate with AI</Button>}
             <Button onClick={() => props.setImportModalOpen(true)}><Icon name="plus" className="w-5 h-5 mr-2" />Create or Import Deck</Button>
             <Button onClick={() => props.setRestoreModalOpen(true)} variant="secondary"><Icon name="upload-cloud" className="w-5 h-5 mr-2" />Restore from Backup</Button>
             <Button onClick={props.openCreateSeriesModal} variant="secondary"><Icon name="layers" className="w-5 h-5 mr-2" />Create New Series</Button>

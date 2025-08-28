@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import Icon, { IconName } from './ui/Icon';
 import Button from './ui/Button';
@@ -197,6 +196,42 @@ Finally, at the very end of your response, provide a JSON object with the series
   "seriesDescription": "The full series description you generated above"
 }
 `;
+  
+  const scaffoldFromOutlinePromptTemplate = `You are an expert content creator. I have provided a text outline for a learning path. Your task is to convert this outline into a structured JSON object that will serve as a scaffold.
+
+**PRIMARY INSTRUCTIONS:**
+
+1.  **Source Material:** Use ONLY the text outline I've provided as your source.
+2.  **Structure:** Create a single JSON object with \`seriesName\`, \`seriesDescription\`, and a \`levels\` array.
+3.  **Levels and Decks:** Inside the \`levels\` array, create objects for each level, including its \`title\`. Each level object should have a \`decks\` array. Populate this with deck objects, each containing its \`name\` and \`description\` from the outline.
+4.  **Empty Questions:** For every deck object, include a \`"questions": []\` key-value pair. The questions array MUST be empty.
+
+**JSON OUTPUT FORMAT:**
+- The final output MUST be ONLY a single, raw JSON object, starting with \`{\` and ending with \`}\`. Do not include any surrounding text, explanations, or markdown formatting.
+- The JSON object must follow this exact schema:
+{
+  "seriesName": "The full series name from the outline",
+  "seriesDescription": "The full series description from the outline",
+  "levels": [
+    {
+      "title": "The title of the first level",
+      "decks": [
+        {
+          "name": "The name of the first deck in this level",
+          "description": "The description for this deck",
+          "questions": []
+        },
+        {
+          "name": "The name of the second deck in this level",
+          "description": "The description for this deck",
+          "questions": []
+        }
+      ]
+    }
+  ]
+}
+
+Now, based on the text outline I provided, please generate the complete JSON scaffold.`;
 
   const deckFromOutlinePromptTemplate = `You are an expert content creator. I have provided a text outline for a learning path. Your task is to generate the JSON for the **first deck (e.g., Level 1.1)** from that outline.
 
@@ -241,8 +276,6 @@ Now, based on the text outline I provided, please generate the JSON for the **fi
 
 **Topic:** [YOUR TOPIC HERE]
 **User's Current Level:** [USER'S LEVEL HERE]
-
-The goal is to create a learning path that takes the user from their current level towards Mastery.
 
 **CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
 -   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
@@ -321,6 +354,10 @@ Now, generate the complete JSON deck based on all the above requirements.`;
     handleCopyToClipboard(finalPrompt, 'outline-prompt');
   };
 
+  const handleCopyScaffoldPrompt = () => {
+    handleCopyToClipboard(scaffoldFromOutlinePromptTemplate, 'scaffold-prompt');
+  };
+
   const handleCopyDeckFromOutlinePrompt = () => {
     handleCopyToClipboard(deckFromOutlinePromptTemplate, 'deck-from-outline-prompt');
   };
@@ -353,7 +390,7 @@ Now, generate the complete JSON deck based on all the above requirements.`;
       <AccordionItem title="Step 1: Generate Learning Outline (Text)" iconName="list" defaultOpen>
          <div className="space-y-4 bg-green-900/10 dark:bg-green-900/20 p-6 rounded-lg border border-green-500/20">
             <p className="text-green-800/90 dark:text-green-200/90">
-              Begin by generating a high-level, human-readable outline for your learning path. This allows you to review and approve the structure before generating the full content. The AI will generate plain text, not JSON.
+              Begin by generating a high-level, human-readable outline for your learning path using an external AI chat service. This allows you to review and approve the structure before generating the full content.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -401,10 +438,34 @@ Now, generate the complete JSON deck based on all the above requirements.`;
         </div>
       </AccordionItem>
       
-      <AccordionItem title="Step 2: Generate Individual Decks (JSON)" iconName="zap">
+      <AccordionItem title="Step 2: Create the Series Scaffold" iconName="code">
+        <div className="space-y-4 bg-yellow-900/10 dark:bg-yellow-900/20 p-6 rounded-lg border border-yellow-500/20">
+            <p className="text-yellow-800/90 dark:text-yellow-200/90">
+                You can now create the series structure in CogniFlow. Use the in-app "Generate with AI" feature with your topic. This will automatically create the series with empty decks, ready for you to populate.
+            </p>
+            <p className="text-sm text-yellow-700/90 dark:text-yellow-300/90">
+                Alternatively, you can manually convert your text outline from Step 1 into a JSON "scaffold" using the prompt below and import it via the "Create / Import" modal.
+            </p>
+            <div className="relative">
+                <CodeBlock>{scaffoldFromOutlinePromptTemplate}</CodeBlock>
+                <Button
+                  variant="secondary"
+                  className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200/50 dark:bg-gray-900/50 border border-gray-300 dark:border-gray-600"
+                  onClick={handleCopyScaffoldPrompt}
+                >
+                  {copiedKey === 'scaffold-prompt' ? <><Icon name="check-circle" className="w-4 h-4 mr-1"/> Copied!</> : <><Icon name="download" className="w-4 h-4 mr-1"/> Copy Prompt</>}
+                </Button>
+            </div>
+        </div>
+      </AccordionItem>
+      
+      <AccordionItem title="Step 3: Generate Questions for Each Deck" iconName="zap">
          <div className="space-y-4 bg-blue-900/10 dark:bg-blue-900/20 p-6 rounded-lg border border-blue-500/20">
             <p className="text-blue-800/90 dark:text-blue-200/90">
-              After the AI generates your text outline, use this prompt to generate the JSON for the <strong>first deck</strong>. Copy your text outline and paste it into the AI chat first, then copy this prompt. After the first deck is generated, you can copy the prompt again, edit it to ask for the next deck (e.g., "second deck (Level 1.2)"), and continue the process.
+              Navigate to your newly created series page in CogniFlow. Each empty deck will have a "Generate Questions" button. Click it to have the AI populate that specific deck with high-quality, relevant questions automatically.
+            </p>
+            <p className="text-sm text-blue-700/90 dark:text-blue-300/90">
+              If you are working with an external AI and your JSON scaffold from Step 2, you can use the prompt below to generate the questions for each deck. Paste your text outline into the chat first, then use the prompt. Copy the generated `questions` array into the correct deck in your scaffold JSON. Repeat for all decks, then import the final JSON file.
             </p>
             <div className="relative">
                 <CodeBlock>{deckFromOutlinePromptTemplate}</CodeBlock>
@@ -416,9 +477,6 @@ Now, generate the complete JSON deck based on all the above requirements.`;
                   {copiedKey === 'deck-from-outline-prompt' ? <><Icon name="check-circle" className="w-4 h-4 mr-1"/> Copied!</> : <><Icon name="download" className="w-4 h-4 mr-1"/> Copy Prompt</>}
                 </Button>
             </div>
-            <p className="text-sm text-blue-700/90 dark:text-blue-300/90">
-             To import, use the main "Create / Import" modal, paste the JSON, and a new deck will be created. You can then add it to a series.
-            </p>
         </div>
       </AccordionItem>
 

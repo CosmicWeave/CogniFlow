@@ -5,17 +5,20 @@ import Icon from './ui/Icon';
 import Button from './ui/Button';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import Link from './ui/Link';
+import { useSettings } from '../hooks/useSettings';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: () => void;
   onCreateSeries: () => void;
+  onGenerateAI: () => void;
   onInstall: (() => void) | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSeries, onInstall }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSeries, onGenerateAI, onInstall }) => {
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const { aiFeaturesEnabled } = useSettings();
   useFocusTrap(sidebarRef, isOpen);
 
   useEffect(() => {
@@ -92,7 +95,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onImport, onCreateSe
             </Link>
           </nav>
           <div className="p-4 border-t border-border space-y-2">
-            <Button variant="primary" onClick={onCreateSeries} className="w-full">
+            {aiFeaturesEnabled && (
+                <Button variant="primary" onClick={onGenerateAI} className="w-full">
+                  <Icon name="zap" className="w-5 h-5 mr-2" />
+                  Generate with AI
+                </Button>
+            )}
+            <Button variant="secondary" onClick={onCreateSeries} className="w-full">
               <Icon name="layers" className="w-5 h-5 mr-2" />
               Create New Series
             </Button>

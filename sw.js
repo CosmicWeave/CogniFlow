@@ -1,22 +1,40 @@
-const APP_CACHE_NAME = 'cogniflow-app-v1';
-const CDN_CACHE_NAME = 'cogniflow-cdn-v1';
-const urlsToCache = [
+const APP_CACHE_NAME = 'cogniflow-app-v2';
+const CDN_CACHE_NAME = 'cogniflow-cdn-v2';
+
+const appUrlsToCache = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
   '/icon.svg',
 ];
 
-// On install, pre-cache the main application shell files.
+const cdnUrlsToCache = [
+    'https://cdn.tailwindcss.com',
+    'https://esm.sh/react@18.2.0',
+    'https://esm.sh/react-dom@18.2.0',
+    'https://esm.sh/jszip@3.10.1',
+    'https://esm.sh/sql.js@1.10.3',
+    'https://esm.sh/sql.js@1.10.3/dist/sql-wasm.wasm',
+    'https://esm.sh/canvas-confetti@1.9.3',
+    'https://esm.sh/zustand@4.5.2'
+];
+
+// On install, pre-cache the main application shell and critical CDN files.
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(APP_CACHE_NAME)
-      .then(cache => {
+    Promise.all([
+      caches.open(APP_CACHE_NAME).then(cache => {
         console.log('Opened app cache');
-        return cache.addAll(urlsToCache);
+        return cache.addAll(appUrlsToCache);
+      }),
+      caches.open(CDN_CACHE_NAME).then(cache => {
+        console.log('Opened CDN cache');
+        return cache.addAll(cdnUrlsToCache);
       })
+    ])
   );
 });
+
 
 // On activation, clean up old, unused caches.
 self.addEventListener('activate', event => {
@@ -46,21 +64,21 @@ self.addEventListener('fetch', event => {
   const isCdnUrl = url.origin === 'https://esm.sh' || url.origin === 'https://cdn.tailwindcss.com';
 
   if (isCdnUrl) {
-    // Strategy: Stale-while-revalidate for CDN resources.
-    // Serve from cache immediately for speed, but fetch an update in the background.
+    // Strategy: Cache First, then Network for CDN resources (since we pre-cached them)
     event.respondWith(
       caches.open(CDN_CACHE_NAME).then(cache => {
         return cache.match(event.request).then(cachedResponse => {
-          const fetchPromise = fetch(event.request).then(networkResponse => {
+          // If we have a cached response, serve it immediately.
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // If not in cache (e.g., a new dependency), fetch and cache it.
+          return fetch(event.request).then(networkResponse => {
             if (networkResponse && networkResponse.status === 200) {
               cache.put(event.request, networkResponse.clone());
             }
             return networkResponse;
-          }).catch(error => {
-            console.warn('CDN fetch failed, relying on cache.', error);
           });
-          // Return cached version first, then update in background.
-          return cachedResponse || fetchPromise;
         });
       })
     );

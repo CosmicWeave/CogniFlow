@@ -1,4 +1,3 @@
-
 import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
@@ -219,4 +218,34 @@ export const createQuestionsFromImport = (importedQuestions: ImportedQuestion[])
         masteryLevel: 0,
         lapses: 0,
     }));
+};
+
+export type AnalyzedFileType = 'backup' | 'quiz_series' | 'quiz' | 'flashcard';
+
+export interface AnalysisResult {
+    type: AnalyzedFileType;
+    data: any;
+}
+
+export const analyzeFileContent = (jsonString: string): AnalysisResult | null => {
+    // Try parsing as a backup file first, as it's the most encompassing format.
+    try {
+        const backupData = parseAndValidateBackupFile(jsonString);
+        // It's a valid backup file.
+        return { type: 'backup', data: backupData };
+    } catch (e) {
+        // Not a backup file, proceed to check other formats.
+    }
+
+    // Try parsing as other importable data types.
+    try {
+        const importData = parseAndValidateImportData(jsonString);
+        // It's a valid import file. The type is already determined by the parser.
+        // The parser returns `quiz_series`, `quiz`, or `flashcard`.
+        return { type: importData.type as AnalyzedFileType, data: importData.data };
+    } catch (e) {
+        // Not any known valid format.
+    }
+
+    return null;
 };

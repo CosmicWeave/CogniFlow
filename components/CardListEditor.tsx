@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef } from 'react';
 import { Card } from '../types';
 import Button from './ui/Button';
@@ -142,7 +141,10 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
                 })}
               </ul>
             ) : (
-              <p className="text-text-muted text-center py-4">This deck has no cards.</p>
+              <div className="text-center text-text-muted py-8">
+                <Icon name="laptop" className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>This deck has no cards yet.</p>
+              </div>
             )}
           </div>
           <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">

@@ -1,6 +1,7 @@
 
+
 import React, { useMemo } from 'react';
-import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable } from '../types';
+import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Link from './ui/Link';
@@ -24,7 +25,8 @@ interface DashboardPageProps {
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === 'quiz' ? deck.questions : deck.cards;
+    // FIX: Add type assertion to correctly access properties on union type
+    const items = deck.type === 'quiz' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };
 
@@ -80,7 +82,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
             return total;
         }, 0);
 
-        const allItems = seriesDecks.flatMap<Reviewable>(d => d.type === DeckType.Flashcard ? d.cards : d.questions).filter(i => !i.suspended);
+        // FIX: Add type assertion to correctly access properties on union type
+        const allItems = seriesDecks.flatMap<Reviewable>(d => d.type === DeckType.Flashcard ? (d as FlashcardDeck).cards : (d as QuizDeck).questions).filter(i => !i.suspended);
         const mastery = allItems.length > 0 ? allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allItems.length : 0;
         
         seriesData.set(series.id, { dueCount, mastery });

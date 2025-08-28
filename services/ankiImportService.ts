@@ -87,6 +87,9 @@ function processMedia(html: string, mediaFiles: Map<string, MediaFile>): string 
         const mediaFile = mediaFiles.get(decodedFilename);
         if (mediaFile) {
             const base64 = btoa(new Uint8Array(mediaFile.data).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+            if (mediaFile.type.startsWith('video/')) {
+                return `<video controls playsinline src="data:${mediaFile.type};base64,${base64}"></video>`;
+            }
             return `<audio controls src="data:${mediaFile.type};base64,${base64}"></audio>`;
         }
         return '';
@@ -177,6 +180,11 @@ export async function parseAnkiPkgMainThread(fileBuffer: ArrayBuffer): Promise<D
             else if (extension === 'mp3') mimeType = 'audio/mpeg';
             else if (extension === 'ogg') mimeType = 'audio/ogg';
             else if (extension === 'wav') mimeType = 'audio/wav';
+            else if (extension === 'm4a') mimeType = 'audio/mp4';
+            else if (extension === 'opus') mimeType = 'audio/opus';
+            else if (extension === 'mp4') mimeType = 'video/mp4';
+            else if (extension === 'webm') mimeType = 'video/webm';
+            else if (extension === 'ogv') mimeType = 'video/ogg';
             mediaFiles.set(filename, { data, type: mimeType });
         }
     }
