@@ -24,7 +24,13 @@ export type AIGeneratedLevel = {
 export type AIGeneratedDeck = Omit<ImportedQuizDeck, 'questions'> & { questions: [], suggestedQuestionCount: number };
 
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+const getAiClient = (): GoogleGenAI => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("AI features are disabled. A Google Gemini API key is required.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 const scaffoldSchema = {
     type: Type.OBJECT,
@@ -127,6 +133,7 @@ export const generateSeriesScaffoldWithAI = async (
     decksPerLevel: number = 5,
     questionsPerDeck: number = 20
 ): Promise<AIGeneratedSeriesScaffold> => {
+    const ai = getAiClient();
     
     // Create a dynamic schema to guide the AI with the correct number of decks.
     const dynamicScaffoldSchema = JSON.parse(JSON.stringify(scaffoldSchema));
@@ -170,7 +177,8 @@ export const generateSeriesScaffoldWithAI = async (
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings. Please try a different topic.");
         }
-        throw new Error("Failed to generate content. The AI model may be overloaded or the topic is too complex. Please try again later.");
+        // Rethrow original error to be caught by UI
+        throw error;
     }
 };
 
@@ -178,6 +186,7 @@ export const generateMoreLevelsForSeries = async (
     series: DeckSeries,
     allDecksInStore: QuizDeck[]
 ): Promise<AIGeneratedLevel[]> => {
+    const ai = getAiClient();
     const existingLevelsText = series.levels.map((level, index) => {
         const deckNames = level.deckIds.map(id => `- ${allDecksInStore.find(d => d.id === id)?.name}`).join('\n  ');
         return `Level ${index + 1}: ${level.title}\nDecks:\n  ${deckNames}`;
@@ -214,7 +223,7 @@ export const generateMoreLevelsForSeries = async (
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings.");
         }
-        throw new Error("Failed to generate new levels. Please try again later.");
+        throw error;
     }
 };
 
@@ -223,6 +232,7 @@ export const generateMoreDecksForLevel = async (
     levelIndex: number,
     allDecksInStore: QuizDeck[]
 ): Promise<AIGeneratedDeck[]> => {
+    const ai = getAiClient();
     const level = series.levels[levelIndex];
     if (!level) throw new Error("Invalid level index.");
 
@@ -258,7 +268,7 @@ export const generateMoreDecksForLevel = async (
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings.");
         }
-        throw new Error("Failed to generate new decks. Please try again later.");
+        throw error;
     }
 };
 
@@ -271,6 +281,7 @@ export const generateSeriesQuestionsInBatches = async (
     onProgress: ProgressCallback
 ): Promise<any[]> => { // Return the chat history
     
+    const ai = getAiClient();
     const BATCH_SIZE = 20;
 
     const chat: Chat = ai.chats.create({
