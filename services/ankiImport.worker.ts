@@ -1,8 +1,8 @@
 
 import JSZip from 'jszip';
 import initSqlJs, { type SqlJsStatic } from 'sql.js';
-import { Deck, Card, DeckType, FlashcardDeck } from '/types.ts';
-import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR } from '/constants.ts';
+import { Deck, Card, DeckType, FlashcardDeck } from '../types.ts';
+import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR } from '../constants.ts';
 
 let SQL: SqlJsStatic | null = null;
 

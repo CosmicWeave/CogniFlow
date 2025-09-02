@@ -9,9 +9,10 @@ import React from 'react';
 interface DangerousHtmlRendererProps {
   html: string;
   className?: string;
+  as?: React.ElementType;
 }
 
-const DangerousHtmlRenderer: React.FC<DangerousHtmlRendererProps> = ({ html, className }) => {
+const DangerousHtmlRenderer: React.FC<DangerousHtmlRendererProps> = ({ html, className, as: Component = 'div' }) => {
   // A unique ID is needed to target the container element after it renders.
   const id = `html-container-${React.useId()}`;
 
@@ -48,7 +49,7 @@ const DangerousHtmlRenderer: React.FC<DangerousHtmlRendererProps> = ({ html, cla
   }, [html, id]); // Re-run the effect if the HTML content or the unique ID changes.
 
   return (
-    <div
+    <Component
       id={id}
       className={className}
       // Render the static part of the HTML. Scripts inside will be inert until the useEffect hook runs.

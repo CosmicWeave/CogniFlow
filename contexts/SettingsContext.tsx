@@ -7,6 +7,10 @@ interface SettingsContextType {
   setHapticsEnabled: (enabled: boolean) => void;
   aiFeaturesEnabled: boolean;
   setAiFeaturesEnabled: (enabled: boolean) => void;
+  backupEnabled: boolean;
+  setBackupEnabled: (enabled: boolean) => void;
+  backupApiKey: string;
+  setBackupApiKey: (key: string) => void;
 }
 
 export const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -47,6 +51,14 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [disableAnimations, setDisableAnimationsState] = useState<boolean>(() => getInitialState('cogniflow-disableAnimations', false));
   const [hapticsEnabled, setHapticsEnabledState] = useState<boolean>(() => getInitialState('cogniflow-hapticsEnabled', true));
   const [aiFeaturesEnabled, setAiFeaturesEnabledState] = useState<boolean>(getInitialAiState);
+  const [backupEnabled, setBackupEnabledState] = useState<boolean>(() => getInitialState('cogniflow-backupEnabled', false));
+  const [backupApiKey, setBackupApiKeyState] = useState<string>(() => {
+    try {
+        return window.localStorage.getItem('cogniflow-backupApiKey') || 'qRt+gU/57GHKhxTZeRnRi+dfT274iSkKKq2UnTr9Bxs=';
+    } catch (e) {
+        return 'qRt+gU/57GHKhxTZeRnRi+dfT274iSkKKq2UnTr9Bxs=';
+    }
+  });
 
   const setDisableAnimations = useCallback((disabled: boolean) => {
     setDisableAnimationsState(disabled);
@@ -74,8 +86,27 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         console.error('Error writing AI features setting to localStorage', error);
     }
   }, []);
+  
+  const setBackupEnabled = useCallback((enabled: boolean) => {
+    setBackupEnabledState(enabled);
+    try {
+        window.localStorage.setItem('cogniflow-backupEnabled', JSON.stringify(enabled));
+    } catch (error) {
+        console.error('Error writing backup enabled setting to localStorage', error);
+    }
+  }, []);
 
-  const value = { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled };
+  const setBackupApiKey = useCallback((key: string) => {
+    setBackupApiKeyState(key);
+    try {
+        window.localStorage.setItem('cogniflow-backupApiKey', key);
+    } catch (error) {
+        console.error('Error writing backup API key to localStorage', error);
+    }
+  }, []);
+
+
+  const value = { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled, backupEnabled, setBackupEnabled, backupApiKey, setBackupApiKey };
 
   return (
     <SettingsContext.Provider value={value}>

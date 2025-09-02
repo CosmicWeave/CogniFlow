@@ -2,7 +2,6 @@ import React, { createContext, useState, useEffect, useContext, ReactNode, useCa
 
 interface RouterContextType {
   path: string;
-  // FIX: Update navigate function signature to support an options object
   navigate: (to: string, options?: { replace?: boolean }) => void;
 }
 
@@ -26,16 +25,13 @@ export const RouterProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   useEffect(() => {
     window.addEventListener('hashchange', handleHashChange);
-
     // The initial path is already set by useState(getPathFromHash()).
-    // We do not need to manually modify the history, which was causing the security error.
-    
+    // We do not need to manually modify the history, which could cause security errors.
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
     };
   }, [handleHashChange]);
 
-  // FIX: Update navigate function to handle `replace` option.
   const navigate = useCallback((to: string, options?: { replace?: boolean }) => {
     const newHash = `#${to}`;
     if (options?.replace) {

@@ -1,5 +1,8 @@
 
 
+
+
+
 import React from 'react';
 
 export type IconName = 
@@ -9,7 +12,8 @@ export type IconName =
   | 'eye' | 'eye-off' | 'zap' | 'help-circle' | 'google'
   | 'folder' | 'folder-plus' | 'folder-edit'
   | 'list' | 'lock' | 'unlock' | 'archive' | 'unarchive' | 'arrow-down' | 'monitor' | 'more-vertical'
-  | 'search' | 'filter' | 'layers' | 'terminal' | 'trending-up' | 'grip-vertical' | 'repeat';
+  | 'search' | 'filter' | 'layers' | 'terminal' | 'trending-up' | 'grip-vertical' | 'repeat' | 'bot'
+  | 'book-open';
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   name: IconName;
@@ -59,7 +63,9 @@ const ICONS: Record<IconName, React.ReactNode> = {
   'terminal': <><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></>,
   'trending-up': <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></>,
   'grip-vertical': <><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></>,
-  'repeat': <><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></>
+  'repeat': <><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></>,
+  'bot': <><rect x="5" y="10" width="14" height="10" rx="2"/><circle cx="8.5" cy="15" r="1"/><circle cx="15.5" cy="15" r="1"/><path d="M9 10V4m6 6V4"/><line x1="9" y1="4" x2="15" y2="4"/></>,
+  'book-open': <><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></>
 };
 
 const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6', ...props }) => {

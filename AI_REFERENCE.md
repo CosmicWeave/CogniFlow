@@ -1,3 +1,4 @@
+
 # AI Content Generation Reference for CogniFlow
 
 This document provides a set of expert-led prompts and best practices for generating high-quality learning content for CogniFlow using external AI tools like Google's Gemini, OpenAI's ChatGPT, or Anthropic's Claude.
@@ -13,21 +14,29 @@ For the best results, we strongly recommend a multi-step process. This allows yo
 First, generate a human-readable outline. This lets you check the structure, topics, and progression without dealing with complex JSON. This step is performed with an external AI chat service.
 
 **The Prompt:**
-Use this prompt with your AI chat service. Fill in the `[YOUR TOPIC HERE]` and `[USER'S LEVEL HERE]` fields.
+Use this prompt with your AI chat service. Fill in the `[YOUR TOPIC HERE]` and other optional fields.
 
 ```
 Please act as a world-class instructional designer and subject matter expert. Your task is to generate a comprehensive, detailed, and world-class TEXT outline for a learning path. The output must be plain text, not a JSON object.
 
 **Topic:** [YOUR TOPIC HERE]
-**User's Current Level:** [USER'S LEVEL HERE]
+**User's Current Level:** [USER'S LEVEL HERE - OPTIONAL]
+**Desired Comprehensiveness:** [e.g., Standard, In-Depth - OPTIONAL]
+**Custom Instructions:** [e.g., 'Focus on practical examples' - OPTIONAL]
+**Learning Goal:** [e.g., 'Master a subject' - OPTIONAL]
+**Learning Style:** [e.g., 'Practical Application & Scenarios' - OPTIONAL]
+**Focus Topics:** [e.g., 'The Roman Republic, not the Empire' - OPTIONAL]
+**Topics to Exclude:** [e.g., 'military history' - OPTIONAL]
+**Language:** [e.g., 'Spanish' - OPTIONAL]
+
 
 The goal is to create a structured and progressive learning path that guides the user towards mastery, similar in quality and detail to the provided example structure.
 
 **INSTRUCTIONS & REQUIREMENTS:**
 
 1.  **Learning Path Structure:**
-    -   Organize the learning path into logical "Levels" (e.g., Level 1, Level 2, up to Level 4 or 5). Each level must have a title and represent a significant step up in knowledge.
-    -   Each Level should contain one or more related "Decks".
+    -   Organize the learning path into a suitable number of logical "Levels" (e.g., 2-10). The number should correspond to the topic's complexity and the desired comprehensiveness.
+    -   Each Level should contain 1-6 related "Decks".
     -   The name of each deck must reflect this structure, e.g., "Level 1.1: Foundations of X", "Level 1.2: Core Concepts of Y", "Level 2.1: Advanced Techniques in Z".
 
 2.  **High-Quality Content (Crucial):**
@@ -115,7 +124,15 @@ These prompts generate full JSON objects in one go. They are faster but offer le
 Please act as an expert instructional designer and generate a complete, structured Deck Series in a single JSON object.
 
 **Topic:** [YOUR TOPIC HERE]
-**User's Current Level:** [USER'S LEVEL HERE]
+**User's Current Level:** [USER'S LEVEL HERE - OPTIONAL]
+**Desired Comprehensiveness:** [e.g., Standard, In-Depth - OPTIONAL]
+**Custom Instructions:** [e.g., 'Focus on practical examples' - OPTIONAL]
+**Learning Goal:** [e.g., 'Master a subject' - OPTIONAL]
+**Learning Style:** [e.g., 'Practical Application & Scenarios' - OPTIONAL]
+**Focus Topics:** [e.g., 'The Roman Republic, not the Empire' - OPTIONAL]
+**Topics to Exclude:** [e.g., 'military history' - OPTIONAL]
+**Language:** [e.g., 'Spanish' - OPTIONAL]
+
 
 **CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
 -   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.

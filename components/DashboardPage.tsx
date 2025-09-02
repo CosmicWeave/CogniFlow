@@ -1,6 +1,5 @@
-
 import React, { useMemo } from 'react';
-import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck } from '../types';
+import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Link from './ui/Link';
@@ -19,13 +18,18 @@ interface DashboardPageProps {
   openConfirmModal: (props: any) => void;
   seriesProgress: SeriesProgress;
   onStartSeriesStudy: (seriesId: string) => Promise<void>;
+  onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
+  onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
+  onGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
+  onCancelAIGeneration: () => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    // FIX: Add type assertion to correctly access properties on union type
-    const items = deck.type === 'quiz' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
+                  (deck as FlashcardDeck).cards;
     if (!Array.isArray(items)) {
         return 0;
     }
@@ -41,7 +45,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   onDeleteDeck,
   openConfirmModal,
   seriesProgress,
-  onStartSeriesStudy
+  onStartSeriesStudy,
+  onGenerateQuestionsForDeck,
+  onGenerateContentForLearningDeck,
+  onGenerateQuestionsForEmptyDecksInSeries
 }) => {
   const { decks, deckSeries } = useStore();
 
@@ -55,8 +62,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
     const activeSeriesList = deckSeries.filter(s => !s.archived && !s.deletedAt);
 
     const recentSeries = [...activeSeriesList].sort((a, b) => {
-        const decksA = a.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean);
-        const decksB = b.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean);
+        const decksA = a.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+        const decksB = b.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
         const lastOpenedA = Math.max(new Date(a.lastOpened || a.createdAt || 0).getTime(), ...decksA.map(d => new Date(d.lastOpened || 0).getTime()));
         const lastOpenedB = Math.max(new Date(b.lastOpened || b.createdAt || 0).getTime(), ...decksB.map(d => new Date(d.lastOpened || 0).getTime()));
         return lastOpenedB - lastOpenedA;
@@ -84,8 +91,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
             return total;
         }, 0);
 
-        // FIX: Add type assertion to correctly access properties on union type
-        const allItems = seriesDecks.flatMap<Reviewable>(d => d.type === DeckType.Flashcard ? (d as FlashcardDeck).cards : (d as QuizDeck).questions).filter(i => !i.suspended);
+        const allItems = seriesDecks.flatMap<Reviewable>(d => 
+            d.type === DeckType.Flashcard ? (d as FlashcardDeck).cards : 
+            (d as QuizDeck | LearningDeck).questions || []
+        ).filter(i => !i.suspended);
         const mastery = allItems.length > 0 ? allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allItems.length : 0;
         
         seriesData.set(series.id, { dueCount, mastery });
@@ -94,7 +103,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
     return { recentDecks, recentSeries, seriesData };
   }, [decks, deckSeries, seriesProgress]);
 
-  // FIX: Added return statement to wrap the JSX, making this a valid React component.
   return (
     <div className="space-y-12">
       {totalDueQuestions > 0 && (
@@ -129,6 +137,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
                   masteryLevel={data.mastery}
                   onStartSeriesStudy={onStartSeriesStudy}
                   nextUpDeckId={nextUpDeckId}
+                  onGenerateAllQuestions={onGenerateQuestionsForEmptyDecksInSeries}
                 />
               );
             })}
@@ -157,6 +166,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
                 onUpdateDeck={onUpdateDeck}
                 onDeleteDeck={onDeleteDeck}
                 openConfirmModal={openConfirmModal}
+                onGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
+                onGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
               />
             ))}
           </div>

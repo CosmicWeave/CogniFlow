@@ -3,36 +3,36 @@ import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, Flashcard
 import * as db from './services/db';
 import * as backupService from './services/backupService';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
-import OfflineIndicator from './components/ui/OfflineIndicator';
-import Sidebar from './components/Sidebar';
+import OfflineIndicator from './ui/OfflineIndicator';
+import Sidebar from './Sidebar';
 import { useToast } from './hooks/useToast';
-import Spinner from './components/ui/Spinner';
-import ImportModal from './components/ImportModal';
-import RestoreModal from './components/RestoreModal';
-import ResetProgressModal from './components/ResetProgressModal';
+import Spinner from './ui/Spinner';
+import ImportModal from './ImportModal';
+import RestoreModal from './RestoreModal';
+import ResetProgressModal from './ResetProgressModal';
 import { useRouter } from './contexts/RouterContext';
-import ConfirmModal from './components/ConfirmModal';
-import FolderModal from './components/FolderModal';
-import EditSeriesModal from './components/EditSeriesModal';
+import ConfirmModal from './ConfirmModal';
+import FolderModal from './FolderModal';
+import EditSeriesModal from './EditSeriesModal';
 import { onDataChange } from './services/syncService';
-import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
+import PullToRefreshIndicator from './ui/PullToRefreshIndicator';
 import { parseAnkiPkg, parseAnkiPkgMainThread } from './services/ankiImportService';
 
 import { useDataManagement } from './hooks/useDataManagement';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
-import Header from './components/Header';
-import AppRouter from './components/AppRouter';
-import CommandPalette from './components/CommandPalette';
-import Icon from './components/ui/Icon';
+import Header from './Header';
+import AppRouter from './AppRouter';
+import CommandPalette from './CommandPalette';
+import Icon from './ui/Icon';
 import { useStore } from './store/store';
 import { analyzeFileContent, createCardsFromImport, createQuestionsFromImport } from './services/importService';
-import DroppedFileConfirmModal, { DroppedFileAnalysis } from './components/DroppedFileConfirmModal';
-import AIGenerationModal from './components/AIGenerationModal';
+import DroppedFileConfirmModal, { DroppedFileAnalysis } from './DroppedFileConfirmModal';
+import AIGenerationModal from './AIGenerationModal';
 import { useSettings } from './hooks/useSettings';
-import AIChatFab from './components/AIChatFab';
-import AIChatModal from './components/AIChatModal';
-import AIGenerationStatusIndicator from './components/AIGenerationStatusIndicator';
-import AIGenerationStatusModal from './components/AIGenerationStatusModal';
+import AIChatFab from './AIChatFab';
+import AIChatModal from './AIChatModal';
+import AIGenerationStatusIndicator from './AIGenerationStatusIndicator';
+import AIGenerationStatusModal from './AIGenerationStatusModal';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -255,8 +255,7 @@ const App: React.FC = () => {
         db.getAllDecks(),
         db.getAllFolders(),
         db.getAllDeckSeries(),
-        // FIX: Explicitly type the resolved promise to avoid `never[]` type inference.
-        isInitialLoad ? db.getAllSessionKeys() : Promise.resolve<string[]>([])
+        isInitialLoad ? db.getAllSessionKeys() : Promise.resolve([])
       ]);
       dispatch({ type: 'LOAD_DATA', payload: { decks, folders, deckSeries } });
       if (isInitialLoad) {
@@ -456,6 +455,12 @@ const App: React.FC = () => {
                     onTriggerSync={() => triggerSync(true)}
                     isSyncing={isSyncing}
                     lastSyncStatus={lastSyncStatus}
+                    onGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck}
+                    onGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck}
+                    onGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries}
+                    onCancelAIGeneration={dataHandlers.handleCancelAIGeneration}
+                    onSaveLearningBlock={dataHandlers.handleSaveLearningBlock}
+                    onDeleteLearningBlock={dataHandlers.handleDeleteLearningBlock}
                     {...dataHandlers}
                 />
             )}

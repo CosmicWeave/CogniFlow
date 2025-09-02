@@ -1,12 +1,15 @@
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Deck, DeckType, FlashcardDeck, QuizDeck } from '../types';
+import { Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Link from './ui/Link';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import MasteryBar from './ui/MasteryBar';
-import Icon from './ui/Icon';
+import Icon, { IconName } from './ui/Icon';
 import { useRouter } from '../contexts/RouterContext';
+import { stripHtml } from '../services/utils';
+import { useStore } from '../store/store';
+import Spinner from './ui/Spinner';
+import { useSettings } from '../hooks/useSettings';
 
 interface DeckListItemProps {
   deck: Deck;
@@ -18,33 +21,50 @@ interface DeckListItemProps {
   onUpdateDeck: (deck: Deck, options?: { toastMessage?: string }) => void;
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
+  onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
+  onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
+                  (deck as FlashcardDeck).cards;
     if (!Array.isArray(items)) {
         return 0;
     }
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };
 
-const stripHtml = (html: string | undefined): string => {
-    if (!html) return "";
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    return doc.body.textContent || "";
-};
-
-const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal }) => {
+const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal, onGenerateQuestionsForDeck, onGenerateContentForLearningDeck }) => {
     const { navigate } = useRouter();
+    const { aiGenerationStatus } = useStore();
+    const { aiFeaturesEnabled } = useSettings();
+    
     const dueCount = getDueItemsCount(deck);
     const canResume = sessionsToResume.has(deck.id);
-    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
+                  (deck as FlashcardDeck).cards;
+
     const itemCount = items?.length || 0;
-    const itemLabel = deck.type === DeckType.Quiz ? (itemCount === 1 ? 'question' : 'questions') : (itemCount === 1 ? 'card' : 'cards');
+    
+    let itemLabel: string;
+    let iconName: IconName;
+    if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
+        itemLabel = itemCount === 1 ? 'question' : 'questions';
+        iconName = deck.type === DeckType.Learning ? 'layers' : 'help-circle';
+    } else {
+        itemLabel = itemCount === 1 ? 'card' : 'cards';
+        iconName = 'laptop';
+    }
+
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+
+    const isGeneratingThisDeck = aiGenerationStatus.isGenerating && aiGenerationStatus.generatingDeckId === deck.id;
+    const isActionableEmptyDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && itemCount === 0;
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -121,7 +141,7 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
                 <div className="flex justify-between items-center">
                     <div className="flex items-center gap-4 text-sm text-text-muted">
                         <span className="flex items-center gap-1.5">
-                            <Icon name="list" className="w-4 h-4" />
+                            <Icon name={iconName} className="w-4 h-4" />
                             {itemCount} {itemLabel}
                         </span>
                         <span className={`flex items-center gap-1.5 font-semibold ${dueCount > 0 ? 'text-primary' : ''}`}>
@@ -131,44 +151,74 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
                     </div>
 
                     <div className="flex items-center space-x-1">
-                        <Link 
-                            href={`/decks/${deck.id}/study`}
-                            passAs={Button}
-                            variant="primary"
-                            size="sm"
-                            onClick={() => onUpdateLastOpened(deck.id)}
-                            disabled={dueCount === 0 && !canResume}
-                            className="font-semibold"
-                        >
-                           {canResume ? 'Resume' : 'Study'} 
-                        </Link>
-                        <div className="relative" ref={menuRef}>
-                            <Button 
-                                variant="ghost"
-                                size="sm" 
-                                className="p-2 h-auto"
-                                onClick={() => setIsMenuOpen(p => !p)}
-                                aria-label={`More options for ${deck.name}`}
-                            >
-                               <Icon name="more-vertical" className="w-5 h-5" />
-                            </Button>
-                            {isMenuOpen && (
-                                <div 
-                                    className="absolute right-0 mt-2 w-48 bg-surface rounded-md shadow-lg py-1 z-20 ring-1 ring-black ring-opacity-5 animate-fade-in"
-                                    style={{ animationDuration: '150ms' }}
-                                >
-                                    <button onClick={handleArchive} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
-                                        <Icon name="archive" className="w-4 h-4 mr-3" />
-                                        Archive
-                                    </button>
-                                    <div className="border-t border-border my-1"></div>
-                                    <button onClick={handleDelete} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                        <Icon name="trash-2" className="w-4 h-4 mr-3" />
-                                        Move to Trash
-                                    </button>
+                        {isGeneratingThisDeck ? (
+                            <div className="flex items-center text-text-muted pr-1">
+                                <Spinner size="sm" />
+                                <span className="ml-2 text-sm font-semibold">Generating...</span>
+                            </div>
+                        ) : (
+                            <>
+                                {aiFeaturesEnabled && isActionableEmptyDeck ? (
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (deck.type === DeckType.Quiz && onGenerateQuestionsForDeck) {
+                                                onGenerateQuestionsForDeck(deck as QuizDeck);
+                                            } else if (deck.type === DeckType.Learning && onGenerateContentForLearningDeck) {
+                                                onGenerateContentForLearningDeck(deck as LearningDeck);
+                                            }
+                                        }}
+                                        className="font-semibold"
+                                    >
+                                       <Icon name="zap" className="w-4 h-4 mr-1.5"/>
+                                       Generate
+                                    </Button>
+                                ) : (
+                                     <Link 
+                                        href={`/decks/${deck.id}/study`}
+                                        passAs={Button}
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => onUpdateLastOpened(deck.id)}
+                                        disabled={itemCount === 0 || (dueCount === 0 && !canResume)}
+                                        className="font-semibold"
+                                    >
+                                       {canResume ? 'Resume' : 'Study'} 
+                                    </Link>
+                                )}
+                               
+                                <div className="relative" ref={menuRef}>
+                                    <Button 
+                                        variant="ghost"
+                                        size="sm" 
+                                        className="p-2 h-auto"
+                                        onClick={(e) => { e.stopPropagation(); setIsMenuOpen(p => !p); }}
+                                        aria-label={`More options for ${deck.name}`}
+                                        disabled={isGeneratingThisDeck}
+                                    >
+                                       <Icon name="more-vertical" className="w-5 h-5" />
+                                    </Button>
+                                    {isMenuOpen && (
+                                        <div 
+                                            className="absolute right-0 mt-2 w-48 bg-surface rounded-md shadow-lg py-1 z-20 ring-1 ring-black ring-opacity-5 animate-fade-in"
+                                            style={{ animationDuration: '150ms' }}
+                                        >
+                                            <button onClick={handleArchive} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
+                                                <Icon name="archive" className="w-4 h-4 mr-3" />
+                                                Archive
+                                            </button>
+                                            <div className="border-t border-border my-1"></div>
+                                            <button onClick={handleDelete} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                                <Icon name="trash-2" className="w-4 h-4 mr-3" />
+                                                Move to Trash
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

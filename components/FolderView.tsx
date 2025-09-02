@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Deck, Folder } from '../types';
+import { Deck, Folder, LearningDeck, QuizDeck } from '../types';
 import DeckListItem from './DeckListItem';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -22,9 +23,12 @@ interface FolderViewProps {
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
   onSaveFolder: (folderData: { id: string; name: string }) => void;
+  // FIX: Add missing props for AI generation handlers.
+  onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
+  onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
 }
 
-const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle, sessionsToResume, onUpdateLastOpened, onDeleteFolder, draggedDeckId, onDragStart, onDragEnd, onMoveDeck, onUpdateDeck, onDeleteDeck, openConfirmModal, onSaveFolder }) => {
+const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle, sessionsToResume, onUpdateLastOpened, onDeleteFolder, draggedDeckId, onDragStart, onDragEnd, onMoveDeck, onUpdateDeck, onDeleteDeck, openConfirmModal, onSaveFolder, onGenerateQuestionsForDeck, onGenerateContentForLearningDeck }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(folder.name);
@@ -152,6 +156,8 @@ const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle
                 onUpdateDeck={onUpdateDeck}
                 onDeleteDeck={onDeleteDeck}
                 openConfirmModal={openConfirmModal}
+                onGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
+                onGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
               />
             ))
           ) : (

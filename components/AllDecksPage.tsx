@@ -1,31 +1,20 @@
-
-
 import React, { useState, useMemo } from 'react';
-import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck, Card, Question } from '../types';
+import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck, Card, Question, LearningDeck } from '../types';
 import DeckList from './DeckList';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import DeckSortControl, { SortPreference } from './ui/DeckSortControl';
 import { useStore, useStandaloneDecks } from '../store/store';
+import { stripHtml } from '../services/utils';
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === 'quiz' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards;
     if (!Array.isArray(items)) {
         return 0;
     }
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
-};
-
-const stripHtml = (html: string | undefined): string => {
-    if (!html) return "";
-    try {
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        return doc.body.textContent || "";
-    } catch (e) {
-        return html; // Fallback for invalid HTML
-    }
 };
 
 interface AllDecksPageProps {
@@ -47,6 +36,9 @@ interface AllDecksPageProps {
   onImportDecks: () => void;
   onCreateSampleDeck: () => void;
   handleSaveFolder: (folderData: { id: string; name: string; }) => void;
+  onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
+  onGenerateContentForLearningDeck: (deck: LearningDeck) => void;
+  onCancelAIGeneration: () => void;
 }
 
 const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
@@ -87,7 +79,7 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
             }
 
             // Score for content matches, capped to prevent very large decks from always winning
-            const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions;
+            const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck.type === DeckType.Learning ? (deck as LearningDeck).questions : (deck as QuizDeck).questions);
             let contentMatchCount = 0;
             if (items) {
                 for (const item of items) {
@@ -198,6 +190,8 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
                     onDeleteDeck={props.onDeleteDeck}
                     openConfirmModal={props.openConfirmModal}
                     onSaveFolder={props.handleSaveFolder}
+                    onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
+                    onGenerateContentForLearningDeck={props.onGenerateContentForLearningDeck}
                 />
             )}
         </div>

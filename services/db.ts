@@ -45,33 +45,46 @@ function initDB(): Promise<IDBDatabase> {
     };
 
     request.onupgradeneeded = (event) => {
-      const dbInstance = (event.target as IDBOpenDBRequest).result;
-      if (!dbInstance.objectStoreNames.contains(DECK_STORE_NAME)) {
-        dbInstance.createObjectStore(DECK_STORE_NAME, { keyPath: 'id' });
+      const db = (event.target as IDBOpenDBRequest).result;
+      const transaction = (event.target as IDBOpenDBRequest).transaction;
+      if (!transaction) {
+          console.error("Upgrade transaction is not available.");
+          return;
       }
-      if (!dbInstance.objectStoreNames.contains(FOLDER_STORE_NAME)) {
-        dbInstance.createObjectStore(FOLDER_STORE_NAME, { keyPath: 'id' });
-      }
-      if (event.oldVersion < 3 && !dbInstance.objectStoreNames.contains(SERIES_STORE_NAME)) {
-        dbInstance.createObjectStore(SERIES_STORE_NAME, { keyPath: 'id' });
-      }
-      if (event.oldVersion < 4 && !dbInstance.objectStoreNames.contains(SESSION_STORE_NAME)) {
-        dbInstance.createObjectStore(SESSION_STORE_NAME, { keyPath: 'id' });
-      }
-      if (event.oldVersion < 5) {
-        if (!dbInstance.objectStoreNames.contains(REVIEW_STORE_NAME)) {
-            const reviewStore = dbInstance.createObjectStore(REVIEW_STORE_NAME, { keyPath: 'id', autoIncrement: true });
-            reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
-        }
-      }
-       if (event.oldVersion < 6) {
-        const transaction = (event.target as IDBOpenDBRequest).transaction;
-        if (transaction) {
-            const reviewStore = transaction.objectStore(REVIEW_STORE_NAME);
-            if (!reviewStore.indexNames.contains('deckId')) {
-                reviewStore.createIndex('deckId', 'deckId', { unique: false });
-            }
-        }
+
+      // Using a switch statement with fall-through is the most robust way to handle migrations.
+      switch (event.oldVersion) {
+          case 0:
+              // Migrating from no database (v0)
+              db.createObjectStore(DECK_STORE_NAME, { keyPath: 'id' });
+              db.createObjectStore(FOLDER_STORE_NAME, { keyPath: 'id' });
+              // fall-through to next version migration
+          case 1:
+          case 2:
+              // Migrating from v2 to v3
+              if (!db.objectStoreNames.contains(SERIES_STORE_NAME)) {
+                  db.createObjectStore(SERIES_STORE_NAME, { keyPath: 'id' });
+              }
+              // fall-through
+          case 3:
+              // Migrating from v3 to v4
+              if (!db.objectStoreNames.contains(SESSION_STORE_NAME)) {
+                  db.createObjectStore(SESSION_STORE_NAME, { keyPath: 'id' });
+              }
+              // fall-through
+          case 4:
+              // Migrating from v4 to v5
+              if (!db.objectStoreNames.contains(REVIEW_STORE_NAME)) {
+                  const reviewStore = db.createObjectStore(REVIEW_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                  reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
+              }
+              // fall-through
+          case 5:
+              // Migrating from v5 to v6
+              const reviewStore = transaction.objectStore(REVIEW_STORE_NAME);
+              if (!reviewStore.indexNames.contains('deckId')) {
+                  reviewStore.createIndex('deckId', 'deckId', { unique: false });
+              }
       }
     };
   });
@@ -295,7 +308,7 @@ export async function deleteDeckSeries(seriesId: string): Promise<void> {
 }
 
 // Session State Functions
-export async function saveSessionState(id: string, state: { reviewQueue: any[], currentIndex: number }): Promise<void> {
+export async function saveSessionState(id: string, state: { reviewQueue: any[], currentIndex: number, readInfoCardIds?: string[], unlockedQuestionIds?: string[] }): Promise<void> {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(SESSION_STORE_NAME, 'readwrite');
@@ -307,7 +320,7 @@ export async function saveSessionState(id: string, state: { reviewQueue: any[], 
   });
 }
 
-export async function getSessionState(id: string): Promise<{ reviewQueue: any[], currentIndex: number } | null> {
+export async function getSessionState(id: string): Promise<{ reviewQueue: any[], currentIndex: number, readInfoCardIds?: string[], unlockedQuestionIds?: string[] } | null> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(SESSION_STORE_NAME, 'readonly');

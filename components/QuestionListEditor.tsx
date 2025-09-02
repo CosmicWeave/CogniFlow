@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Question } from '../types';
 import Button from './ui/Button';
@@ -8,6 +10,9 @@ import EditQuestionModal from './EditQuestionModal';
 import ConfirmModal from './ConfirmModal';
 import { getEffectiveMasteryLevel } from '../services/srs';
 import MasteryBar from './ui/MasteryBar';
+import Spinner from './ui/Spinner';
+import { useSettings } from '../hooks/useSettings';
+import { stripHtml } from '../services/utils';
 
 type NewQuestionData = Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'lapses'>;
 
@@ -16,6 +21,8 @@ interface QuestionListEditorProps {
   onQuestionsChange: (newQuestions: Question[]) => void;
   onAddQuestion: (newQuestionData: NewQuestionData) => void;
   onBulkAdd: () => void;
+  onGenerateAI?: () => void;
+  isGeneratingAI: boolean;
 }
 
 const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean } => {
@@ -45,7 +52,7 @@ const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean }
 };
 
 
-const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQuestionsChange, onAddQuestion, onBulkAdd }) => {
+const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQuestionsChange, onAddQuestion, onBulkAdd, onGenerateAI, isGeneratingAI }) => {
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
@@ -53,6 +60,7 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
   const [menuOpenForQuestion, setMenuOpenForQuestion] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { aiFeaturesEnabled } = useSettings();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -138,10 +146,11 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
               <ul className="space-y-4">
                 {questions.map((question) => {
                   const { text: dueDateText, isDue } = getDueDateInfo(question.dueDate);
+                  const plainTextQuestion = stripHtml(question.questionText);
                   return (
                     <li key={question.id} className={`p-4 rounded-lg flex items-start justify-between transition-all ${question.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'}`}>
                         <div className="flex-1 min-w-0 mr-4">
-                            <p className="text-base font-medium text-text break-words">{question.questionText}</p>
+                            <p className="text-base font-medium text-text break-words truncate" title={plainTextQuestion}>{plainTextQuestion}</p>
                             <div className="mt-3 space-y-2">
                                 <MasteryBar level={getEffectiveMasteryLevel(question)} />
                                 <div className="flex items-center gap-4 text-xs text-text-muted">
@@ -211,6 +220,17 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                   <Icon name="code" className="w-5 h-5 mr-2"/>
                   Bulk Add via JSON
               </Button>
+              {aiFeaturesEnabled && onGenerateAI && (
+                <Button 
+                    variant="ghost" 
+                    onClick={onGenerateAI} 
+                    className="flex-grow sm:flex-grow-0"
+                    disabled={isGeneratingAI}
+                >
+                    {isGeneratingAI ? <Spinner size="sm" /> : <Icon name="zap" className="w-5 h-5 mr-2"/>}
+                    {isGeneratingAI ? 'Generating...' : 'Generate with AI'}
+                </Button>
+              )}
           </div>
         </div>
       )}

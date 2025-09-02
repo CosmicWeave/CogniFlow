@@ -1,12 +1,12 @@
 
 
-
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Deck, DeckSeries, Card, Question, QuizDeck } from '../types';
+import { Deck, DeckSeries, Card, Question, QuizDeck, DeckType, LearningDeck } from '../types';
 import { useRouter } from '../contexts/RouterContext';
 import Icon, { IconName } from './ui/Icon';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useStore } from '../store/store';
+import { stripHtml } from '../services/utils';
 
 // Local types for items in the palette to decouple from main app types
 interface PaletteAction {
@@ -22,7 +22,7 @@ interface PaletteDeck {
   type: 'deck';
   id: string;
   name: string;
-  itemType: 'quiz' | 'flashcard';
+  itemType: DeckType;
 }
 interface PaletteSeries {
   type: 'series';
@@ -61,11 +61,6 @@ interface CommandPaletteProps {
   actions: Command[];
 }
 
-const stripHtml = (html: string) => {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    return doc.body.textContent || "";
-};
-
 const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, actions }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -87,7 +82,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, action
       if (d.type === 'flashcard') {
         d.cards.forEach(c => items.push({ type: 'card', id: c.id, deckId: d.id, deckName: d.name, front: c.front }));
       } else {
-        (d as QuizDeck).questions.forEach(q => items.push({ type: 'question', id: q.id, deckId: d.id, deckName: d.name, text: q.questionText }));
+        (d as QuizDeck | LearningDeck).questions.forEach(q => items.push({ type: 'question', id: q.id, deckId: d.id, deckName: d.name, text: q.questionText }));
       }
     });
 
@@ -196,7 +191,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, action
         title = item.label;
         break;
       case 'deck':
-        iconName = item.itemType === 'quiz' ? 'help-circle' : 'laptop';
+        // FIX: Handle 'learning' deck type and set appropriate icon
+        iconName = 'help-circle'; // Default for quiz
+        if (item.itemType === DeckType.Flashcard) iconName = 'laptop';
+        else if (item.itemType === DeckType.Learning) iconName = 'layers';
         title = item.name;
         break;
       case 'series':

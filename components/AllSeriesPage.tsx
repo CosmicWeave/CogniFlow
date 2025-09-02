@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, Reviewable } from '../types';
 import Button from './ui/Button';
@@ -18,12 +16,14 @@ interface AllSeriesPageProps {
   onCreateNewSeries: () => void;
   onCreateSampleSeries: () => void;
   onGenerateAI: () => void;
+  onGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
+  onCancelAIGeneration: () => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === 'quiz' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
     if (!Array.isArray(items)) {
         return 0;
     }
@@ -35,6 +35,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
   onCreateNewSeries,
   onCreateSampleSeries,
   onGenerateAI,
+  onGenerateQuestionsForEmptyDecksInSeries,
 }) => {
     const { deckSeries: allSeries, decks, seriesProgress } = useStore();
     const { aiFeaturesEnabled } = useSettings();
@@ -183,6 +184,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                         masteryLevel={data.mastery}
                         onStartSeriesStudy={onStartSeriesStudy}
                         nextUpDeckId={nextUpDeckId}
+                        onGenerateAllQuestions={onGenerateQuestionsForEmptyDecksInSeries}
                       />
                   )})}
                 </div>

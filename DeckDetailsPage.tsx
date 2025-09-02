@@ -19,6 +19,9 @@ import { useStore } from '../store/store';
 import * as db from '../services/db';
 import Spinner from './ui/Spinner';
 import MasteryOverTimeGraph from './ui/MasteryOverTimeGraph';
+// FIX: Added missing imports for AI features.
+import { useSettings } from '../hooks/useSettings';
+import { useToast } from '../hooks/useToast';
 
 interface DeckDetailsPageProps {
   deck: Deck;
@@ -27,6 +30,8 @@ interface DeckDetailsPageProps {
   onDeleteDeck: (deckId: string) => void;
   onUpdateLastOpened: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
+  // FIX: Added missing prop to fix type error from AppRouter.
+  onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
@@ -152,7 +157,7 @@ const StatisticsTabContent: React.FC<{ deck: Deck }> = ({ deck }) => {
     );
 };
 
-const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal }) => {
+const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, onGenerateQuestionsForDeck }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
@@ -160,7 +165,9 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const { navigate } = useRouter();
-  const folders = useStore(state => state.folders);
+  const { addToast } = useToast();
+  const { aiFeaturesEnabled } = useSettings();
+  const { folders, aiGenerationStatus } = useStore();
   
   const allItems = deck.type === DeckType.Flashcard ? deck.cards : deck.questions;
 
@@ -206,6 +213,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     });
   };
 
+  const isGeneratingThisDeck = aiGenerationStatus.isGenerating && aiGenerationStatus.generatingDeckId === deck.id;
   const activeItems = allItems.filter(item => !item.suspended);
   const suspendedCount = allItems.length - activeItems.length;
   const progressStats = calculateProgressStats(activeItems);
@@ -276,12 +284,11 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
       <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
         {isEditing ? (
           <div className="space-y-4 animate-fade-in">
-            {/* FIX: Wrapped inputs in divs with labels for correct layout */}
             <div>
-              <label htmlFor="deck-name" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
+              <label htmlFor="deck-name-edit" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
               <input
+                id="deck-name-edit"
                 type="text"
-                id="deck-name"
                 value={editedName}
                 onChange={(e) => setEditedName(e.target.value)}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold"
@@ -395,7 +402,14 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
              {deck.type === DeckType.Flashcard ? (
                 <CardListEditor cards={deck.cards} onCardsChange={(newCards) => onUpdateDeck({ ...deck, cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...deck, cards: [...deck.cards, {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
              ) : deck.type === DeckType.Quiz ? (
-                <QuestionListEditor questions={deck.questions} onQuestionsChange={(newQuestions) => onUpdateDeck({ ...deck, questions: newQuestions }, { silent: true })} onAddQuestion={(d) => onUpdateDeck({ ...deck, questions: [...deck.questions, {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
+                <QuestionListEditor
+                    questions={deck.questions}
+                    onQuestionsChange={(newQuestions) => onUpdateDeck({ ...deck, questions: newQuestions }, { silent: true })}
+                    onAddQuestion={(d) => onUpdateDeck({ ...deck, questions: [...deck.questions, {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })}
+                    onBulkAdd={() => setIsBulkAddModalOpen(true)}
+                    onGenerateAI={() => onGenerateQuestionsForDeck(deck as QuizDeck)}
+                    isGeneratingAI={isGeneratingThisDeck}
+                />
              ) : (
                 <div className="p-6 text-center text-text-muted"><p>Unsupported deck type.</p></div>
              )}

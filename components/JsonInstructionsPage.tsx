@@ -51,7 +51,7 @@ const FieldDefinitionTable = ({ fields }: { fields: Array<{field: string, type: 
                 <td className="p-2 align-top"><code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded-sm">{field}</code></td>
                 <td className="p-2 align-top text-gray-600 dark:text-gray-400">{type}</td>
                 <td className="p-2 align-top">{required ? <Icon name="check-circle" className="text-green-500" /> : 'No'}</td>
-                <td className="p-2 align-top text-gray-600 dark:text-gray-400">{description}</td>
+                <td className="p-2 align-top text-gray-600 dark:text-gray-400" dangerouslySetInnerHTML={{ __html: description }} />
             </tr>
         ))}
       </tbody>
@@ -85,7 +85,7 @@ const JsonInstructionsPage: React.FC = () => {
 
   const quizJson = `{
   "name": "Sample Science Quiz",
-  "description": "A few questions to test your basic science knowledge.",
+  "description": "A few questions to test your <b>basic</b> science knowledge.",
   "questions": [
     {
       "questionType": "multipleChoice",
@@ -103,7 +103,7 @@ const JsonInstructionsPage: React.FC = () => {
 }`;
 const quizFields = [
     { field: 'name', type: 'string', required: true, description: 'The title of the quiz deck.' },
-    { field: 'description', type: 'string', required: true, description: 'A brief summary of the deck\'s content.' },
+    { field: 'description', type: 'string', required: true, description: 'A brief summary of the deck\'s content. Can include basic HTML for formatting (e.g., `<b>`, `<i>`, `<br>`).' },
     { field: 'questions', type: 'Array<Question>', required: true, description: 'An array containing all question objects for the deck.' },
     { field: 'questionType', type: 'string', required: true, description: 'Must be "multipleChoice" for now.' },
     { field: 'questionText', type: 'string', required: true, description: 'The question being asked.' },
@@ -119,7 +119,7 @@ const quizFields = [
 
   const seriesJsonExample = `{
   "seriesName": "Intro to Web Development",
-  "seriesDescription": "A progressive series covering the fundamentals of web development.",
+  "seriesDescription": "A progressive series covering the <b>fundamentals</b> of web development.",
   "levels": [
     {
       "title": "Level 1: The Foundation",
@@ -148,7 +148,7 @@ const quizFields = [
 }`;
 const seriesFields = [
     { field: 'seriesName', type: 'string', required: true, description: 'The title for the entire series.' },
-    { field: 'seriesDescription', type: 'string', required: true, description: 'A brief summary of what the whole series covers.' },
+    { field: 'seriesDescription', type: 'string', required: true, description: 'A brief summary of what the whole series covers. Can include basic HTML for formatting.' },
     { field: 'levels', type: 'Array<Level>', required: true, description: 'An array containing all the levels in the series.' },
     { field: 'levels[].title', type: 'string', required: true, description: 'The heading for a group of decks (e.g., "Level 1: Core Concepts").' },
     { field: 'levels[].decks', type: 'Array<QuizDeck>', required: true, description: 'An array of quiz decks for that level. The schema for each deck is the same as the Single Quiz Deck format.' },
@@ -159,7 +159,7 @@ const outlineAiPromptTemplate = `Please act as a world-class instructional desig
 **Topic:** [YOUR TOPIC HERE]
 **User's Current Level:** [USER'S LEVEL HERE]
 
-The goal is to create a structured and progressive learning path that guides the user towards mastery, similar in quality and detail to the provided example structure.
+The goal is to create a structured and progressive learning path that guides the user towards deep, comprehensive mastery of the topic, similar in quality and detail to the provided example structure.
 
 **INSTRUCTIONS & REQUIREMENTS:**
 
@@ -169,12 +169,15 @@ The goal is to create a structured and progressive learning path that guides the
     -   The name of each deck must reflect this structure, e.g., "Level 1.1: Foundations of X", "Level 1.2: Core Concepts of Y", "Level 2.1: Advanced Techniques in Z".
 
 2.  **High-Quality Content (Crucial):**
-    -   **Series Name & Description:** Create a compelling and descriptive name (e.g., "Topic Mastery Path: The Contextual Approach") and a comprehensive summary for the entire learning path.
+    -   **Comprehensive Coverage:** The outline must cover the topic in sufficient depth for the specified user level, ensuring a thorough understanding.
+    -   **Series Name & Description:** Create a compelling and descriptive name (e.g., "Topic Mastery Path: The Contextual Approach") and a comprehensive summary for the entire learning path. The description can use basic HTML for formatting (e.g., <b>, <i>, <br>).
     -   **Level Goal & Focus:** For each Level, provide a clear "Goal" and "Focus".
     -   **Deck Topics:** For each Deck, provide a detailed, itemized list of specific "Topics" to be covered.
     -   **Progressive Difficulty:** The path must be logically sequenced, starting with foundational definitions and historical context, moving to practical applications, then to assessment and planning, and finally to interdisciplinary challenges.
     -   **Context-Specific:** If the user's topic has a specific context (e.g., a geographical location, a particular framework), embed that context deeply into the entire outline.
+    -   **Clarity with Acronyms:** When using an acronym, write it out fully in parentheses the first time it is used (e.g., "Sustainable Forest Management (SFM)").
     -   **Approximate Question Count:** Suggest an approximate number of questions for each deck.
+    -   **Metric System:** All generated content should prefer the metric system (e.g., meters, kilograms, Celsius).
 
 **EXAMPLE STRUCTURE:**
 Ecological Sustainable Forestry Mastery Path: The Scanian Approach
@@ -243,10 +246,13 @@ Now, based on the text outline I provided, please generate the complete JSON sca
 
 **CRITICAL CONTENT QUALITY REQUIREMENTS:**
 - **Factual Accuracy:** This is paramount. The correct answer and all parts of the explanation must be unequivocally correct and verifiable.
+- **In-Depth Coverage:** The questions must cover the deck's topics comprehensively, moving beyond surface-level facts to ensure a deep understanding.
 - **Relevance & Practical Application:** Frame questions in real-world scenarios to help a user apply the information. Questions must be relevant to the deck's topics.
 - **Clarity & Simplicity:** Questions must be easy to understand, unambiguous, and free of jargon (unless the jargon is the learning objective). Test only one core concept per question.
+- **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'Central Processing Unit (CPU)').
 - **Problem-Solving Focus:** Design questions that require applying knowledge, not just recalling facts. Avoid trivial pursuit and focus on genuinely useful information. For practical topics, ask skill-based questions that test the ability to perform a task or make a decision.
 - **High-Quality Explanations:** The \`detailedExplanation\` is crucial. It must explain the reasoning, principles, or facts behind the correct answer. Provide additional context, examples, or connections to related concepts to deepen understanding. If applicable, cite sources for complex information.
+- **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
 - **Engaging Content:** While factual, make the questions and explanations as engaging as possible to maintain learner interest.
 
 **JSON OUTPUT FORMAT:**
@@ -278,22 +284,25 @@ Now, based on the text outline I provided, please generate the JSON for the **fi
 **User's Current Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
+-   **Comprehensive Coverage:** The generated series must be comprehensive, covering the topic in-depth to provide a thorough understanding for the specified user level.
 -   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
 -   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
+-   **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').
+-   **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
 
 **FINAL JSON OUTPUT FORMAT:**
 The final output MUST be ONLY a single, raw JSON object without any surrounding text or markdown. The root object must have this exact schema:
 {
   "seriesName": "A descriptive name for the whole series",
-  "seriesDescription": "A brief description of what the series covers.",
+  "seriesDescription": "A brief description of what the series covers. Can include basic HTML for formatting.",
   "levels": [
     {
       "title": "Level 1: The Basics",
       "decks": [
         {
           "name": "Level 1.1: Deck Name",
-          "description": "Description of this deck's content.",
+          "description": "Description of this deck's content. Can include basic HTML for formatting.",
           "questions": [
             {
               "questionType": "multipleChoice",
@@ -318,13 +327,16 @@ Now, generate the complete JSON object based on all the above requirements.`;
 **Designed for Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS:**
+-   **In-Depth Questions:** The questions should cover the topic comprehensively, moving beyond surface-level facts to ensure a deep understanding.
 -   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
 -   **Relevance:** Questions must be directly pertinent to the chosen topic and appropriate for the specified level.
 -   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Question Quantity:** Generate 10-100 high-quality questions. Do not include multiple questions that are essentially asking the same thing.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
+-   **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').
 -   **Problem-Solving Focus:** Prioritize questions that require applying knowledge to solve a problem.
 -   **Explanation Quality:** The \`detailedExplanation\` must explain the reasoning behind the correct answer and provide additional context.
+-   **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
 
 **JSON SCHEMA & RULES:**
 -   The final output must be ONLY the raw JSON object, starting with \`{\` and ending with \`}\`.

@@ -1,8 +1,6 @@
 
 
 
-
-
 export enum ReviewRating {
   Again = 1,
   Hard = 2,
@@ -29,6 +27,14 @@ export interface Card extends Reviewable {
   css?: string;
 }
 
+// A one-sided informational card for Learning Decks
+export interface InfoCard {
+    id: string;
+    content: string; // HTML content
+    unlocksQuestionIds: string[];
+}
+
+
 // Multiple choice question
 export interface QuestionOption {
   id: string;
@@ -43,17 +49,31 @@ export interface Question extends Reviewable {
   detailedExplanation: string;
   options: QuestionOption[];
   correctAnswerId: string;
+  infoCardIds?: string[]; // Links back to info cards
 }
 
 export enum DeckType {
   Flashcard = 'flashcard',
   Quiz = 'quiz',
+  Learning = 'learning',
 }
 
 // For organizing decks
 export interface Folder {
     id: string;
     name: string;
+}
+
+export interface AIGenerationParams {
+    topic: string;
+    level?: string;
+    comprehensiveness?: string;
+    customInstructions?: string;
+    learningGoal?: string;
+    learningStyle?: string;
+    focusTopics?: string;
+    excludeTopics?: string;
+    language?: string;
 }
 
 // Base deck properties
@@ -67,6 +87,7 @@ interface BaseDeck {
   deletedAt?: string; // ISO string for date
   locked?: boolean;
   suggestedQuestionCount?: number;
+  aiGenerationParams?: AIGenerationParams;
 }
 
 export interface FlashcardDeck extends BaseDeck {
@@ -79,7 +100,14 @@ export interface QuizDeck extends BaseDeck {
   questions: Question[];
 }
 
-export type Deck = FlashcardDeck | QuizDeck;
+export interface LearningDeck extends BaseDeck {
+    type: DeckType.Learning;
+    infoCards: InfoCard[];
+    questions: Question[];
+}
+
+
+export type Deck = FlashcardDeck | QuizDeck | LearningDeck;
 
 // A level within a series, containing a title and an ordered list of decks.
 export interface SeriesLevel {
@@ -99,6 +127,7 @@ export interface DeckSeries {
     createdAt?: string; // ISO string for date
     lastOpened?: string; // ISO string for date
     aiChatHistory?: any[]; // Stores the AI chat history for content generation
+    aiGenerationParams?: AIGenerationParams;
 }
 
 // Map of seriesId -> Set of completed deck IDs
@@ -135,3 +164,53 @@ export interface ReviewLog {
   easeFactor: number;
   masteryLevel: number;
 }
+
+
+// For AI Chat
+export enum AIActionType {
+    CREATE_DECK = 'CREATE_DECK',
+    RENAME_DECK = 'RENAME_DECK',
+    MOVE_DECK_TO_FOLDER = 'MOVE_DECK_TO_FOLDER',
+    DELETE_DECK = 'DELETE_DECK',
+    CREATE_FOLDER = 'CREATE_FOLDER',
+    RENAME_FOLDER = 'RENAME_FOLDER',
+    DELETE_FOLDER = 'DELETE_FOLDER',
+    EXPAND_SERIES_ADD_LEVELS = 'EXPAND_SERIES_ADD_LEVELS',
+    EXPAND_SERIES_ADD_DECKS = 'EXPAND_SERIES_ADD_DECKS',
+    GENERATE_QUESTIONS_FOR_DECK = 'GENERATE_QUESTIONS_FOR_DECK',
+    NO_ACTION = 'NO_ACTION', // When the AI just wants to chat
+}
+
+// Flexible payload type
+export type AIActionPayload =
+  | { name: string; folderId?: string } // CREATE_DECK
+  | { deckId: string; newName: string } // RENAME_DECK
+  | { deckId: string; folderId: string | null } // MOVE_DECK_TO_FOLDER
+  | { deckId: string } // DELETE_DECK
+  | { name: string } // CREATE_FOLDER
+  | { folderId: string; newName: string } // RENAME_FOLDER
+  | { folderId: string } // DELETE_FOLDER
+  | { seriesId: string } // EXPAND_SERIES_ADD_LEVELS
+  | { seriesId: string; levelIndex: number } // EXPAND_SERIES_ADD_DECKS
+  | { deckId: string; count?: number } // GENERATE_QUESTIONS_FOR_DECK
+  | {}; // NO_ACTION
+
+export interface AIAction {
+    action: AIActionType;
+    payload: AIActionPayload;
+    confirmationMessage: string;
+}
+
+export interface AIMessage {
+    id: string;
+    role: 'user' | 'model';
+    text: string;
+    actions?: AIAction[];
+    isLoading?: boolean;
+}
+// For AI Generation
+export type AIGeneratedDeck = Omit<ImportedQuizDeck, 'questions'> & { questions: [], suggestedQuestionCount: number };
+export type AIGeneratedLevel = {
+    title: string;
+    decks: AIGeneratedDeck[];
+};

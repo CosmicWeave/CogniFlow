@@ -12,11 +12,8 @@ import initSqlJs, { type SqlJsStatic } from 'sql.js';
  */
 export function parseAnkiPkg(fileBuffer: ArrayBuffer): Promise<Deck[]> {
     return new Promise((resolve, reject) => {
-        // Construct an absolute URL for the worker from the current origin
-        // to prevent cross-origin loading errors in certain environments.
-        const workerUrl = new URL('/services/ankiImport.worker.ts', window.location.origin);
-        
-        const worker = new Worker(workerUrl, {
+        // Use a dynamic import URL to help bundlers locate and process the worker script.
+        const worker = new Worker(new URL('./ankiImport.worker.ts', import.meta.url), {
             type: 'module'
         });
         

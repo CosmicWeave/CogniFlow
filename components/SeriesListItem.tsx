@@ -1,11 +1,12 @@
-
-import React from 'react';
-import { DeckSeries } from '../types';
+import React, { useMemo } from 'react';
+import { Deck, DeckSeries, DeckType } from '../types';
 import Link from './ui/Link';
 import Icon from './ui/Icon';
 import ProgressBar from './ui/ProgressBar';
 import Button from './ui/Button';
 import MasteryBar from './ui/MasteryBar';
+import { useStore } from '../store/store';
+import Spinner from './ui/Spinner';
 
 interface SeriesListItemProps {
   series: DeckSeries;
@@ -14,11 +15,21 @@ interface SeriesListItemProps {
   onStartSeriesStudy: (seriesId: string) => Promise<void>;
   masteryLevel: number;
   nextUpDeckId: string | null;
+  onGenerateAllQuestions?: (seriesId: string) => void;
 }
 
-const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount, dueCount, onStartSeriesStudy, masteryLevel, nextUpDeckId }) => {
+const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount, dueCount, onStartSeriesStudy, masteryLevel, nextUpDeckId, onGenerateAllQuestions }) => {
+    const { aiGenerationStatus, decks } = useStore();
     const totalCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
     const isCompleted = completedCount >= totalCount && totalCount > 0;
+
+    const isGeneratingThisSeries = aiGenerationStatus.isGenerating && aiGenerationStatus.generatingSeriesId === series.id;
+
+    const hasEmptyDecks = useMemo(() => {
+        const seriesDeckIds = new Set(series.levels.flatMap(l => l.deckIds));
+        const seriesDecks = decks.filter(d => seriesDeckIds.has(d.id));
+        return seriesDecks.some(d => (d.type === DeckType.Quiz || d.type === DeckType.Learning) && (d.questions?.length || 0) === 0);
+    }, [series.levels, decks]);
 
     return (
         <Link 
@@ -58,33 +69,56 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
                     </div>
                 )}
                 <div className="mt-4 pt-4 border-t border-border/50 flex justify-end gap-2">
-                    {nextUpDeckId && (
-                         <Link
-                            href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
-                            passAs={Button}
-                            variant="primary"
-                            size="sm"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                            }}
-                        >
-                            <Icon name="laptop" className="w-4 h-4 mr-2"/>
-                            Continue
-                        </Link>
+                    {isGeneratingThisSeries ? (
+                        <div className="flex items-center text-text-muted">
+                            <Spinner size="sm" />
+                            <span className="ml-2 text-sm font-semibold">Generating...</span>
+                        </div>
+                    ) : (
+                        <>
+                            {nextUpDeckId && (
+                                 <Link
+                                    href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
+                                    passAs={Button}
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                    }}
+                                >
+                                    <Icon name="laptop" className="w-4 h-4 mr-2"/>
+                                    Continue
+                                </Link>
+                            )}
+                            {hasEmptyDecks && dueCount === 0 && !nextUpDeckId && onGenerateAllQuestions && (
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        onGenerateAllQuestions(series.id);
+                                    }}
+                                >
+                                    <Icon name="zap" className="w-4 h-4 mr-2"/>
+                                    Generate Questions
+                                </Button>
+                            )}
+                             <Button 
+                                variant="secondary"
+                                size="sm"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onStartSeriesStudy(series.id);
+                                }}
+                                disabled={dueCount === 0}
+                            >
+                                <Icon name="zap" className="w-4 h-4 mr-2"/>
+                                Study Due ({dueCount})
+                            </Button>
+                        </>
                     )}
-                     <Button 
-                        variant="secondary"
-                        size="sm"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onStartSeriesStudy(series.id);
-                        }}
-                        disabled={dueCount === 0}
-                    >
-                        <Icon name="zap" className="w-4 h-4 mr-2"/>
-                        Study Due ({dueCount})
-                    </Button>
                 </div>
             </div>
         </Link>

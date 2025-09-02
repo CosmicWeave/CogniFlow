@@ -1,7 +1,7 @@
 
 
 import React, { useMemo } from 'react';
-import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck } from '../types';
+import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Link from './ui/Link';
@@ -25,8 +25,12 @@ interface DashboardPageProps {
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    // FIX: Add type assertion to correctly access properties on union type
-    const items = deck.type === 'quiz' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
+                  (deck as FlashcardDeck).cards;
+    if (!Array.isArray(items)) {
+        return 0;
+    }
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };
 
@@ -46,17 +50,17 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   const { recentDecks, recentSeries, seriesData } = useMemo(() => {
     const seriesDeckIds = new Set<string>();
     deckSeries.forEach(series => {
-        series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
+        (series.levels || []).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
     });
 
     const standaloneDecks = decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
     const activeSeriesList = deckSeries.filter(s => !s.archived && !s.deletedAt);
 
-    const recentSeries = [...activeSeriesList].sort((a,b) => {
-        const decksA = a.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean);
-        const decksB = b.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean);
-        const lastOpenedA = Math.max(0, ...decksA.map(d => new Date(d.lastOpened || 0).getTime()));
-        const lastOpenedB = Math.max(0, ...decksB.map(d => new Date(d.lastOpened || 0).getTime()));
+    const recentSeries = [...activeSeriesList].sort((a, b) => {
+        const decksA = a.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+        const decksB = b.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+        const lastOpenedA = Math.max(new Date(a.lastOpened || a.createdAt || 0).getTime(), ...decksA.map(d => new Date(d.lastOpened || 0).getTime()));
+        const lastOpenedB = Math.max(new Date(b.lastOpened || b.createdAt || 0).getTime(), ...decksB.map(d => new Date(d.lastOpened || 0).getTime()));
         return lastOpenedB - lastOpenedA;
     }).slice(0, 2);
 
@@ -64,11 +68,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
 
     const seriesData = new Map<string, { dueCount: number, mastery: number }>();
     deckSeries.forEach(series => {
-        const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+        const seriesDecks = (series.levels || []).flatMap(l => l.deckIds || []).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
         
         const completedCount = seriesProgress.get(series.id)?.size || 0;
         const unlockedDeckIds = new Set<string>();
-        const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+        const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
         flatDeckIds.forEach((deckId, index) => {
             if (index <= completedCount) {
                 unlockedDeckIds.add(deckId);
@@ -82,8 +86,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
             return total;
         }, 0);
 
-        // FIX: Add type assertion to correctly access properties on union type
-        const allItems = seriesDecks.flatMap<Reviewable>(d => d.type === DeckType.Flashcard ? (d as FlashcardDeck).cards : (d as QuizDeck).questions).filter(i => !i.suspended);
+        const allItems = seriesDecks.flatMap<Reviewable>(d => 
+            d.type === DeckType.Flashcard ? (d as FlashcardDeck).cards : 
+            (d as QuizDeck | LearningDeck).questions || []
+        ).filter(i => !i.suspended);
         const mastery = allItems.length > 0 ? allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allItems.length : 0;
         
         seriesData.set(series.id, { dueCount, mastery });
@@ -114,6 +120,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {recentSeries.map(series => {
               const data = seriesData.get(series.id) || { dueCount: 0, mastery: 0 };
+              const completedDeckIds = seriesProgress.get(series.id) || new Set();
+              const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
+              const nextUpDeckId = flatDeckIds.find(id => !completedDeckIds.has(id)) || null;
               return (
                 <SeriesListItem
                   key={series.id}
@@ -122,6 +131,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
                   dueCount={data.dueCount}
                   masteryLevel={data.mastery}
                   onStartSeriesStudy={onStartSeriesStudy}
+                  nextUpDeckId={nextUpDeckId}
                 />
               );
             })}
