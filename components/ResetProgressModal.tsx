@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { Deck } from '../types';
 import Button from './ui/Button';
@@ -41,7 +42,7 @@ const ResetProgressModal: React.FC<ResetProgressModalProps> = ({ isOpen, onClose
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
       <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-lg transform transition-all relative">
           <div className="flex justify-between items-center p-4 border-b border-border">
             <h2 className="text-xl font-bold">Reset Deck Progress</h2>

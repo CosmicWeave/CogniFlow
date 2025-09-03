@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Card, Question, ReviewRating, Deck, DeckType, Reviewable, QuizDeck, LearningDeck, InfoCard } from '../types';
+import { Card, Question, ReviewRating, Deck, DeckType, Reviewable, QuizDeck, LearningDeck, InfoCard, FlashcardDeck } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs';
 import { getSessionState, saveSessionState, deleteSessionState } from '../services/db';
 import Flashcard from './Flashcard';
@@ -81,7 +81,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         const isSpecialSession = isGeneralSession || sessionKeySuffix === '_cram' || sessionKeySuffix === '_flip' || sessionKeySuffix === '_reversed';
         
         if (isSpecialSession) {
-            const itemsToReview = deck.type === DeckType.Flashcard ? (deck as any).cards : (deck as any).questions;
+            const itemsToReview = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck | LearningDeck).questions;
             setSessionQueue(itemsToReview);
             setCurrentIndex(0);
             setDisplayIndex(0);
@@ -120,7 +120,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             setReadInfoCardIds(new Set());
             setUnlockedQuestionIds(new Set());
           } else {
-             const itemsToReview = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as any).cards;
+             const itemsToReview = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions;
              const dueItems = itemsToReview
                 .filter(item => !item.suspended && new Date(item.dueDate) <= today)
                 .sort(() => Math.random() - 0.5);

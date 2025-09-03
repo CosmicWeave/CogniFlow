@@ -1,12 +1,18 @@
-import React, { useMemo } from 'react';
-import { Deck, DeckSeries, DeckType } from '../types';
-import Link from './ui/Link';
-import Icon from './ui/Icon';
-import ProgressBar from './ui/ProgressBar';
+
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
+import Link from './ui/Link';
+import { getEffectiveMasteryLevel } from '../services/srs';
 import MasteryBar from './ui/MasteryBar';
+import Icon, { IconName } from './ui/Icon';
+import { useRouter } from '../contexts/RouterContext';
+import { stripHtml } from '../services/utils';
 import { useStore } from '../store/store';
 import Spinner from './ui/Spinner';
+import { useSettings } from '../hooks/useSettings';
+// FIX: Import ProgressBar component to resolve 'Cannot find name' error.
+import ProgressBar from './ui/ProgressBar';
 
 interface SeriesListItemProps {
   series: DeckSeries;
@@ -44,7 +50,11 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
                             <h3 className="text-xl font-bold text-text break-words">{series.name}</h3>
                         </div>
                         {series.description && (
-                            <p className="text-sm text-text-muted mt-1 truncate">{series.description}</p>
+                            <div
+                                className="prose prose-sm dark:prose-invert max-w-none text-text-muted mt-1 truncate"
+                                title={stripHtml(series.description)}
+                                dangerouslySetInnerHTML={{ __html: series.description }}
+                            />
                         )}
                     </div>
                     {isCompleted && (

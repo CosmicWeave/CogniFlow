@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel, Card, Question, AIAction, LearningDeck, InfoCard } from './types';
 import * as db from './services/db';
@@ -100,7 +101,6 @@ const App: React.FC = () => {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncStatus, setLastSyncStatus] = useState('Never synced.');
-  const dataDirtyRef = useRef(false);
 
   const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd, REFRESH_THRESHOLD } = usePullToRefresh();
   
@@ -146,6 +146,44 @@ const App: React.FC = () => {
     setSeriesToEdit(series);
   }, []);
   
+  const triggerSync = useCallback(async (isManual = false) => {
+    if (!backupEnabled || !backupApiKey) {
+        if (isManual) addToast('Server sync is not enabled or API key is missing.', 'error');
+        return;
+    }
+    if (isSyncing) {
+        if (isManual) addToast('A sync operation is already in progress.', 'info');
+        return;
+    }
+
+    setIsSyncing(true);
+    setLastSyncStatus('Syncing...');
+    if (isManual) addToast('Manual sync started...', 'info');
+
+    try {
+        const { timestamp, etag } = await backupService.uploadBackup();
+        const syncDate = new Date(timestamp);
+        localStorage.setItem('cogniflow-lastSyncTimestamp', syncDate.toISOString());
+        localStorage.setItem('cogniflow-lastSyncEtag', etag);
+        
+        const successMessage = `Data successfully synced to server at ${syncDate.toLocaleTimeString()}`;
+        console.log(successMessage);
+        setLastSyncStatus(`Last synced: ${syncDate.toLocaleTimeString()}`);
+        
+        // Only show a success toast for manual syncs, not for automatic background syncs.
+        if (isManual) {
+            addToast('Data successfully synced to server.', 'success');
+        }
+    } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        console.error("Sync failed:", e);
+        setLastSyncStatus(`Error: ${message}`);
+        addToast(`Server sync failed: ${message}`, 'error');
+    } finally {
+        setIsSyncing(false);
+    }
+  }, [backupEnabled, backupApiKey, isSyncing, addToast]);
+  
   const dataHandlers = useDataManagement({
     sessionsToResume,
     setSessionsToResume,
@@ -153,6 +191,7 @@ const App: React.FC = () => {
     openConfirmModal,
     setFolderToEdit: openFolderEditor,
     setSeriesToEdit: openSeriesEditor,
+    triggerSync,
   });
   const { handleAddDecks, handleAddSeriesWithDecks, handleRestoreData, handleExecuteAIAction } = dataHandlers;
 
@@ -215,38 +254,6 @@ const App: React.FC = () => {
     }
   };
 
-  const triggerSync = useCallback(async (isManual = false) => {
-    if (!backupEnabled || !backupApiKey) {
-        if (isManual) addToast('Server sync is not enabled or API key is missing.', 'error');
-        return;
-    }
-    if (isSyncing) {
-        if (isManual) addToast('A sync operation is already in progress.', 'info');
-        return;
-    }
-
-    setIsSyncing(true);
-    setLastSyncStatus('Syncing...');
-    if (isManual) addToast('Manual sync started...', 'info');
-
-    try {
-        const { timestamp, etag } = await backupService.uploadBackup();
-        dataDirtyRef.current = false;
-        const syncDate = new Date(timestamp);
-        localStorage.setItem('cogniflow-lastSyncTimestamp', syncDate.toISOString());
-        localStorage.setItem('cogniflow-lastSyncEtag', etag);
-        setLastSyncStatus(`Last synced: ${syncDate.toLocaleTimeString()}`);
-        addToast('Data successfully synced to server.', 'success');
-    } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        console.error("Sync failed:", e);
-        setLastSyncStatus(`Error: ${message}`);
-        addToast(`Server sync failed: ${message}`, 'error');
-    } finally {
-        setIsSyncing(false);
-    }
-  }, [backupEnabled, backupApiKey, isSyncing, addToast]);
-  
   const handleFetchFromServer = useCallback(async () => {
     if (!backupEnabled || !backupApiKey) {
         addToast('Server sync is not enabled or API key is missing.', 'error');
@@ -298,25 +305,7 @@ const App: React.FC = () => {
             }
         }
     });
-  }, [backupEnabled, backupApiKey, isSyncing, addToast, openConfirmModal, dataHandlers, parseServerDate]);
-
-  useEffect(() => {
-    return useStore.subscribe((currentState, prevState) => {
-        if (currentState.lastModified && currentState.lastModified !== prevState.lastModified) {
-            dataDirtyRef.current = true;
-        }
-    });
-  }, []);
-
-  useEffect(() => {
-      if (!backupEnabled || !backupApiKey) return;
-      const intervalId = setInterval(() => {
-          if (dataDirtyRef.current) {
-              triggerSync(false);
-          }
-      }, 5 * 60 * 1000);
-      return () => clearInterval(intervalId);
-  }, [backupEnabled, backupApiKey, triggerSync]);
+  }, [backupEnabled, backupApiKey, isSyncing, addToast, openConfirmModal, dataHandlers]);
   
   const loadData = useCallback(async (isInitialLoad = false) => {
     try {
@@ -429,7 +418,6 @@ const App: React.FC = () => {
             const message = e instanceof Error ? e.message : "";
             if (message.includes('404')) {
                 setLastSyncStatus('No backup found on server.');
-                if (state.decks.length > 0) dataDirtyRef.current = true;
             } else {
                 setLastSyncStatus(`Error: ${message}`);
             }
@@ -442,7 +430,7 @@ const App: React.FC = () => {
         checkServerForUpdates();
         initialLoadComplete.current = true;
     }
-  }, [state.isLoading, backupEnabled, backupApiKey, openConfirmModal, handleRestoreData, addToast, state.decks.length, cleanupTrash, dataHandlers, parseServerDate]);
+  }, [state.isLoading, backupEnabled, backupApiKey, openConfirmModal, handleRestoreData, addToast, cleanupTrash, dataHandlers]);
 
   const { activeDeck, activeSeries } = useMemo(() => {
     const [pathname] = path.split('?');
@@ -571,7 +559,7 @@ const App: React.FC = () => {
         ]}
       />
       {isDraggingOverWindow && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 z-[55] flex items-center justify-center p-4">
           <div className="bg-surface rounded-lg p-8 text-center border-4 border-dashed border-primary">
             <Icon name="upload-cloud" className="w-16 h-16 text-primary mx-auto mb-4" />
             <p className="text-xl font-semibold">Drop file to import</p>

@@ -1,3 +1,4 @@
+
 import { useCallback } from 'react';
 import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel, ReviewRating, ReviewLog, AIAction, AIActionType, AIGeneratedDeck, AIGeneratedLevel, AIGenerationParams, InfoCard, LearningDeck, FlashcardDeck } from '../types';
 import * as db from '../services/db';
@@ -17,6 +18,7 @@ interface UseDataManagementProps {
     openConfirmModal: (props: any) => void;
     setFolderToEdit: (folder: Folder | 'new' | null) => void;
     setSeriesToEdit: (series: DeckSeries | 'new' | null) => void;
+    triggerSync: () => void;
 }
 
 export const useDataManagement = ({
@@ -25,7 +27,8 @@ export const useDataManagement = ({
     setGeneralStudyDeck,
     openConfirmModal,
     setFolderToEdit,
-    setSeriesToEdit
+    setSeriesToEdit,
+    triggerSync
 }: UseDataManagementProps) => {
     const { addToast } = useToast();
     const { navigate } = useRouter();
@@ -49,11 +52,12 @@ export const useDataManagement = ({
 
         try {
             await db.updateDeck(deck);
+            triggerSync();
         } catch (error) {
             console.error("Failed to update deck:", error);
             addToast("There was an error syncing the deck update.", "error");
         }
-    }, [addToast, dispatch]);
+    }, [addToast, dispatch, triggerSync]);
 
     const updateLastOpened = useCallback(async (deckId: string) => {
         const deck = useStore.getState().decks.find(d => d.id === deckId);
@@ -81,11 +85,12 @@ export const useDataManagement = ({
         
         try {
             await db.updateDeckSeries(series);
+            triggerSync();
         } catch (error) {
             console.error("Failed to update series:", error);
             addToast("There was an error updating the series.", "error");
         }
-    }, [addToast, dispatch]);
+    }, [addToast, dispatch, triggerSync]);
 
     const updateLastOpenedSeries = useCallback(async (seriesId: string) => {
         const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
@@ -101,11 +106,12 @@ export const useDataManagement = ({
             // Optimistic update
             dispatch({ type: 'ADD_DECKS', payload: decks });
             await db.addDecks(decks);
+            triggerSync();
         } catch (error) {
             console.error("Failed to add decks:", error);
             addToast("There was an error saving the new deck(s).", "error");
         }
-    }, [addToast, dispatch]);
+    }, [addToast, dispatch, triggerSync]);
     
     const handleAddSeriesWithDecks = useCallback(async (series: DeckSeries, decks: Deck[]) => {
         try {
@@ -115,13 +121,14 @@ export const useDataManagement = ({
                 db.addDecks(decks),
                 db.addDeckSeries([series])
             ]);
+            triggerSync();
 
             addToast(`Successfully imported series "${series.name}" with ${decks.length} decks.`, "success");
         } catch (error) {
             console.error("Failed to create series with decks:", error);
             addToast("There was an error creating the new series.", "error");
         }
-    }, [dispatch, addToast]);
+    }, [dispatch, addToast, triggerSync]);
 
     const handleSessionEnd = useCallback(async (deckId: string, seriesId?: string) => {
         const sessionKey = `session_deck_${deckId}`;
@@ -181,16 +188,21 @@ export const useDataManagement = ({
                 db.addDecks(decks),
                 db.addDeckSeries([series])
             ]);
+            triggerSync();
 
             addToast(`Sample series "${series.name}" created!`, "success");
         } catch (error) {
             console.error("Failed to create sample series:", error);
             addToast("There was an error creating the sample series.", "error");
         }
-    }, [addToast, dispatch]);
+    }, [addToast, dispatch, triggerSync]);
     
     const handleRestoreData = useCallback(async (data: RestoreData) => {
         try {
+            if (data.aiOptions && typeof data.aiOptions === 'object') {
+                localStorage.setItem('cogniflow-ai-options', JSON.stringify(data.aiOptions));
+                addToast("AI generation options restored from backup.", "info");
+            }
             // Dispatch first for instant UI update
             dispatch({ type: 'RESTORE_DATA', payload: data });
 
@@ -199,13 +211,14 @@ export const useDataManagement = ({
                 db.addFolders(data.folders),
                 db.addDeckSeries(data.deckSeries)
             ]);
+            triggerSync();
             addToast(`Successfully restored data.`, "success");
         } catch (error) {
             console.error("Failed to restore from backup:", error);
             addToast("There was an error restoring from the backup file.", "error");
             throw error;
         }
-    }, [addToast, dispatch]);
+    }, [addToast, dispatch, triggerSync]);
 
     const handleDeleteDeck = useCallback(async (deckId: string) => {
         const deck = useStore.getState().decks.find(d => d.id === deckId);
@@ -239,7 +252,7 @@ export const useDataManagement = ({
         } else if (deck.type === DeckType.Learning) {
             newDeck = { ...deck, questions: (deck as LearningDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
         } else { // QuizDeck
-            newDeck = { ...deck, questions: (deck as QuizDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
+            newDeck = { ...deck, questions: (deck as QuizDeck | LearningDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
         }
         
         await handleUpdateDeck(newDeck, { silent: true });
@@ -414,8 +427,9 @@ export const useDataManagement = ({
             addToast(`Folder "${newFolder.name}" created.`, 'success');
             await db.addFolder(newFolder);
         }
+        triggerSync();
         setFolderToEdit(null);
-    }, [addToast, dispatch, setFolderToEdit]);
+    }, [addToast, dispatch, setFolderToEdit, triggerSync]);
     
     const handleDeleteFolder = useCallback(async (folderId: string) => {
         const { folders, decks } = useStore.getState();
@@ -430,9 +444,10 @@ export const useDataManagement = ({
                 const decksToUpdate = decks.filter(d => d.folderId === folderId).map(d => ({ ...d, folderId: null as (string | null) }));
                 if (decksToUpdate.length > 0) await db.bulkUpdateDecks(decksToUpdate);
                 await db.deleteFolder(folderId);
+                triggerSync();
             }
         })
-    }, [addToast, dispatch, openConfirmModal]);
+    }, [addToast, dispatch, openConfirmModal, triggerSync]);
     
     const handleSaveSeries = useCallback(async (data: { id: string | null, name: string, description: string, scaffold?: any }) => {
         if (data.id) {
@@ -480,11 +495,12 @@ export const useDataManagement = ({
                 dispatch({ type: 'ADD_SERIES', payload: newSeries });
                 addToast(`Series "${newSeries.name}" created.`, 'success');
                 await db.addDeckSeries([newSeries]);
+                triggerSync();
                 navigate(`/series/${newSeries.id}?edit=true`);
             }
         }
         setSeriesToEdit(null);
-    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit, navigate, handleAddSeriesWithDecks]);
+    }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit, navigate, handleAddSeriesWithDecks, triggerSync]);
     
     const handleDeleteSeries = useCallback(async (seriesId: string) => {
         const { deckSeries, decks } = useStore.getState();
@@ -509,11 +525,12 @@ export const useDataManagement = ({
                 db.bulkUpdateDecks(decksToTrash),
                 db.updateDeckSeries(updatedSeries)
             ]);
+            triggerSync();
         } catch (error) {
             console.error("Failed to move series and its decks to trash:", error);
             addToast("Error moving series to trash.", "error");
         }
-    }, [dispatch, addToast]);
+    }, [dispatch, addToast, triggerSync]);
     
     const handleAddDeckToSeries = useCallback(async (seriesId: string, newDeck: QuizDeck) => {
         const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
@@ -544,11 +561,12 @@ export const useDataManagement = ({
             dispatch({ type: 'DELETE_DECK', payload: deckId });
             addToast(`Deck "${deckName || 'Deck'}" permanently deleted.`, 'success');
             await db.deleteDeck(deckId);
+            triggerSync();
         } catch (error) {
             console.error("Failed to permanently delete deck:", error);
             addToast("There was an error permanently deleting the deck.", "error");
         }
-    }, [dispatch, addToast]);
+    }, [dispatch, addToast, triggerSync]);
 
     const handleDeleteSeriesPermanently = useCallback(async (seriesId: string) => {
         const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
@@ -570,11 +588,12 @@ export const useDataManagement = ({
                 ...deckIdsToDelete.map(deckId => db.deleteDeck(deckId)),
                 db.deleteDeckSeries(seriesId)
             ]);
+            triggerSync();
         } catch (error) {
             console.error("Failed to permanently delete series and its decks:", error);
             addToast("There was an error permanently deleting the series.", "error");
         }
-    }, [dispatch, addToast]);
+    }, [dispatch, addToast, triggerSync]);
     
     const handleFactoryReset = useCallback(() => {
     openConfirmModal({
@@ -642,7 +661,16 @@ export const useDataManagement = ({
                 const deck = decks.find(d => d.id === deckId);
                 if (!deck) continue;
 
-                const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+                let items: Reviewable[] | undefined;
+                if (deck.type === DeckType.Flashcard) {
+                    items = (deck as FlashcardDeck).cards;
+                } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
+                    items = (deck as QuizDeck | LearningDeck).questions;
+                }
+
+                if (!items) {
+                    continue;
+                }
                 const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
 
                 if (!hasNewItems && items.length > 0) {

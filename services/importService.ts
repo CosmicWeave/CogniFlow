@@ -1,7 +1,8 @@
+
 import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
-export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[], folders: Folder[], deckSeries: DeckSeries[] } => {
+export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[], folders: Folder[], deckSeries: DeckSeries[], aiOptions?: any } => {
   try {
     if (!jsonString.trim()) throw new Error("File content is empty.");
     let data = JSON.parse(jsonString);
@@ -26,12 +27,13 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
     }
 
 
-    // Handles modern backup format: { version: 2|3, decks: [], ... }
+    // Handles modern backup format: { version: 2|3|4, decks: [], ... }
     if (typeof data === 'object' && data !== null && 'version' in data && Array.isArray(data.decks)) {
-      if (data.version > 3) throw new Error(`Unsupported backup version: ${data.version}`);
+      if (data.version > 4) throw new Error(`Unsupported backup version: ${data.version}`);
       
       const decks = data.decks as Deck[];
       const folders = (data.folders || []) as Folder[]; // Handles V2 backups without folders
+      const aiOptions = data.aiOptions || undefined;
       
       // Transform older DeckSeries format (with `deckIds`) to the new format (with `levels`).
       const deckSeries = (Array.isArray(data.deckSeries) ? data.deckSeries : [])
@@ -71,7 +73,7 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
         }
       }
       
-      return { decks, folders, deckSeries };
+      return { decks, folders, deckSeries, aiOptions };
     }
 
     // Handles legacy V1 backup format: Deck[]

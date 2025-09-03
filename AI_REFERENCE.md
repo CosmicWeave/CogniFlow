@@ -1,4 +1,3 @@
-
 # AI Content Generation Reference for CogniFlow
 
 This document provides a set of expert-led prompts and best practices for generating high-quality learning content for CogniFlow using external AI tools like Google's Gemini, OpenAI's ChatGPT, or Anthropic's Claude.
@@ -41,6 +40,7 @@ The goal is to create a structured and progressive learning path that guides the
 
 2.  **High-Quality Content (Crucial):**
     -   **Series Name & Description:** Create a compelling and descriptive name (e.g., "Topic Mastery Path: The Contextual Approach") and a comprehensive summary for the entire learning path.
+    -   **Engaging Tone:** All names and descriptions should be written to be engaging and spark curiosity, not just be descriptive. Avoid a dry, academic, textbook-like tone. Factual claims must be accurate and from reliable sources.
     -   **Level Goal & Focus:** For each Level, provide a clear "Goal" and "Focus".
     -   **Deck Topics:** For each Deck, provide a detailed, itemized list of specific "Topics" to be covered.
     -   **Progressive Difficulty:** The path must be logically sequenced, starting with foundational definitions and historical context, moving to practical applications, then to assessment and planning, and finally to interdisciplinary challenges.
@@ -135,7 +135,9 @@ Please act as an expert instructional designer and generate a complete, structur
 
 
 **CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
--   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+-   **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
+-   **Comprehensive Coverage:** The generated series must be comprehensive, covering the topic in-depth to provide a thorough understanding for the specified user level.
 -   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 
@@ -178,9 +180,10 @@ Please generate a JSON object for a single multiple-choice quiz.
 **Designed for Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS:**
--   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+-   **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
+-   **In-Depth Questions:** The questions should cover the topic comprehensively, moving beyond surface-level facts to ensure a deep understanding.
 -   **Relevance:** Questions must be directly pertinent to the chosen topic and appropriate for the specified level.
--   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Question Quantity:** Generate 10-100 high-quality questions. Do not include multiple questions that are essentially asking the same thing.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 -   **Problem-Solving Focus:** Prioritize questions that require applying knowledge to solve a problem.

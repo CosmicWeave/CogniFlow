@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/store';
 import { AIAction, AIMessage } from '../types';
@@ -73,7 +74,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
     if (!isAIChatOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-end" onClick={handleClose}>
+        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-end" onClick={handleClose}>
             <div 
                 className="bg-surface w-full max-w-2xl h-[70vh] max-h-[600px] rounded-t-2xl shadow-2xl flex flex-col transform transition-transform duration-300 animate-fade-in"
                 style={{ animationName: 'slideUp', animationDuration: '0.3s' }}

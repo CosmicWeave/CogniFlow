@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DeckSeries, QuizDeck, Question, DeckType, ImportedQuestion, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -13,6 +14,7 @@ import { generateSeriesQuestionsInBatches } from '../services/aiService';
 import { createQuestionsFromImport } from '../services/importService';
 import Spinner from './ui/Spinner';
 import { useSettings } from '../hooks/useSettings';
+import { stripHtml } from '../services/utils';
 
 interface SeriesOverviewPageProps {
   series: DeckSeries;
@@ -218,7 +220,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                     <Icon name="list" className="mr-2"/> {isOrganizeMode ? 'Done Organizing' : 'Organize'}
                 </Button>
             </div>
-            <p className="text-text-muted mt-1 prose dark:prose-invert max-w-none">{series.description}</p>
+            <div className="text-text-muted mt-1 prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: series.description }} />
           </div>
         )}
       </div>
@@ -292,7 +294,11 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                                         >
                                             {deck.name}
                                         </Link>
-                                        <p className="text-sm text-text-muted truncate">{deck.description}</p>
+                                        <div
+                                            className="prose prose-sm dark:prose-invert max-w-none text-text-muted truncate"
+                                            title={stripHtml(deck.description)}
+                                            dangerouslySetInnerHTML={{ __html: deck.description }}
+                                        />
                                         <p className="text-xs text-text-muted mt-1 flex items-center">
                                             <Icon name={deck.type === DeckType.Learning ? "book-open" : "help-circle"} className="inline-block w-3.5 h-3.5 mr-1.5" />
                                             {deck.questions.length} questions

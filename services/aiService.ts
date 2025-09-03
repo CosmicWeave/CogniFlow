@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
 import { ImportedQuizDeck, SeriesLevel, ImportedQuestion, DeckSeries, QuizDeck, AIGeneratedDeck, AIGeneratedLevel, AIGenerationParams, DeckType, InfoCard, Question, LearningDeck } from "../types";
 
@@ -207,9 +208,10 @@ export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams): 
         2.  Each level should contain 1-6 decks. Decide the optimal number of decks to properly cover the material for that level.
         3.  For each deck, provide a \`suggestedQuestionCount\`. Aim for approximately 15-25 questions, but suggest a higher or lower number if it's better for the topic.
         4.  Deck and Series descriptions can use basic HTML like <b> and <i> for formatting.
-        5.  **Crucially, for every deck object, include a "questions" key with an empty array: "questions": []**
-        6.  All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
-        7.  The entire output must conform to the provided JSON schema. Do not output any text or markdown before or after the JSON object.
+        5.  **Content Style & Quality:** Descriptions and titles must be engaging and spark curiosity. Avoid a dry, academic, textbook-like tone. Frame topics in a way that highlights their real-world relevance or interesting aspects. All factual claims must be accurate and come from reliable sources.
+        6.  **Crucially, for every deck object, include a "questions" key with an empty array: "questions": []**
+        7.  All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
+        8.  The entire output must conform to the provided JSON schema. Do not output any text or markdown before or after the JSON object.
     `;
 
     try {
@@ -259,12 +261,13 @@ export const generateDeckWithAI = async (params: AIGenerationParams): Promise<Im
 
         **Instructions & Quality Requirements:**
         1.  **Generate ${questionCount} high-quality questions.**
-        2.  **Factual Accuracy:** All information must be factually correct and verifiable.
-        3.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting in questions, options, and explanations. This is especially important for language learning.
-        4.  **In-Depth Explanations:** The \`detailedExplanation\` is crucial. It must thoroughly explain the correct answer.
-        5.  **Plausible Distractors:** Incorrect options should be plausible but clearly wrong.
-        6.  **Metric System:** Prefer the metric system for all units.
-        7.  The entire output must be a single JSON object conforming to the provided schema.
+        2.  **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+        3.  **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
+        4.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. This is especially important for language learning.
+        5.  **In-Depth Explanations:** The \`detailedExplanation\` is crucial. It must thoroughly explain the correct answer.
+        6.  **Plausible Distractors:** Incorrect options should be plausible but clearly wrong.
+        7.  **Metric System:** Prefer the metric system for all units.
+        8.  The entire output must be a single JSON object conforming to the provided schema.
     `;
 
     try {
@@ -316,10 +319,11 @@ export const generateLearningDeckWithAI = async (params: AIGenerationParams): Pr
             a. A single \`infoCardContent\` field with well-written, informative text (using HTML for formatting).
             b. An array of 3-5 high-quality \`questions\` that are directly based on the information in the \`infoCardContent\`.
         2.  **Progressive Learning:** The blocks should be ordered logically to guide the user from basic concepts to more complex ones.
-        3.  **Content Quality:** All information must be factually correct. Explanations must be thorough. Incorrect options for questions must be plausible.
-        4.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` extensively for rich text formatting.
-        5.  **Metric System:** Prefer the metric system for all units.
-        6.  The entire output must be a single JSON object conforming to the provided schema.
+        3.  **Engaging & Curiosity-Driven:** The \`infoCardContent\` must be written in an engaging, interesting style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material memorable. All factual information must be accurate and from reliable sources.
+        4.  **Question Quality:** Questions must test understanding of the info card. Explanations must be thorough. Incorrect options must be plausible.
+        5.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` extensively for rich text formatting.
+        6.  **Metric System:** Prefer the metric system for all units.
+        7.  The entire output must be a single JSON object conforming to the provided schema.
     `;
 
     try {
@@ -372,7 +376,7 @@ export const generateMoreLevelsForSeries = async (
 
         Your task is to generate 1-2 NEW levels that logically follow the existing ones. Do not repeat topics.
         The new levels should continue the progression of difficulty and knowledge.
-        For each new level, suggest 1-3 new decks with names, descriptions, and a suggested question count. Descriptions can include basic HTML (<b>, <i>).
+        For each new level, suggest 1-3 new decks with names, descriptions, and a suggested question count. Ensure the new deck names and descriptions are engaging and spark curiosity. Descriptions can include basic HTML (<b>, <i>).
         All generated content should prefer the metric system (e.g., meters, kilograms, Celsius).
         The entire output must conform to the provided JSON schema, containing only an array of the new levels.
     `;
@@ -422,7 +426,7 @@ export const generateMoreDecksForLevel = async (
         ${existingDecksText || '(No decks yet)'}
 
         Please generate 1-2 NEW, unique decks that fit logically within this level and do not repeat the topics already covered.
-        For each new deck, provide a name, description, and a suggested question count. Descriptions can include basic HTML (<b>, <i>).
+        For each new deck, provide a name, description, and a suggested question count. Ensure the new names and descriptions are engaging. Descriptions can include basic HTML (<b>, <i>).
         All generated content should prefer the metric system (e.g., meters, kilograms, Celsius).
         The entire output must conform to the provided JSON schema, containing only an array of the new decks.
     `;
@@ -482,8 +486,11 @@ export const generateSeriesQuestionsInBatches = async (
             ${generationContext}
             I will ask you to generate questions for the following decks, one by one. Maintain context and avoid creating duplicate questions across the entire series.
             
-            **Important Rule:** All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
-            **HTML Formatting:** Use tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. For example, use <ruby>漢字<rt>かんじ</rt></ruby> for Japanese Kanji. This is highly encouraged for language-learning content.
+            **Content Style & Quality:**
+            - **Engaging & Curiosity-Driven:** Frame questions and explanations in an interesting way that sparks curiosity. Use surprising facts, real-world examples, or historical context to make the material more memorable and engaging. Avoid a dry, academic, textbook-like tone.
+            - **Factual Accuracy:** All factual information must be accurate and from reliable, verifiable sources.
+            - **HTML Formatting:** Use tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. For example, use <ruby>漢字<rt>かんじ</rt></ruby> for Japanese Kanji. This is highly encouraged for language-learning content.
+            - **Metric System:** All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
 
             The decks we will populate are:
             ${decksListText}
@@ -563,8 +570,10 @@ export const generateSeriesLearningContentInBatches = async (
             ${generationContext}
             I will ask you to generate learning content (informational cards and related questions) for the following decks, one by one. Maintain context and ensure a logical progression of topics across the entire series.
             
-            **Important Rule:** All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
-            **HTML Formatting:** Use tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` for rich text formatting.
+            **Content Style & Quality:**
+            - **Engaging & Curiosity-Driven:** The informational content should be written in an engaging, narrative style that sparks curiosity. Questions should test understanding in a practical or thought-provoking way. Avoid a simple, dry recitation of facts. All factual information must be accurate and from reliable, verifiable sources.
+            - **HTML Formatting:** Use tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` for rich text formatting.
+            - **Metric System:** All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
 
             The decks we will populate are:
             ${decksListText}
@@ -653,12 +662,13 @@ export const generateQuestionsForDeck = async (
         
         **Instructions & Quality Requirements:**
         1.  **Generate UNIQUE Content:** Create **${count} NEW and UNIQUE** questions that are not duplicates of the "Existing Questions" listed above.
-        2.  **Factual Accuracy:** All information must be factually correct and verifiable.
-        3.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. For example, use <ruby>漢字<rt>かんじ</rt></ruby> for Japanese Kanji.
-        4.  **In-Depth Explanations:** The \`detailedExplanation\` is crucial and must be thorough.
-        5.  **Plausible Distractors:** Incorrect options should be plausible but clearly wrong.
-        6.  **Metric System:** Prefer the metric system for all units.
-        7.  The entire output must be a single JSON object conforming to the provided schema.
+        2.  **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+        3.  **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
+        4.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. For example, use <ruby>漢字<rt>かんじ</rt></ruby> for Japanese Kanji.
+        5.  **In-Depth Explanations:** The \`detailedExplanation\` is crucial and must be thorough.
+        6.  **Plausible Distractors:** Incorrect options should be plausible but clearly wrong.
+        7.  **Metric System:** Prefer the metric system for all units.
+        8.  The entire output must be a single JSON object conforming to the provided schema.
     `;
 
     try {

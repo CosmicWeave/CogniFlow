@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Question, QuestionOption } from '../types';
 import Button from './ui/Button';
@@ -84,7 +85,7 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
       <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-3xl transform transition-all relative max-h-[90vh] flex flex-col">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
           <div className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">

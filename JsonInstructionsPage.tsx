@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import Icon, { IconName } from './ui/Icon';
 import Button from './ui/Button';
@@ -172,7 +173,7 @@ The goal is to create a structured and progressive learning path that guides the
 2.  **High-Quality Content (Crucial):**
     -   **Comprehensive Coverage:** The outline must cover the topic in sufficient depth for the specified user level, ensuring a thorough understanding.
     -   **Series Name & Description:** Create a compelling and descriptive name (e.g., "Topic Mastery Path: The Contextual Approach") and a comprehensive summary for the entire learning path. The description can use basic HTML for formatting (e.g., <b>, <i>, <br>).
-    -   **Engaging Tone:** All names and descriptions should be written to be engaging and spark curiosity, not just be descriptive. Avoid a dry, academic tone.
+    -   **Engaging Tone:** All names and descriptions should be written to be engaging and spark curiosity, not just be descriptive. Avoid a dry, academic, textbook-like tone. Factual claims must be accurate and from reliable sources.
     -   **Level Goal & Focus:** For each Level, provide a clear "Goal" and "Focus".
     -   **Deck Topics:** For each Deck, provide a detailed, itemized list of specific "Topics" to be covered.
     -   **Progressive Difficulty:** The path must be logically sequenced, starting with foundational definitions and historical context, moving to practical applications, then to assessment and planning, and finally to interdisciplinary challenges.
@@ -248,6 +249,7 @@ Now, based on the text outline I provided, please generate the complete JSON sca
 
 **CRITICAL CONTENT QUALITY REQUIREMENTS:**
 - **Factual Accuracy:** This is paramount. The correct answer and all parts of the explanation must be unequivocally correct and verifiable.
+- **Reliable Sources:** Factual information must come from reliable, verifiable sources.
 - **In-Depth Coverage:** The questions must cover the deck's topics comprehensively, moving beyond surface-level facts to ensure a deep understanding.
 - **Relevance & Practical Application:** Frame questions in real-world scenarios to help a user apply the information. Questions must be relevant to the deck's topics.
 - **Clarity & Simplicity:** Questions must be easy to understand, unambiguous, and free of jargon (unless the jargon is the learning objective). Test only one core concept per question.
@@ -255,7 +257,7 @@ Now, based on the text outline I provided, please generate the complete JSON sca
 - **Problem-Solving Focus:** Design questions that require applying knowledge, not just recalling facts. Avoid trivial pursuit and focus on genuinely useful information. For practical topics, ask skill-based questions that test the ability to perform a task or make a decision.
 - **High-Quality Explanations:** The \`detailedExplanation\` is crucial. It must explain the reasoning, principles, or facts behind the correct answer. Provide additional context, examples, or connections to related concepts to deepen understanding. If applicable, cite sources for complex information.
 - **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
-- **Engaging Content:** Write questions and explanations in an interesting way that makes the user want to learn more. Use surprising facts, real-world scenarios, or narrative elements where appropriate to maintain learner interest.
+- **Engaging Content:** Write questions and explanations in an interesting way that makes the user want to learn more. Use surprising facts, real-world scenarios, or narrative elements where appropriate to maintain learner interest. Avoid a dry, textbook-like tone.
 
 **JSON OUTPUT FORMAT:**
 - The final output MUST be ONLY a single, raw JSON object, starting with \`{\` and ending with \`}\`. Do not include any surrounding text, explanations, or markdown formatting.
@@ -286,9 +288,9 @@ Now, based on the text outline I provided, please generate the JSON for the **fi
 **User's Current Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+-   **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
 -   **Comprehensive Coverage:** The generated series must be comprehensive, covering the topic in-depth to provide a thorough understanding for the specified user level.
--   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
--   **Engaging Content Style:** Frame questions and explanations in an interesting way. Use surprising facts, real-world examples, or historical context to make the material more memorable and engaging. Avoid a dry, academic tone.
 -   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 -   **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').
@@ -330,11 +332,10 @@ Now, generate the complete JSON object based on all the above requirements.`;
 **Designed for Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS:**
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+-   **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
 -   **In-Depth Questions:** The questions should cover the topic comprehensively, moving beyond surface-level facts to ensure a deep understanding.
--   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
 -   **Relevance:** Questions must be directly pertinent to the chosen topic and appropriate for the specified level.
--   **Engaging Content:** Frame questions and explanations in an interesting way that makes the user want to learn more. Use surprising facts, real-world scenarios, or narrative elements where appropriate.
--   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Question Quantity:** Generate 10-100 high-quality questions. Do not include multiple questions that are essentially asking the same thing.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 -   **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').

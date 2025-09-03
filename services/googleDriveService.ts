@@ -1,3 +1,4 @@
+
 import { API_KEY, CLIENT_ID, DISCOVERY_DOC, SCOPES } from './googleDriveConfig';
 import * as db from './db';
 import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType } from '../types';
@@ -254,6 +255,7 @@ export type RestoreData = {
     decks: Deck[];
     folders: Folder[];
     deckSeries: DeckSeries[];
+    aiOptions?: any;
 };
 
 export const downloadFile = async (fileId: string): Promise<RestoreData> => {
@@ -271,6 +273,7 @@ export const downloadFile = async (fileId: string): Promise<RestoreData> => {
     // Handles modern backup format: { version: 2|3, decks: [], ... }
     if (typeof data === 'object' && data !== null && 'version' in data && Array.isArray(data.decks)) {
         const folders = (data.folders || []) as Folder[];
+        const aiOptions = data.aiOptions || undefined;
         
         // Transform older DeckSeries format (with `deckIds`) to the new format (with `levels`).
         const deckSeries = (Array.isArray(data.deckSeries) ? data.deckSeries : [])
@@ -298,7 +301,7 @@ export const downloadFile = async (fileId: string): Promise<RestoreData> => {
                 return { ...s, levels: [] };
             }) as DeckSeries[];
 
-        return { decks: data.decks, folders, deckSeries };
+        return { decks: data.decks, folders, deckSeries, aiOptions };
     }
     
     // Handles legacy V1 backup format: Deck[]

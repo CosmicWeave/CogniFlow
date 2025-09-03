@@ -4,6 +4,7 @@ import { Deck, DeckSeries } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import { useStore } from '../store/store';
+import { stripHtml } from '../services/utils';
 
 interface ArchivePageProps {
   onUpdateDeck: (deck: Deck) => void;
@@ -58,7 +59,11 @@ const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries,
                   <Icon name="list" className="w-6 h-6 mr-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
                   <div className="min-w-0">
                     <p className="font-semibold truncate text-text">{series.name}</p>
-                    <p className="text-sm text-text-muted truncate">{series.description}</p>
+                    <div
+                        className="prose prose-sm dark:prose-invert max-w-none text-text-muted truncate"
+                        title={stripHtml(series.description)}
+                        dangerouslySetInnerHTML={{ __html: series.description }}
+                    />
                   </div>
                 </div>
                 <div className="flex-shrink-0 flex items-center gap-2">
@@ -95,7 +100,11 @@ const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries,
                     <Icon name={deck.type === 'quiz' ? 'help-circle' : 'laptop'} className="w-6 h-6 mr-4 text-text-muted flex-shrink-0" />
                     <div className="min-w-0">
                         <p className="font-semibold truncate text-text">{deck.name}</p>
-                        <p className="text-sm text-text-muted truncate">{deck.description}</p>
+                        <div
+                            className="prose prose-sm dark:prose-invert max-w-none text-text-muted truncate"
+                            title={stripHtml(deck.description)}
+                            dangerouslySetInnerHTML={{ __html: deck.description }}
+                        />
                     </div>
                  </div>
                  <div className="flex-shrink-0 flex items-center gap-2">

@@ -411,12 +411,20 @@ export async function exportAllData(): Promise<string | null> {
         throw new Error("There is no data to export.");
     }
 
-    const exportData = {
-        version: 3,
+    const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
+    const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
+
+    const exportData: any = {
+        version: 4,
         decks,
         folders,
         deckSeries
     };
+
+    if (aiOptions) {
+        exportData.aiOptions = aiOptions;
+    }
+
 
     const jsonString = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });

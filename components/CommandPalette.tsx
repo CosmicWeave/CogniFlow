@@ -235,7 +235,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, action
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-start pt-4 sm:pt-[15vh] z-50 p-4"
+      className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-start pt-4 sm:pt-[15vh] z-[60] p-4"
       onClick={handleBackdropClick}
     >
       <div
