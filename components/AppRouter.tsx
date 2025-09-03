@@ -40,6 +40,7 @@ interface AppRouterProps {
     openCreateSeriesModal: () => void;
     openAIGenerationModal: () => void;
     onTriggerSync: () => void;
+    onFetchFromServer: () => void;
     isSyncing: boolean;
     lastSyncStatus: string;
     // Data Handlers
@@ -101,6 +102,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onResetProgress={() => props.setResetProgressModalOpen(true)} 
             onFactoryReset={props.handleFactoryReset} 
             onTriggerSync={props.onTriggerSync}
+            onFetchFromServer={props.onFetchFromServer}
             isSyncing={props.isSyncing}
             lastSyncStatus={props.lastSyncStatus}
         />;

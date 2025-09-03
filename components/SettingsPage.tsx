@@ -13,6 +13,7 @@ interface SettingsPageProps {
   onResetProgress: () => void;
   onFactoryReset: () => void;
   onTriggerSync: () => void;
+  onFetchFromServer: () => void;
   isSyncing: boolean;
   lastSyncStatus: string;
 }
@@ -57,7 +58,7 @@ const AccordionSection: React.FC<{
 };
 
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onResetProgress, onFactoryReset, onTriggerSync, isSyncing, lastSyncStatus }) => {
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onResetProgress, onFactoryReset, onTriggerSync, onFetchFromServer, isSyncing, lastSyncStatus }) => {
   const { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled, backupEnabled, setBackupEnabled, backupApiKey, setBackupApiKey } = useSettings();
   const { addToast } = useToast();
   const { themeId, setThemeById } = useTheme();
@@ -93,7 +94,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore,
               <div id="settings-server-sync">
                 <h4 className="font-semibold text-text">Server Sync</h4>
                 <p className="text-text-muted my-2 text-sm">
-                  Automatically back up and synchronize your data with a remote server.
+                  Automatically back up and synchronize your data with a remote server. "Sync Now" uploads your local data, while "Fetch" downloads the server version.
                 </p>
                 <div className="space-y-4 p-4 bg-background rounded-lg border border-border">
                   <ToggleSwitch
@@ -120,6 +121,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore,
                           {isSyncing ? <Spinner size="sm" /> : <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />}
                           {isSyncing ? 'Syncing...' : 'Sync Now'}
                       </Button>
+                       <Button onClick={onFetchFromServer} variant="secondary" disabled={isSyncing || !backupEnabled}>
+                          <Icon name="download" className="w-5 h-5 mr-2" />
+                          Fetch from Server
+                       </Button>
                       <p className="text-sm text-text-muted">{lastSyncStatus}</p>
                   </div>
                 </div>

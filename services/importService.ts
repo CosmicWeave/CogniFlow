@@ -4,7 +4,27 @@ import { INITIAL_EASE_FACTOR } from '../constants';
 export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[], folders: Folder[], deckSeries: DeckSeries[] } => {
   try {
     if (!jsonString.trim()) throw new Error("File content is empty.");
-    const data = JSON.parse(jsonString);
+    let data = JSON.parse(jsonString);
+
+    // Handle cases where the content is double-stringified JSON
+    if (typeof data === 'string') {
+        try {
+            data = JSON.parse(data);
+        } catch (e) {
+            // If the inner string is not valid JSON, let it fail at the checks below.
+        }
+    }
+
+    // Handle cases where the backup data is nested under a `data` or `content` property,
+    // which can happen with some API responses.
+    if (typeof data === 'object' && data !== null && !('version' in data) && !Array.isArray(data)) {
+        if ('data' in data && typeof data.data === 'object') {
+            data = data.data;
+        } else if ('content' in data && typeof data.content === 'object') {
+            data = data.content;
+        }
+    }
+
 
     // Handles modern backup format: { version: 2|3, decks: [], ... }
     if (typeof data === 'object' && data !== null && 'version' in data && Array.isArray(data.decks)) {
@@ -83,6 +103,9 @@ export const parseAndValidateBackupFile = (jsonString: string): { decks: Deck[],
 
   } catch (error) {
     console.error("Failed to parse backup file:", error);
+    if (error instanceof SyntaxError) {
+        throw new Error("Invalid JSON format in the backup file.");
+    }
     throw new Error(error instanceof Error ? error.message : "Invalid JSON format");
   }
 };
