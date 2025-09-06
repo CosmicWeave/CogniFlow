@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { AIGenerationParams } from '../types';
 import Button from './ui/Button';
@@ -13,7 +12,7 @@ import AIOptionsManager from './AIOptionsManager';
 interface AIGenerationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onGenerate: (params: AIGenerationParams & { generationType: 'series' | 'deck' | 'learning', generateQuestions?: boolean, isLearningMode?: boolean }) => Promise<void>;
+  onGenerate: (params: AIGenerationParams & { generationType: 'series' | 'deck' | 'learning', generateQuestions?: boolean, isLearningMode?: boolean }) => void;
 }
 
 const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, onGenerate }) => {
@@ -63,8 +62,8 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (aiGenerationStatus.isGenerating) {
-      addToast("An AI generation task is already in progress. Please wait for it to complete.", "info");
+    if (aiGenerationStatus.currentTask || aiGenerationStatus.queue.length > 5) {
+      addToast("The AI queue is full. Please wait for some tasks to complete.", "info");
       return;
     }
     if (!generationType) return;
@@ -91,7 +90,6 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
     };
 
     onGenerate(generationConfig);
-    addToast("AI generation has started. A status indicator will appear in the corner.", "info");
     handleClose();
   };
   
@@ -190,7 +188,7 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
         <div className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
           <div className="flex items-center gap-2">
             {generationType && view === 'form' && (
-              <Button variant="ghost" size="sm" className="p-1" onClick={() => setGenerationType(null)} disabled={aiGenerationStatus.isGenerating}>
+              <Button variant="ghost" size="sm" className="p-1" onClick={() => setGenerationType(null)}>
                 <Icon name="chevron-left" />
               </Button>
             )}
@@ -198,11 +196,11 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
           </div>
           <div className="flex items-center gap-1">
             {view === 'form' && (
-                <Button type="button" variant="ghost" onClick={() => setView('manager')} className="p-1 h-auto" disabled={aiGenerationStatus.isGenerating} aria-label="Manage AI options">
+                <Button type="button" variant="ghost" onClick={() => setView('manager')} className="p-1 h-auto" aria-label="Manage AI options">
                     <Icon name="settings" />
                 </Button>
             )}
-            <Button type="button" variant="ghost" onClick={handleClose} className="p-1 h-auto" disabled={aiGenerationStatus.isGenerating}><Icon name="x" /></Button>
+            <Button type="button" variant="ghost" onClick={handleClose} className="p-1 h-auto"><Icon name="x" /></Button>
           </div>
         </div>
         
@@ -226,8 +224,8 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
 
         {view === 'form' && generationType && (
             <div className="flex-shrink-0 flex justify-end p-4 bg-background/50 border-t border-border">
-            <Button type="button" variant="secondary" onClick={handleClose} className="mr-2" disabled={aiGenerationStatus.isGenerating}>Cancel</Button>
-            <Button type="submit" variant="primary" onClick={handleSubmit} disabled={aiGenerationStatus.isGenerating}>
+            <Button type="button" variant="secondary" onClick={handleClose}>Cancel</Button>
+            <Button type="submit" variant="primary" onClick={handleSubmit}>
                 {`Generate ${generationType === 'series' ? 'Series' : 'Deck'}`}
             </Button>
             </div>

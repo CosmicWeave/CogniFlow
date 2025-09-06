@@ -21,7 +21,6 @@ interface DeckListProps {
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
   onSaveFolder: (folderData: { id: string; name: string; }) => void;
-  // FIX: Add missing props for AI generation handlers.
   onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
   onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
 }

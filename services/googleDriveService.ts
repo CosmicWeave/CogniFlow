@@ -1,8 +1,10 @@
 
+
 import { API_KEY, CLIENT_ID, DISCOVERY_DOC, SCOPES } from './googleDriveConfig';
 import * as db from './db';
-import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType } from '../types';
+import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType, FullBackupData } from '../types';
 import { getStockholmFilenameTimestamp } from './time';
+import { parseAndValidateBackupFile } from './importService';
 
 declare var gapi: any;
 declare var google: any;
@@ -181,24 +183,18 @@ const fetchUserProfile = async (accessToken: string) => {
 };
 
 export const backup = async (): Promise<GoogleDriveFile> => {
-    const [decks, folders, deckSeries] = await Promise.all([
-        db.getAllDecks(),
-        db.getAllFolders(),
-        db.getAllDeckSeries()
-    ]);
-
-    if (decks.length === 0 && folders.length === 0 && deckSeries.length === 0) {
+    const backupData = await db.getAllDataForBackup();
+    
+    if (backupData.decks.length === 0 && backupData.folders.length === 0 && backupData.deckSeries.length === 0) {
         throw new Error("There is no data to back up.");
     }
-    
-    const backupData = {
-        version: 3,
-        decks,
-        folders,
-        deckSeries
+
+    const exportData: FullBackupData = {
+        version: 6,
+        ...backupData
     };
 
-    const backupContent = JSON.stringify(backupData);
+    const backupContent = JSON.stringify(exportData);
     const timestamp = getStockholmFilenameTimestamp();
     const fileName = `cogniflow-backup-${timestamp}.json`;
 
@@ -251,14 +247,7 @@ export const listFiles = async (): Promise<GoogleDriveFile[]> => {
     return response.result.files;
 };
 
-export type RestoreData = {
-    decks: Deck[];
-    folders: Folder[];
-    deckSeries: DeckSeries[];
-    aiOptions?: any;
-};
-
-export const downloadFile = async (fileId: string): Promise<RestoreData> => {
+export const downloadFile = async (fileId: string): Promise<FullBackupData> => {
     const response = await gapi.client.drive.files.get({
         fileId: fileId,
         alt: 'media'
@@ -268,58 +257,8 @@ export const downloadFile = async (fileId: string): Promise<RestoreData> => {
         throw new Error('Failed to download backup file.');
     }
 
-    const data = response.result;
-    
-    // Handles modern backup format: { version: 2|3, decks: [], ... }
-    if (typeof data === 'object' && data !== null && 'version' in data && Array.isArray(data.decks)) {
-        const folders = (data.folders || []) as Folder[];
-        const aiOptions = data.aiOptions || undefined;
-        
-        // Transform older DeckSeries format (with `deckIds`) to the new format (with `levels`).
-        const deckSeries = (Array.isArray(data.deckSeries) ? data.deckSeries : [])
-            .filter((s: any) => s && typeof s.id === 'string' && typeof s.name === 'string')
-            .map((s: any) => {
-                // If the new 'levels' structure is already present and valid, use it.
-                if (Array.isArray(s.levels)) {
-                    // Ensure sub-structure is also valid for robustness
-                    s.levels.forEach((level: any) => {
-                        if (!Array.isArray(level.deckIds)) level.deckIds = [];
-                    });
-                    return s;
-                }
-                
-                // If the old 'deckIds' structure is present, transform it.
-                if (Array.isArray(s.deckIds)) {
-                    const newSeries = { ...s };
-                    // Create a single level to hold the flat list of deckIds.
-                    newSeries.levels = [{ title: 'Decks', deckIds: newSeries.deckIds }];
-                    delete newSeries.deckIds; // Remove the old property to match the new type.
-                    return newSeries;
-                }
-            
-                // If neither is present, default to an empty levels array for robustness.
-                return { ...s, levels: [] };
-            }) as DeckSeries[];
-
-        return { decks: data.decks, folders, deckSeries, aiOptions };
-    }
-    
-    // Handles legacy V1 backup format: Deck[]
-    if (Array.isArray(data)) {
-        const transformedDecks = (data as any[]).map(deck => {
-            if (!deck.type) {
-                if (Array.isArray(deck.cards)) {
-                    deck.type = DeckType.Flashcard;
-                } else if (Array.isArray(deck.questions)) {
-                    deck.type = DeckType.Quiz;
-                }
-            }
-            return deck;
-        });
-        return { decks: transformedDecks, folders: [], deckSeries: [] };
-    }
-
-    throw new Error("Backup file content is not a valid format.");
+    const content = typeof response.body === 'string' ? response.body : JSON.stringify(response.result);
+    return parseAndValidateBackupFile(content);
 };
 
 export const deleteFile = async (fileId: string): Promise<void> => {

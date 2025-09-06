@@ -9,9 +9,11 @@ interface AIGenerationStatusIndicatorProps {
 }
 
 const AIGenerationStatusIndicator: React.FC<AIGenerationStatusIndicatorProps> = ({ onOpen, onCancel }) => {
-    const { isGenerating, statusText } = useStore(state => state.aiGenerationStatus);
+    const { currentTask, queue } = useStore(state => state.aiGenerationStatus);
+    const isGenerating = currentTask !== null;
+    const totalTasks = (currentTask ? 1 : 0) + queue.length;
 
-    if (!isGenerating) {
+    if (totalTasks === 0) {
         return null;
     }
 
@@ -19,13 +21,13 @@ const AIGenerationStatusIndicator: React.FC<AIGenerationStatusIndicatorProps> = 
         <div className="fixed bottom-6 left-6 z-40 flex items-center gap-2">
             <button
                 onClick={onOpen}
-                className="bg-surface rounded-full shadow-lg flex items-center justify-center p-2 group"
+                className="bg-surface rounded-full shadow-lg flex items-center justify-center p-2 group relative"
                 aria-label="View AI generation status"
-                title={statusText || 'AI task in progress...'}
+                title={currentTask?.statusText || `${queue.length} task(s) queued...`}
             >
                 <div className="relative w-12 h-12 flex items-center justify-center">
                     {/* Spinning border */}
-                    <svg className="absolute w-full h-full animate-spin" style={{ animationDuration: '1.5s' }} viewBox="0 0 24 24">
+                    <svg className="absolute w-full h-full" style={{ animation: isGenerating ? 'spin 1.5s linear infinite' : 'none' }} viewBox="0 0 24 24">
                         <circle
                             cx="12"
                             cy="12"
@@ -33,22 +35,18 @@ const AIGenerationStatusIndicator: React.FC<AIGenerationStatusIndicatorProps> = 
                             stroke="currentColor"
                             strokeWidth="2"
                             fill="none"
-                            className="text-primary/50"
-                            strokeDasharray="40 100" // Creates a dashed effect that spins
+                            className={isGenerating ? "text-primary/50" : "text-text-muted/50"}
+                            strokeDasharray={isGenerating ? "40 100" : "5 15"}
                         />
                     </svg>
-                    <Icon name="bot" className="w-6 h-6 text-primary" />
+                    <Icon name="bot" className={`w-6 h-6 ${isGenerating ? 'text-primary' : 'text-text-muted'}`} />
                 </div>
+                 {totalTasks > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-primary text-on-primary text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                        {totalTasks}
+                    </span>
+                 )}
             </button>
-             <Button
-                variant="danger"
-                onClick={onCancel}
-                className="rounded-full w-10 h-10 p-0 shadow-lg"
-                aria-label="Cancel AI generation"
-                title="Cancel AI generation"
-            >
-                <Icon name="x" className="w-5 h-5" />
-            </Button>
         </div>
     );
 };

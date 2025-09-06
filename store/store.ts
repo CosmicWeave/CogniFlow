@@ -1,6 +1,24 @@
 import { create } from 'zustand';
-import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck } from '../types';
-import { RestoreData } from '../services/googleDriveService';
+import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData } from '../types';
+
+export interface AIGenerationTask {
+  id: string;
+  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck';
+  payload: any;
+  statusText: string;
+  deckId?: string;
+  seriesId?: string;
+}
+
+export interface AIGenerationStatus {
+  isGenerating: boolean;
+  statusText: string | null;
+  generatingDeckId: string | null;
+  generatingSeriesId: string | null;
+  queue: AIGenerationTask[];
+  currentTask: (AIGenerationTask & { abortController: AbortController }) | null;
+}
+
 
 export type AppState = {
   decks: Deck[];
@@ -9,13 +27,7 @@ export type AppState = {
   seriesProgress: SeriesProgress;
   isLoading: boolean;
   lastModified: number | null;
-  aiGenerationStatus: {
-    isGenerating: boolean;
-    statusText: string | null;
-    generatingDeckId: string | null;
-    generatingSeriesId: string | null;
-    abortController: AbortController | null;
-  };
+  aiGenerationStatus: AIGenerationStatus;
   isAIChatOpen: boolean;
   aiChatHistory: AIMessage[];
 };
@@ -35,11 +47,15 @@ export type AppAction =
   | { type: 'ADD_SERIES_WITH_DECKS', payload: { series: DeckSeries, decks: Deck[] } }
   | { type: 'UPDATE_SERIES'; payload: DeckSeries }
   | { type: 'DELETE_SERIES'; payload: string }
-  | { type: 'RESTORE_DATA', payload: RestoreData }
-  | { type: 'SET_AI_GENERATION_STATUS'; payload: Partial<AppState['aiGenerationStatus']> }
-  | { type: 'CANCEL_AI_GENERATION' }
+  | { type: 'RESTORE_DATA', payload: FullBackupData }
+  | { type: 'ADD_AI_TASK_TO_QUEUE'; payload: AIGenerationTask }
+  | { type: 'START_NEXT_AI_TASK'; payload: { task: AIGenerationTask, abortController: AbortController } }
+  | { type: 'UPDATE_CURRENT_AI_TASK_STATUS'; payload: { statusText: string, deckId?: string, seriesId?: string } }
+  | { type: 'FINISH_CURRENT_AI_TASK' }
+  | { type: 'CANCEL_AI_TASK'; payload?: { taskId?: string } }
   | { type: 'TOGGLE_AI_CHAT'; payload: boolean }
-  | { type: 'SET_AI_CHAT_HISTORY'; payload: AIMessage[] };
+  | { type: 'SET_AI_CHAT_HISTORY'; payload: AIMessage[] }
+  | { type: 'SET_AI_GENERATION_STATUS'; payload: { isGenerating: boolean; statusText: string | null; generatingDeckId: string | null; generatingSeriesId: string | null, queue?: AIGenerationTask[], currentTask?: (AIGenerationTask & { abortController: AbortController }) | null } };
 
 
 function appReducer(state: AppState, action: AppAction): AppState {
@@ -52,11 +68,55 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, seriesProgress: action.payload }; // Technically not a structural change, so we don't mark as modified for sync
     case 'LOAD_DATA':
       return { ...state, ...action.payload, isLoading: false, lastModified: null }; // Reset dirty flag on fresh load
+    
     case 'SET_AI_GENERATION_STATUS':
-      return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, ...action.payload } }; // Not a data change
-    case 'CANCEL_AI_GENERATION':
-      state.aiGenerationStatus.abortController?.abort();
-      return { ...state, aiGenerationStatus: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null, abortController: null } };
+      return {
+        ...state,
+        aiGenerationStatus: {
+          ...state.aiGenerationStatus,
+          ...action.payload,
+        }
+      };
+    case 'ADD_AI_TASK_TO_QUEUE':
+      return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: [...state.aiGenerationStatus.queue, action.payload] } };
+    case 'START_NEXT_AI_TASK': {
+      const newQueue = state.aiGenerationStatus.queue.slice(1);
+      const { task, abortController } = action.payload;
+      return { ...state, aiGenerationStatus: { 
+        ...state.aiGenerationStatus, 
+        queue: newQueue, 
+        currentTask: { ...task, abortController },
+      } };
+    }
+    case 'UPDATE_CURRENT_AI_TASK_STATUS': {
+        if (!state.aiGenerationStatus.currentTask) return state;
+        const { statusText, deckId, seriesId } = action.payload;
+        const updatedTask = { ...state.aiGenerationStatus.currentTask, statusText, deckId, seriesId };
+        return { ...state, aiGenerationStatus: { 
+          ...state.aiGenerationStatus, 
+          currentTask: updatedTask,
+        } };
+    }
+    case 'FINISH_CURRENT_AI_TASK':
+      return { ...state, aiGenerationStatus: { 
+        ...state.aiGenerationStatus, 
+        currentTask: null,
+      } };
+    case 'CANCEL_AI_TASK':
+        if (action.payload?.taskId) {
+            // Cancel a specific task from the queue
+            return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: state.aiGenerationStatus.queue.filter(task => task.id !== action.payload!.taskId) } };
+        } else {
+            // Cancel the current task
+            state.aiGenerationStatus.currentTask?.abortController.abort();
+            // The task will error out, and the queue processor will call FINISH_CURRENT_AI_TASK.
+            // We optimistically clear it here for a faster UI response.
+            return { ...state, aiGenerationStatus: { 
+              ...state.aiGenerationStatus, 
+              currentTask: null,
+            } };
+        }
+
     case 'TOGGLE_AI_CHAT':
         return { ...state, isAIChatOpen: action.payload };
     case 'SET_AI_CHAT_HISTORY':
@@ -148,7 +208,8 @@ const initialState: AppState = {
     statusText: null,
     generatingDeckId: null,
     generatingSeriesId: null,
-    abortController: null,
+    queue: [],
+    currentTask: null,
   },
   isAIChatOpen: false,
   aiChatHistory: [],

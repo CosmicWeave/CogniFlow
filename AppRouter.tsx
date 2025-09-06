@@ -1,7 +1,6 @@
 import React from 'react';
 import { useRouter } from '../contexts/RouterContext';
-import { Deck, Folder, DeckSeries, QuizDeck, Reviewable, ReviewRating, DeckType, FlashcardDeck, Card, Question } from '../types';
-import { RestoreData } from '../services/googleDriveService';
+import { Deck, Folder, DeckSeries, QuizDeck, Reviewable, ReviewRating, DeckType, FlashcardDeck, Card, Question, LearningDeck, InfoCard, FullBackupData } from '../types';
 
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -40,6 +39,7 @@ interface AppRouterProps {
     openCreateSeriesModal: () => void;
     openAIGenerationModal: () => void;
     onTriggerSync: () => void;
+    onFetchFromServer: () => void;
     isSyncing: boolean;
     lastSyncStatus: string;
     // Data Handlers
@@ -54,7 +54,7 @@ interface AppRouterProps {
     handleMoveDeck: (deckId: string, folderId: string | null) => Promise<void>;
     handleItemReviewed: (deckId: string, reviewedItem: Reviewable, rating: ReviewRating | null, seriesId?: string) => Promise<void>;
     handleExportData: () => Promise<void>;
-    handleRestoreData: (data: RestoreData) => Promise<void>;
+    handleRestoreData: (data: FullBackupData) => Promise<void>;
     handleResetDeckProgress: (deckId: string) => Promise<void>;
     handleFactoryReset: () => void;
     handleStartGeneralStudy: () => void;
@@ -62,7 +62,7 @@ interface AppRouterProps {
     handleSaveFolder: (folderData: { id: string | null; name: string; }) => Promise<void>;
     handleDeleteFolder: (folderId: string) => Promise<void>;
     handleUpdateSeries: (series: DeckSeries, options?: { silent?: boolean; toastMessage?: string; }) => Promise<void>;
-    handleSaveSeries: (data: { id: string | null; name: string; description: string; }) => Promise<void>;
+    handleSaveSeries: (data: { id: string | null; name: string; description: string; scaffold?: any; }) => Promise<void>;
     handleDeleteSeries: (seriesId: string) => Promise<void>;
     handleAddDeckToSeries: (seriesId: string, newDeck: QuizDeck) => Promise<void>;
     handleRestoreDeck: (deckId: string) => Promise<void>;
@@ -72,6 +72,13 @@ interface AppRouterProps {
     handleAiAddLevelsToSeries: (seriesId: string) => Promise<void>;
     handleAiAddDecksToLevel: (seriesId: string, levelIndex: number) => Promise<void>;
     onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
+    onGenerateContentForLearningDeck: (deck: LearningDeck) => void;
+    onGenerateQuestionsForEmptyDecksInSeries: (seriesId: string) => void;
+    onCancelAIGeneration: () => void;
+    onSaveLearningBlock: (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => Promise<void>;
+    onDeleteLearningBlock: (deckId: string, infoCardId: string) => Promise<void>;
+    onManageServerBackups: () => void;
+    handleCreateServerBackup: () => void;
 }
 
 const AppRouter: React.FC<AppRouterProps> = (props) => {
@@ -94,8 +101,11 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onResetProgress={() => props.setResetProgressModalOpen(true)} 
             onFactoryReset={props.handleFactoryReset} 
             onTriggerSync={props.onTriggerSync}
+            onFetchFromServer={props.onFetchFromServer}
             isSyncing={props.isSyncing}
             lastSyncStatus={props.lastSyncStatus}
+            onManageServerBackups={props.onManageServerBackups}
+            onCreateServerBackup={props.handleCreateServerBackup}
         />;
     }
     
@@ -137,6 +147,9 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onUpdateLastOpened={props.updateLastOpenedSeries}
             onAiAddLevelsToSeries={props.handleAiAddLevelsToSeries}
             onAiAddDecksToLevel={props.handleAiAddDecksToLevel}
+            onGenerateQuestionsForEmptyDecksInSeries={props.onGenerateQuestionsForEmptyDecksInSeries}
+            onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
+            onCancelAIGeneration={props.onCancelAIGeneration}
         />;
     }
 
@@ -147,7 +160,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     
     if (pathname.startsWith('/decks/') && pathname.endsWith('/cram')) {
         if (activeDeck) {
-            const items = (activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck).questions)
+            const items = (activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck | LearningDeck).questions)
                 .filter(item => !item.suspended);
             
             const shuffledItems = [...items].sort(() => Math.random() - 0.5);
@@ -197,8 +210,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     }
 
     if (pathname.startsWith('/decks/') && pathname.endsWith('/study-flip')) {
-        if (activeDeck && activeDeck.type === 'quiz') {
-            const quizDeck = activeDeck as QuizDeck;
+        if (activeDeck && (activeDeck.type === 'quiz' || activeDeck.type === 'learning')) {
+            const quizDeck = activeDeck as QuizDeck | LearningDeck;
             const cards = (quizDeck.questions || [])
                 .filter(q => !q.suspended)
                 .map(q => {
@@ -258,6 +271,10 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
           onUpdateLastOpened={props.updateLastOpened}
           openConfirmModal={props.openConfirmModal}
           onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
+          onGenerateContentForLearningDeck={props.onGenerateContentForLearningDeck}
+          onCancelAIGeneration={props.onCancelAIGeneration}
+          onSaveLearningBlock={props.onSaveLearningBlock}
+          onDeleteLearningBlock={props.onDeleteLearningBlock}
         />
     }
 
@@ -285,6 +302,9 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onImportDecks={() => props.setImportModalOpen(true)}
             onCreateSampleDeck={props.handleCreateSampleDeck}
             handleSaveFolder={props.handleSaveFolder}
+            onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
+            onGenerateContentForLearningDeck={props.onGenerateContentForLearningDeck}
+            onCancelAIGeneration={props.onCancelAIGeneration}
         />;
     }
 
@@ -294,6 +314,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onCreateNewSeries={props.openCreateSeriesModal}
             onCreateSampleSeries={props.handleCreateSampleSeries}
             onGenerateAI={props.openAIGenerationModal}
+            onGenerateQuestionsForEmptyDecksInSeries={props.onGenerateQuestionsForEmptyDecksInSeries}
+            onCancelAIGeneration={props.onCancelAIGeneration}
         />
     }
 
@@ -308,6 +330,10 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onStartSeriesStudy={props.handleStartSeriesStudy}
             totalDueQuestions={totalDueQuestions}
             seriesProgress={seriesProgress}
+            onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
+            onGenerateContentForLearningDeck={props.onGenerateContentForLearningDeck}
+            onGenerateQuestionsForEmptyDecksInSeries={props.onGenerateQuestionsForEmptyDecksInSeries}
+            onCancelAIGeneration={props.onCancelAIGeneration}
         />
     }
     

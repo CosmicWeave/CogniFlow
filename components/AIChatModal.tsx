@@ -6,6 +6,7 @@ import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
 import { getAIResponse } from '../services/aiChatService';
+import * as db from '../services/db';
 
 interface AIChatModalProps {
   onExecuteAction: (action: AIAction) => void;
@@ -22,6 +23,13 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
     
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [aiChatHistory]);
+
+    useEffect(() => {
+        // Persist chat history to DB whenever it changes, but not on initial load
+        if (aiChatHistory.length > 0) {
+            db.saveAIChatHistory(aiChatHistory);
+        }
     }, [aiChatHistory]);
 
     const handleSubmit = async (e: React.FormEvent) => {

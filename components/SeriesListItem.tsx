@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -11,7 +10,6 @@ import { stripHtml } from '../services/utils';
 import { useStore } from '../store/store';
 import Spinner from './ui/Spinner';
 import { useSettings } from '../hooks/useSettings';
-// FIX: Import ProgressBar component to resolve 'Cannot find name' error.
 import ProgressBar from './ui/ProgressBar';
 
 interface SeriesListItemProps {
@@ -29,7 +27,8 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
     const totalCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
     const isCompleted = completedCount >= totalCount && totalCount > 0;
 
-    const isGeneratingThisSeries = aiGenerationStatus.isGenerating && aiGenerationStatus.generatingSeriesId === series.id;
+    // FIX: Use currentTask !== null to determine if generating, and check currentTask's seriesId.
+    const isGeneratingThisSeries = aiGenerationStatus.currentTask?.seriesId === series.id;
 
     const hasEmptyDecks = useMemo(() => {
         const seriesDeckIds = new Set(series.levels.flatMap(l => l.deckIds));

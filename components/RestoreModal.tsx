@@ -1,7 +1,7 @@
 
 
 import React, { useState, useRef } from 'react';
-import { Deck, Folder, DeckSeries } from '../types';
+import { FullBackupData } from '../types';
 import { parseAndValidateBackupFile } from '../services/importService';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -10,22 +10,16 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 import Spinner from './ui/Spinner';
 import ConfirmModal from './ConfirmModal';
 
-interface RestoreData {
-    decks: Deck[];
-    folders: Folder[];
-    deckSeries: DeckSeries[];
-}
-
 interface RestoreModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRestore: (data: RestoreData) => Promise<void>;
+  onRestore: (data: FullBackupData) => Promise<void>;
 }
 
 const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore }) => {
   const [fileName, setFileName] = useState('');
   const [loadingText, setLoadingText] = useState<string | null>(null);
-  const [parsedData, setParsedData] = useState<RestoreData | null>(null);
+  const [parsedData, setParsedData] = useState<FullBackupData | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToast();

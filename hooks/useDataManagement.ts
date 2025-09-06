@@ -1,15 +1,18 @@
 
+
+
+
 import { useCallback } from 'react';
-import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel, ReviewRating, ReviewLog, AIAction, AIActionType, AIGeneratedDeck, AIGeneratedLevel, AIGenerationParams, InfoCard, LearningDeck, FlashcardDeck } from '../types';
+import { Deck, Card, Question, DeckType, Reviewable, QuizDeck, Folder, DeckSeries, SeriesProgress, SeriesLevel, ReviewRating, ReviewLog, AIAction, AIActionType, AIGeneratedDeck, AIGeneratedLevel, AIGenerationParams, InfoCard, LearningDeck, FlashcardDeck, FullBackupData } from '../types';
 import * as db from '../services/db';
 import { useToast } from './useToast';
 import { useRouter } from '../contexts/RouterContext';
 import { createNatureSampleDeck, createSampleSeries } from '../services/sampleData';
 import { resetReviewable } from '../services/srs';
-import { RestoreData } from '../services/googleDriveService';
 import { useStore } from '../store/store';
 import { createQuestionsFromImport } from '../services/importService';
 import { generateMoreDecksForLevel, generateMoreLevelsForSeries, generateQuestionsForDeck, generateSeriesScaffoldWithAI, generateDeckWithAI, generateSeriesQuestionsInBatches, generateLearningDeckWithAI, generateSeriesLearningContentInBatches } from '../services/aiService';
+import * as backupService from '../services/backupService';
 
 interface UseDataManagementProps {
     sessionsToResume: Set<string>;
@@ -35,7 +38,6 @@ export const useDataManagement = ({
     const dispatch = useStore(state => state.dispatch);
 
     const handleUpdateDeck = useCallback(async (deck: Deck, options?: { silent?: boolean; toastMessage?: string }) => {
-        // Optimistic UI update
         dispatch({ type: 'UPDATE_DECK', payload: deck });
 
         if (!options?.silent) {
@@ -68,7 +70,6 @@ export const useDataManagement = ({
     }, [handleUpdateDeck]);
     
     const handleUpdateSeries = useCallback(async (series: DeckSeries, options?: { silent?: boolean; toastMessage?: string }) => {
-        // Optimistic UI update
         dispatch({ type: 'UPDATE_SERIES', payload: series });
 
         if (!options?.silent) {
@@ -103,7 +104,6 @@ export const useDataManagement = ({
 
     const handleAddDecks = useCallback(async (decks: Deck[]) => {
         try {
-            // Optimistic update
             dispatch({ type: 'ADD_DECKS', payload: decks });
             await db.addDecks(decks);
             triggerSync();
@@ -153,7 +153,6 @@ export const useDataManagement = ({
     const handleStudyNextDeckInSeries = useCallback(async (deckId: string, seriesId: string, nextDeckId: string) => {
         const sessionKey = `session_deck_${deckId}`;
 
-        // Clean up state for the session that just ended
         if (sessionsToResume.has(deckId)) {
             const newSessions = new Set(sessionsToResume);
             newSessions.delete(deckId);
@@ -167,7 +166,6 @@ export const useDataManagement = ({
         
         if (deckId === 'general-study-deck') setGeneralStudyDeck(null);
         
-        // Navigate to the next deck's study session
         navigate(`/decks/${nextDeckId}/study?seriesId=${seriesId}`);
     }, [navigate, sessionsToResume, setSessionsToResume, setGeneralStudyDeck]);
 
@@ -180,10 +178,8 @@ export const useDataManagement = ({
     const handleCreateSampleSeries = useCallback(async () => {
         const { series, decks } = createSampleSeries();
         try {
-            // Dispatch both state changes at once to prevent UI inconsistencies
             dispatch({ type: 'ADD_SERIES_WITH_DECKS', payload: { series, decks } });
 
-            // Then perform database operations
             await Promise.all([
                 db.addDecks(decks),
                 db.addDeckSeries([series])
@@ -197,13 +193,76 @@ export const useDataManagement = ({
         }
     }, [addToast, dispatch, triggerSync]);
     
-    const handleRestoreData = useCallback(async (data: RestoreData) => {
+     const reconcileSeriesProgress = useCallback(() => {
+        const { deckSeries, decks, seriesProgress } = useStore.getState();
+        if (!deckSeries.length || !decks.length) return;
+
+        let anySeriesUpdated = false;
+        
+        const newProgressMap = new Map(seriesProgress);
+
+        for (const series of deckSeries) {
+            if (series.archived || series.deletedAt) continue;
+
+            const progressValue = newProgressMap.get(series.id);
+            const completedInSeries = new Set(progressValue instanceof Set ? progressValue : []);
+            let seriesWasUpdated = false;
+            
+            const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+            for (const deckId of flatDeckIds) {
+                if (completedInSeries.has(deckId)) {
+                    continue;
+                }
+
+                const deck = decks.find(d => d.id === deckId);
+                if (!deck) continue;
+
+                let items: Reviewable[] | undefined;
+                if (deck.type === DeckType.Flashcard) {
+                    items = (deck as FlashcardDeck).cards;
+                } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
+                    items = (deck as QuizDeck | LearningDeck).questions;
+                }
+
+                if (!items) {
+                    continue;
+                }
+                const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
+
+                if (!hasNewItems && items.length > 0) {
+                    completedInSeries.add(deckId);
+                    seriesWasUpdated = true;
+                }
+            }
+            
+            if (seriesWasUpdated) {
+                newProgressMap.set(series.id, completedInSeries);
+                anySeriesUpdated = true;
+            }
+        }
+
+        if (anySeriesUpdated) {
+            const savePromises = Array.from(newProgressMap.entries()).map(([seriesId, completedIds]) => {
+                if (completedIds instanceof Set) {
+                    return db.saveSeriesProgress(seriesId, completedIds);
+                }
+                return Promise.resolve();
+            });
+            Promise.all(savePromises).catch(e => console.error("Could not save reconciled series progress to DB", e));
+            
+            addToast("Unlocked decks based on your progress.", "info");
+            dispatch({ type: 'SET_SERIES_PROGRESS', payload: newProgressMap });
+        }
+
+    }, [addToast, dispatch]);
+    
+    const handleRestoreData = useCallback(async (data: FullBackupData) => {
         try {
             if (data.aiOptions && typeof data.aiOptions === 'object') {
                 localStorage.setItem('cogniflow-ai-options', JSON.stringify(data.aiOptions));
                 addToast("AI generation options restored from backup.", "info");
             }
-            // Dispatch first for instant UI update
+            
             dispatch({ type: 'RESTORE_DATA', payload: data });
 
             await Promise.all([
@@ -211,6 +270,40 @@ export const useDataManagement = ({
                 db.addFolders(data.folders),
                 db.addDeckSeries(data.deckSeries)
             ]);
+            
+            if (Array.isArray(data.reviews)) {
+                await db.clearReviews();
+                await db.bulkAddReviews(data.reviews);
+            }
+            
+            if (Array.isArray(data.sessions)) {
+                await db.clearSessions();
+                await db.bulkAddSessions(data.sessions);
+                const restoredSessionKeys = new Set(data.sessions.map(s => s.id.replace('session_deck_', '')));
+                setSessionsToResume(restoredSessionKeys);
+            }
+            
+            if (Array.isArray(data.aiChatHistory)) {
+                await db.saveAIChatHistory(data.aiChatHistory);
+                dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: data.aiChatHistory });
+            }
+
+            if (data.seriesProgress && typeof data.seriesProgress === 'object') {
+                await db.clearSeriesProgress();
+                await db.bulkAddSeriesProgress(data.seriesProgress);
+                
+                const newProgressMap = new Map<string, Set<string>>();
+                 for (const [seriesId, completedDeckIds] of Object.entries(data.seriesProgress)) {
+                    if (Array.isArray(completedDeckIds)) {
+                        // FIX: Safely handle potentially malformed backup data by ensuring all IDs are strings.
+                        const stringIds = completedDeckIds.filter((id): id is string => typeof id === 'string');
+                        newProgressMap.set(seriesId, new Set(stringIds));
+                    }
+                }
+                dispatch({ type: 'SET_SERIES_PROGRESS', payload: newProgressMap });
+                reconcileSeriesProgress();
+            }
+
             triggerSync();
             addToast(`Successfully restored data.`, "success");
         } catch (error) {
@@ -218,7 +311,7 @@ export const useDataManagement = ({
             addToast("There was an error restoring from the backup file.", "error");
             throw error;
         }
-    }, [addToast, dispatch, triggerSync]);
+    }, [addToast, dispatch, triggerSync, reconcileSeriesProgress, setSessionsToResume]);
 
     const handleDeleteDeck = useCallback(async (deckId: string) => {
         const deck = useStore.getState().decks.find(d => d.id === deckId);
@@ -250,8 +343,9 @@ export const useDataManagement = ({
         if (deck.type === DeckType.Flashcard) {
             newDeck = { ...deck, cards: (deck as FlashcardDeck).cards.map(c => c.id === id ? { ...c, ...srsUpdates } : c) };
         } else if (deck.type === DeckType.Learning) {
+            // FIX: Corrected a typo where 'c' was used instead of 'q'.
             newDeck = { ...deck, questions: (deck as LearningDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
-        } else { // QuizDeck
+        } else {
             newDeck = { ...deck, questions: (deck as QuizDeck | LearningDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
         }
         
@@ -290,7 +384,7 @@ export const useDataManagement = ({
                 newProgress.set(seriesId, currentSeriesProgress);
 
                 try {
-                    localStorage.setItem(`series-progress-${seriesId}`, JSON.stringify(Array.from(currentSeriesProgress)));
+                    await db.saveSeriesProgress(seriesId, currentSeriesProgress);
                     const series = deckSeries.find(s => s.id === seriesId);
                     const flatDeckIds = series?.levels.flatMap(l => l.deckIds) || [];
                     const isLastDeckInSeries = flatDeckIds.indexOf(deckId) === flatDeckIds.length - 1;
@@ -416,90 +510,104 @@ export const useDataManagement = ({
     }, [navigate, setGeneralStudyDeck]);
 
     const handleSaveFolder = useCallback(async (folderData: {id: string | null, name: string}) => {
-        if (folderData.id) {
-            const updatedFolder = { id: folderData.id, name: folderData.name };
-            dispatch({ type: 'UPDATE_FOLDER', payload: updatedFolder });
-            addToast(`Folder "${updatedFolder.name}" updated.`, 'success');
-            await db.updateFolder(updatedFolder);
-        } else {
-            const newFolder: Folder = { id: crypto.randomUUID(), name: folderData.name };
-            dispatch({ type: 'ADD_FOLDER', payload: newFolder });
-            addToast(`Folder "${newFolder.name}" created.`, 'success');
-            await db.addFolder(newFolder);
+        try {
+            if (folderData.id) {
+                const updatedFolder = { id: folderData.id, name: folderData.name };
+                dispatch({ type: 'UPDATE_FOLDER', payload: updatedFolder });
+                addToast(`Folder "${updatedFolder.name}" updated.`, 'success');
+                await db.updateFolder(updatedFolder);
+            } else {
+                const newFolder: Folder = { id: crypto.randomUUID(), name: folderData.name };
+                dispatch({ type: 'ADD_FOLDER', payload: newFolder });
+                addToast(`Folder "${newFolder.name}" created.`, 'success');
+                await db.addFolder(newFolder);
+            }
+            triggerSync();
+            setFolderToEdit(null);
+        } catch (error) {
+            console.error("Failed to save folder:", error);
+            addToast("There was an error saving the folder.", "error");
         }
-        triggerSync();
-        setFolderToEdit(null);
     }, [addToast, dispatch, setFolderToEdit, triggerSync]);
     
     const handleDeleteFolder = useCallback(async (folderId: string) => {
         const { folders, decks } = useStore.getState();
         const folder = folders.find(f => f.id === folderId);
         if (!folder) return;
+
         openConfirmModal({
             title: 'Delete Folder',
             message: `Are you sure you want to delete folder "${folder.name}"? Decks inside will not be deleted.`,
             onConfirm: async () => {
-                dispatch({ type: 'DELETE_FOLDER', payload: folderId });
-                addToast(`Folder "${folder.name}" deleted.`, 'success');
-                const decksToUpdate = decks.filter(d => d.folderId === folderId).map(d => ({ ...d, folderId: null as (string | null) }));
-                if (decksToUpdate.length > 0) await db.bulkUpdateDecks(decksToUpdate);
-                await db.deleteFolder(folderId);
-                triggerSync();
+                try {
+                    dispatch({ type: 'DELETE_FOLDER', payload: folderId });
+                    addToast(`Folder "${folder.name}" deleted.`, 'success');
+                    const decksToUpdate = decks.filter(d => d.folderId === folderId).map(d => ({ ...d, folderId: null as (string | null) }));
+                    if (decksToUpdate.length > 0) await db.bulkUpdateDecks(decksToUpdate);
+                    await db.deleteFolder(folderId);
+                    triggerSync();
+                } catch (error) {
+                    console.error("Failed to delete folder:", error);
+                    addToast("There was an error deleting the folder.", "error");
+                }
             }
         })
     }, [addToast, dispatch, openConfirmModal, triggerSync]);
     
     const handleSaveSeries = useCallback(async (data: { id: string | null, name: string, description: string, scaffold?: any }) => {
-        if (data.id) {
-            const seriesToUpdate = useStore.getState().deckSeries.find(s => s.id === data.id);
-            if(seriesToUpdate) {
-                const updatedSeries = { ...seriesToUpdate, name: data.name, description: data.description };
-                await handleUpdateSeries(updatedSeries);
-            }
-        } else { // creating new series
-            if (data.scaffold && Array.isArray(data.scaffold.levels)) {
-                // Create series from scaffold
-                const { levels: levelsData } = data.scaffold;
-                const allNewDecks: QuizDeck[] = [];
-                const newLevels: SeriesLevel[] = levelsData.map((levelData: any) => {
-                    const decksForLevel: QuizDeck[] = (levelData.decks || []).map((d: any) => ({
-                        id: crypto.randomUUID(),
-                        name: d.name,
-                        description: d.description,
-                        type: DeckType.Quiz,
-                        questions: createQuestionsFromImport(Array.isArray(d.questions) ? d.questions : [])
-                    }));
-                    allNewDecks.push(...decksForLevel);
-                    return {
-                        title: levelData.title,
-                        deckIds: decksForLevel.map(deck => deck.id)
-                    };
-                });
-                
-                const newSeries: DeckSeries = {
-                    id: crypto.randomUUID(),
-                    type: 'series',
-                    name: data.name,
-                    description: data.description,
-                    levels: newLevels,
-                    archived: false,
-                    createdAt: new Date().toISOString(),
-                };
-    
-                await handleAddSeriesWithDecks(newSeries, allNewDecks);
-                addToast(`Series "${newSeries.name}" created from scaffold.`, 'success');
-                navigate(`/series/${newSeries.id}?edit=true`);
+        try {
+            if (data.id) {
+                const seriesToUpdate = useStore.getState().deckSeries.find(s => s.id === data.id);
+                if (seriesToUpdate) {
+                    const updatedSeries = { ...seriesToUpdate, name: data.name, description: data.description };
+                    await handleUpdateSeries(updatedSeries);
+                }
             } else {
-                // Original logic for creating an empty series
-                const newSeries: DeckSeries = { id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description, levels: [], createdAt: new Date().toISOString() };
-                dispatch({ type: 'ADD_SERIES', payload: newSeries });
-                addToast(`Series "${newSeries.name}" created.`, 'success');
-                await db.addDeckSeries([newSeries]);
-                triggerSync();
-                navigate(`/series/${newSeries.id}?edit=true`);
+                if (data.scaffold && Array.isArray(data.scaffold.levels)) {
+                    const { levels: levelsData } = data.scaffold;
+                    const allNewDecks: QuizDeck[] = [];
+                    const newLevels: SeriesLevel[] = levelsData.map((levelData: any) => {
+                        const decksForLevel: QuizDeck[] = (levelData.decks || []).map((d: any) => ({
+                            id: crypto.randomUUID(),
+                            name: d.name,
+                            description: d.description,
+                            type: DeckType.Quiz,
+                            questions: createQuestionsFromImport(Array.isArray(d.questions) ? d.questions : [])
+                        }));
+                        allNewDecks.push(...decksForLevel);
+                        return {
+                            title: levelData.title,
+                            deckIds: decksForLevel.map(deck => deck.id)
+                        };
+                    });
+                    
+                    const newSeries: DeckSeries = {
+                        id: crypto.randomUUID(),
+                        type: 'series',
+                        name: data.name,
+                        description: data.description,
+                        levels: newLevels,
+                        archived: false,
+                        createdAt: new Date().toISOString(),
+                    };
+        
+                    await handleAddSeriesWithDecks(newSeries, allNewDecks);
+                    addToast(`Series "${newSeries.name}" created from scaffold.`, 'success');
+                    navigate(`/series/${newSeries.id}?edit=true`);
+                } else {
+                    const newSeries: DeckSeries = { id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description, levels: [], createdAt: new Date().toISOString() };
+                    dispatch({ type: 'ADD_SERIES', payload: newSeries });
+                    addToast(`Series "${newSeries.name}" created.`, 'success');
+                    await db.addDeckSeries([newSeries]);
+                    triggerSync();
+                    navigate(`/series/${newSeries.id}?edit=true`);
+                }
             }
+            setSeriesToEdit(null);
+        } catch (error) {
+            console.error("Failed to save series:", error);
+            addToast("There was an error saving the series.", "error");
         }
-        setSeriesToEdit(null);
     }, [addToast, handleUpdateSeries, dispatch, setSeriesToEdit, navigate, handleAddSeriesWithDecks, triggerSync]);
     
     const handleDeleteSeries = useCallback(async (seriesId: string) => {
@@ -514,12 +622,10 @@ export const useDataManagement = ({
         
         const updatedSeries = { ...series, deletedAt: new Date().toISOString(), archived: false };
     
-        // Optimistic UI updates
         dispatch({ type: 'BULK_UPDATE_DECKS', payload: decksToTrash });
         dispatch({ type: 'UPDATE_SERIES', payload: updatedSeries });
         addToast(`Series "${series.name}" and its ${decksToTrash.length} deck(s) moved to Trash.`, 'success');
     
-        // Database updates
         try {
             await Promise.all([
                 db.bulkUpdateDecks(decksToTrash),
@@ -576,14 +682,12 @@ export const useDataManagement = ({
         const seriesName = series.name;
     
         try {
-            // Optimistic UI updates
             deckIdsToDelete.forEach(deckId => {
                 dispatch({ type: 'DELETE_DECK', payload: deckId });
             });
             dispatch({ type: 'DELETE_SERIES', payload: seriesId });
             addToast(`Series "${seriesName}" and its ${deckIdsToDelete.length} deck(s) permanently deleted.`, 'success');
             
-            // Database operations
             await Promise.all([
                 ...deckIdsToDelete.map(deckId => db.deleteDeck(deckId)),
                 db.deleteDeckSeries(seriesId)
@@ -604,16 +708,13 @@ export const useDataManagement = ({
         try {
           addToast("Resetting application...", "info");
 
-          // 1. Clear caches
           if (navigator.serviceWorker && navigator.serviceWorker.controller) {
             navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_APP_CACHE' });
             navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CDN_CACHE' });
           }
 
-          // 2. Wipe IndexedDB
           await db.factoryReset();
 
-          // 3. Clear localStorage
           const keysToRemove: string[] = [];
           for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -623,7 +724,6 @@ export const useDataManagement = ({
           }
           keysToRemove.forEach(key => localStorage.removeItem(key));
           
-          // 4. Reload after a short delay
           setTimeout(() => {
             window.location.reload();
           }, 1500);
@@ -637,87 +737,24 @@ export const useDataManagement = ({
     });
     }, [addToast, openConfirmModal]);
 
-    const reconcileSeriesProgress = useCallback(() => {
-        const { deckSeries, decks, seriesProgress } = useStore.getState();
-        if (!deckSeries.length || !decks.length) return;
-
-        let anySeriesUpdated = false;
-        
-        const newProgressMap = new Map(seriesProgress);
-
-        for (const series of deckSeries) {
-            if (series.archived || series.deletedAt) continue;
-
-            const progressValue = newProgressMap.get(series.id);
-            const completedInSeries = new Set(progressValue instanceof Set ? progressValue : []);
-            let seriesWasUpdated = false;
-            
-            const flatDeckIds = series.levels.flatMap(l => l.deckIds);
-            for (const deckId of flatDeckIds) {
-                if (completedInSeries.has(deckId)) {
-                    continue; // Already complete, skip check
-                }
-
-                const deck = decks.find(d => d.id === deckId);
-                if (!deck) continue;
-
-                let items: Reviewable[] | undefined;
-                if (deck.type === DeckType.Flashcard) {
-                    items = (deck as FlashcardDeck).cards;
-                } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
-                    items = (deck as QuizDeck | LearningDeck).questions;
-                }
-
-                if (!items) {
-                    continue;
-                }
-                const hasNewItems = items.some(item => !item.suspended && item.interval === 0);
-
-                if (!hasNewItems && items.length > 0) {
-                    completedInSeries.add(deckId);
-                    seriesWasUpdated = true;
-                }
-            }
-            
-            if (seriesWasUpdated) {
-                newProgressMap.set(series.id, completedInSeries);
-                anySeriesUpdated = true;
-            }
-        }
-
-        if (anySeriesUpdated) {
-             // Persist all changes to localStorage
-            newProgressMap.forEach((completedIds, seriesId) => {
-                try {
-                    if (completedIds instanceof Set) {
-                        localStorage.setItem(`series-progress-${seriesId}`, JSON.stringify(Array.from(completedIds)));
-                    }
-                } catch (e) {
-                    console.error(`Could not save reconciled series progress for ${seriesId}`, e);
-                }
-            });
-            addToast("Unlocked decks based on your progress.", "info");
-            dispatch({ type: 'SET_SERIES_PROGRESS', payload: newProgressMap });
-        }
-
-    }, [addToast, dispatch]);
-    
-    const handleGenerateWithAI = useCallback(async (params: AIGenerationParams & { generationType: 'series' | 'deck', generateQuestions?: boolean, isLearningMode?: boolean }) => {
+    const handleGenerateWithAI = useCallback(async (params: AIGenerationParams & { generationType: 'series' | 'deck' | 'learning', generateQuestions?: boolean, isLearningMode?: boolean }) => {
         const { aiGenerationStatus } = useStore.getState();
-        if (aiGenerationStatus.isGenerating) {
-            addToast("An AI generation task is already in progress. Please wait for it to complete.", "info");
+        if (aiGenerationStatus.currentTask || aiGenerationStatus.queue.length > 5) {
+            addToast("The AI queue is full. Please wait for some tasks to complete.", "info");
             return;
         }
     
         const { generationType, generateQuestions, isLearningMode, ...aiParams } = params;
         
         const initialStatusText = `Initializing AI generation for '${params.topic}'...`;
-        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: initialStatusText, generatingDeckId: null, generatingSeriesId: null } });
+        const abortController = new AbortController();
+        const signal = abortController.signal;
+        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: initialStatusText, generatingDeckId: null, generatingSeriesId: null, queue: [], currentTask: null } });
     
         try {
             if (generationType === 'series') {
-                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: `Generating series outline for '${params.topic}'...`, generatingDeckId: null, generatingSeriesId: null } });
-                const scaffold = await generateSeriesScaffoldWithAI(aiParams);
+                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText: `Generating series outline for '${params.topic}'...` } });
+                const scaffold = await generateSeriesScaffoldWithAI(aiParams, signal);
                 const allNewDecks: Deck[] = [];
                 
                 const newLevels: SeriesLevel[] = scaffold.levels.map(levelData => {
@@ -745,7 +782,7 @@ export const useDataManagement = ({
                 if (generateQuestions && allNewDecks.length > 0) {
                     if (isLearningMode) {
                         const learningDecksToPopulate = allNewDecks.filter(d => d.type === DeckType.Learning) as LearningDeck[];
-                        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: `Preparing to generate learning content...`, generatingDeckId: null, generatingSeriesId: newSeries.id } });
+                        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText: `Preparing to generate learning content...`, generatingSeriesId: newSeries.id } });
 
                         const history = await generateSeriesLearningContentInBatches(newSeries, learningDecksToPopulate, (deckId, learningContent) => {
                             const currentDecks = useStore.getState().decks;
@@ -776,14 +813,14 @@ export const useDataManagement = ({
                                 handleUpdateDeck(updatedDeck, { silent: true });
                                 const deckIndex = learningDecksToPopulate.findIndex(d => d.id === deckId) + 1;
                                 const statusText = `Generating content for '${deckToUpdate.name}' (${deckIndex} of ${learningDecksToPopulate.length})...`;
-                                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText, generatingDeckId: deckToUpdate.id, generatingSeriesId: newSeries.id } });
+                                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText, generatingDeckId: deckToUpdate.id, generatingSeriesId: newSeries.id } });
                             }
-                        });
+                        }, signal);
                         handleUpdateSeries({ ...newSeries, aiChatHistory: history }, { silent: true });
                         addToast(`Successfully generated all content for "${newSeries.name}"!`, 'success');
                     } else {
                         const quizDecksToPopulate = allNewDecks.filter(d => d.type === DeckType.Quiz) as QuizDeck[];
-                        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: `Preparing to generate questions...`, generatingDeckId: null, generatingSeriesId: newSeries.id } });
+                        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText: `Preparing to generate questions...`, generatingSeriesId: newSeries.id } });
                         
                         const history = await generateSeriesQuestionsInBatches(newSeries, quizDecksToPopulate, (deckId, questions) => {
                             const newQuestions = createQuestionsFromImport(questions);
@@ -794,9 +831,9 @@ export const useDataManagement = ({
                                 handleUpdateDeck(updatedDeck, { silent: true });
                                 const deckIndex = quizDecksToPopulate.findIndex(d => d.id === deckId) + 1;
                                 const statusText = `Generating questions for '${deckToUpdate.name}' (${deckIndex} of ${quizDecksToPopulate.length})...`;
-                                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText, generatingDeckId: deckToUpdate.id, generatingSeriesId: newSeries.id } });
+                                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText, generatingDeckId: deckToUpdate.id, generatingSeriesId: newSeries.id } });
                             }
-                        });
+                        }, signal);
                         handleUpdateSeries({ ...newSeries, aiChatHistory: history }, { silent: true });
                         addToast(`Successfully generated all questions for "${newSeries.name}"!`, 'success');
                     }
@@ -805,9 +842,8 @@ export const useDataManagement = ({
                 }
             } else if (generationType === 'deck') {
                 if (isLearningMode) {
-                    // Generate a Learning Deck
-                    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: `Generating learning deck: '${params.topic}'...`, generatingDeckId: null, generatingSeriesId: null } });
-                    const aiResponse = await generateLearningDeckWithAI(aiParams);
+                    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText: `Generating learning deck: '${params.topic}'...` } });
+                    const aiResponse = await generateLearningDeckWithAI(aiParams, signal);
 
                     const newInfoCards: InfoCard[] = [];
                     const newQuestions: Question[] = [];
@@ -837,9 +873,8 @@ export const useDataManagement = ({
                     await handleAddDecks([newDeck]);
                     addToast(`Successfully generated learning deck "${newDeck.name}"!`, 'success');
                 } else {
-                    // Generate a standard Quiz Deck
-                    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: `Generating deck: '${params.topic}'...`, generatingDeckId: null, generatingSeriesId: null } });
-                    const importedDeck = await generateDeckWithAI(aiParams);
+                    dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { ...aiGenerationStatus, statusText: `Generating deck: '${params.topic}'...` } });
+                    const importedDeck = await generateDeckWithAI(aiParams, signal);
                     const newDeck: QuizDeck = {
                         id: crypto.randomUUID(), name: importedDeck.name, description: importedDeck.description,
                         type: DeckType.Quiz, questions: createQuestionsFromImport(importedDeck.questions), aiGenerationParams: aiParams
@@ -848,17 +883,18 @@ export const useDataManagement = ({
                     addToast(`Successfully generated deck "${newDeck.name}"!`, 'success');
                 }
             }
-        } catch (error) {
+        // FIX: Explicitly typing `error` as `unknown` to satisfy stricter type-checking rules.
+        } catch (error: unknown) {
            const message = error instanceof Error ? error.message : "An unknown error occurred during AI generation.";
            addToast(message, 'error');
            throw error;
         } finally {
-            dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null } });
+            dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null, queue: [], currentTask: null } });
         }
     }, [dispatch, addToast, handleAddSeriesWithDecks, handleAddDecks, handleUpdateDeck, handleUpdateSeries]);
 
     const handleGenerateQuestionsForDeck = useCallback(async (deck: QuizDeck) => {
-        const { decks, deckSeries, aiGenerationStatus } = useStore.getState();
+        const { decks, deckSeries, aiGenerationStatus, dispatch } = useStore.getState();
     
         if (aiGenerationStatus.isGenerating) {
             addToast("An AI generation task is already in progress.", "info");
@@ -868,10 +904,11 @@ export const useDataManagement = ({
         const questionCount = deck.suggestedQuestionCount || 15;
         
         const statusText = `Generating ${questionCount} questions for "${deck.name}"...`;
-        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText, generatingDeckId: deck.id, generatingSeriesId: null } });
+        const abortController = new AbortController();
+        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText, generatingDeckId: deck.id, generatingSeriesId: null, queue: [], currentTask: { id: crypto.randomUUID(), type: 'generateQuestionsForDeck', payload: { deck, count: questionCount }, statusText, deckId: deck.id, abortController } } });
     
         const series = deckSeries.find(s => s.levels.some(l => l.deckIds.includes(deck.id)));
-        let seriesContext: { series: DeckSeries, allDecks: QuizDeck[] } | undefined = undefined;
+        let seriesContext: { series: DeckSeries; allDecks: QuizDeck[] } | undefined = undefined;
         if (series) {
             const allDecksInSeries = series.levels
                 .flatMap(l => l.deckIds)
@@ -881,7 +918,7 @@ export const useDataManagement = ({
         }
     
         try {
-            const { questions: generatedQuestions } = await generateQuestionsForDeck(deck, questionCount, seriesContext);
+            const { questions: generatedQuestions } = await generateQuestionsForDeck(deck, questionCount, seriesContext, abortController.signal);
             
             if (!generatedQuestions || generatedQuestions.length === 0) {
                 addToast("The AI didn't return any questions. Please try again.", "info");
@@ -904,7 +941,7 @@ export const useDataManagement = ({
             addToast(message, 'error');
         } finally {
             if (useStore.getState().aiGenerationStatus.generatingDeckId === deck.id) {
-                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null } });
+                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null, queue: [], currentTask: null } });
             }
         }
     }, [addToast, handleUpdateDeck, dispatch]);
@@ -912,7 +949,7 @@ export const useDataManagement = ({
     const handleGenerateContentForLearningDeck = useCallback(async (deck: LearningDeck) => {
         const { aiGenerationStatus } = useStore.getState();
         if (aiGenerationStatus.isGenerating) {
-            addToast("An AI generation task is already in progress.", "info");
+            addToast("An AI generation task is already in progress. Please wait for it to complete.", "info");
             return;
         }
         
@@ -923,10 +960,12 @@ export const useDataManagement = ({
         }
 
         const statusText = `Generating content for "${deck.name}"...`;
-        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText, generatingDeckId: deck.id, generatingSeriesId: null } });
+        const abortController = new AbortController();
+        const signal = abortController.signal;
+        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText, generatingDeckId: deck.id, generatingSeriesId: null, queue: [], currentTask: { id: crypto.randomUUID(), type: 'generateLearningDeckWithAI', payload: { deck }, statusText, deckId: deck.id, abortController } } });
 
         try {
-            const aiResponse = await generateLearningDeckWithAI(aiParams);
+            const aiResponse = await generateLearningDeckWithAI(aiParams, signal);
 
             const newInfoCards: InfoCard[] = [];
             const newQuestions: Question[] = [];
@@ -957,7 +996,7 @@ export const useDataManagement = ({
             addToast(message, 'error');
         } finally {
             if (useStore.getState().aiGenerationStatus.generatingDeckId === deck.id) {
-                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null } });
+                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null, queue: [], currentTask: null } });
             }
         }
     }, [addToast, handleUpdateDeck, dispatch]);
@@ -967,7 +1006,8 @@ export const useDataManagement = ({
         const series = deckSeries.find(s => s.id === seriesId);
         if (!series) throw new Error("Series not found");
     
-        const { newLevels, history } = await generateMoreLevelsForSeries(series, decks.filter(d => d.type === 'quiz') as QuizDeck[]);
+        const abortController = new AbortController();
+        const { newLevels, history } = await generateMoreLevelsForSeries(series, decks.filter(d => d.type === 'quiz') as QuizDeck[], abortController.signal);
         if (!newLevels || newLevels.length === 0) {
             addToast("The AI didn't suggest any new levels.", "info");
             return;
@@ -1002,7 +1042,8 @@ export const useDataManagement = ({
         const series = deckSeries.find(s => s.id === seriesId);
         if (!series) throw new Error("Series not found");
     
-        const { newDecks: newDecksDataFromAI, history } = await generateMoreDecksForLevel(series, levelIndex, decks.filter(d => d.type === 'quiz') as QuizDeck[]);
+        const abortController = new AbortController();
+        const { newDecks: newDecksDataFromAI, history } = await generateMoreDecksForLevel(series, levelIndex, decks.filter(d => d.type === 'quiz') as QuizDeck[], abortController.signal);
         if (!newDecksDataFromAI || newDecksDataFromAI.length === 0) {
             addToast("The AI didn't suggest any new decks for this level.", "info");
             return;
@@ -1097,63 +1138,19 @@ export const useDataManagement = ({
             }
             case AIActionType.GENERATE_QUESTIONS_FOR_DECK: {
                 const { deckId, count } = action.payload as { deckId: string; count?: number };
-                const { decks, deckSeries, aiGenerationStatus, dispatch } = useStore.getState();
                 const deck = decks.find(d => d.id === deckId);
             
                 if (!deck || deck.type !== DeckType.Quiz) {
                     addToast("Could not find a valid quiz deck to add questions to.", "error");
                     return;
                 }
-                
-                if (aiGenerationStatus.isGenerating) {
-                    addToast("An AI generation task is already in progress.", "info");
-                    return;
-                }
-            
-                const questionCount = count || deck.suggestedQuestionCount || 15;
-                
-                dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: true, statusText: `Generating ${questionCount} questions...`, generatingDeckId: deck.id, generatingSeriesId: null } });
-            
-                const series = deckSeries.find(s => s.levels.some(l => l.deckIds.includes(deck.id)));
-                let seriesContext: { series: DeckSeries, allDecks: QuizDeck[] } | undefined = undefined;
-                if (series) {
-                    const allDecksInSeries = series.levels
-                        .flatMap(l => l.deckIds)
-                        .map(id => decks.find(d => d.id === id))
-                        .filter((d): d is QuizDeck => !!(d && d.type === DeckType.Quiz));
-                    seriesContext = { series, allDecks: allDecksInSeries };
-                }
-            
-                try {
-                    const { questions: generatedQuestions } = await generateQuestionsForDeck(deck, questionCount, seriesContext);
-                    
-                    if (!generatedQuestions || generatedQuestions.length === 0) {
-                        addToast("The AI didn't return any questions. Please try again.", "info");
-                        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null } });
-                        return;
-                    }
-            
-                    const newQuestions = createQuestionsFromImport(generatedQuestions);
-                    const updatedQuestions = [...deck.questions, ...newQuestions];
-                    
-                    await handleUpdateDeck({ ...deck, questions: updatedQuestions });
-                    addToast(`Successfully added ${newQuestions.length} AI-generated questions to "${deck.name}"!`, 'success');
-            
-                } catch (e) {
-                    const message = e instanceof Error ? e.message : "An unknown error occurred during AI generation.";
-                    addToast(message, 'error');
-                } finally {
-                    if (useStore.getState().aiGenerationStatus.generatingDeckId === deck.id) {
-                        dispatch({ type: 'SET_AI_GENERATION_STATUS', payload: { isGenerating: false, statusText: null, generatingDeckId: null, generatingSeriesId: null } });
-                    }
-                }
+                await handleGenerateQuestionsForDeck(deck as QuizDeck);
                 break;
             }
             case AIActionType.NO_ACTION:
-                // Do nothing
                 break;
         }
-    }, [addToast, handleAddDecks, handleDeleteDeck, handleDeleteFolder, handleMoveDeck, handleSaveFolder, handleUpdateDeck, handleAiAddDecksToLevel, handleAiAddLevelsToSeries]);
+    }, [addToast, handleAddDecks, handleDeleteDeck, handleDeleteFolder, handleMoveDeck, handleSaveFolder, handleUpdateDeck, handleAiAddDecksToLevel, handleAiAddLevelsToSeries, handleGenerateQuestionsForDeck]);
 
     const handleGenerateQuestionsForEmptyDecksInSeries = useCallback(async (seriesId: string) => {
         const { aiGenerationStatus, deckSeries, decks } = useStore.getState();
@@ -1182,12 +1179,13 @@ export const useDataManagement = ({
     
         dispatch({
           type: 'SET_AI_GENERATION_STATUS',
-          payload: { isGenerating: true, generatingDeckId: emptyDecks[0].id, generatingSeriesId: series.id, statusText: `Generating questions for ${emptyDecks.length} empty decks...` }
+          payload: { isGenerating: true, generatingDeckId: emptyDecks[0].id, generatingSeriesId: series.id, statusText: `Generating questions for ${emptyDecks.length} empty decks...`, queue: [], currentTask: null }
         });
         addToast(`AI is generating questions for ${emptyDecks.length} empty decks. This will continue in the background.`, 'info');
         
         (async () => {
             try {
+                const abortController = new AbortController();
                 const history = await generateSeriesQuestionsInBatches(series, emptyDecks, (deckId, questions) => {
                     const newQuestions = createQuestionsFromImport(questions);
                     const deckToUpdate = useStore.getState().decks.find(d => d.id === deckId);
@@ -1202,10 +1200,10 @@ export const useDataManagement = ({
                     if (nextDeck) {
                         dispatch({
                           type: 'SET_AI_GENERATION_STATUS',
-                          payload: { isGenerating: true, generatingDeckId: nextDeck.id, generatingSeriesId: series.id, statusText: `Generating questions for "${nextDeck.name}"...` }
+                          payload: { isGenerating: true, generatingDeckId: nextDeck.id, generatingSeriesId: series.id, statusText: `Generating questions for "${nextDeck.name}"...`, queue: [], currentTask: null }
                         });
                     }
-                });
+                }, abortController.signal);
     
                 handleUpdateSeries({ ...series, aiChatHistory: history }, { silent: true });
                 addToast(`Successfully generated questions for all empty decks!`, 'success');
@@ -1217,7 +1215,7 @@ export const useDataManagement = ({
                 if (useStore.getState().aiGenerationStatus.generatingSeriesId === series.id) {
                     dispatch({
                       type: 'SET_AI_GENERATION_STATUS',
-                      payload: { isGenerating: false, generatingDeckId: null, generatingSeriesId: null, statusText: null }
+                      payload: { isGenerating: false, generatingDeckId: null, generatingSeriesId: null, statusText: null, queue: [], currentTask: null }
                     });
                 }
             }
@@ -1225,7 +1223,7 @@ export const useDataManagement = ({
     }, [addToast, dispatch, handleUpdateDeck, handleUpdateSeries]);
 
     const handleCancelAIGeneration = useCallback(() => {
-        dispatch({ type: 'CANCEL_AI_GENERATION' });
+        dispatch({ type: 'CANCEL_AI_TASK' });
         addToast("AI generation cancelled.", "info");
     }, [dispatch, addToast]);
     
@@ -1275,6 +1273,44 @@ export const useDataManagement = ({
         });
     }, [handleUpdateDeck, openConfirmModal]);
 
+    const handleCreateServerBackup = useCallback(async () => {
+        addToast('Creating server backup...', 'info');
+        try {
+            const response = await backupService.createServerBackup();
+            addToast(`Successfully created server backup: ${response.filename}`, 'success');
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Failed to create server backup.";
+            addToast(message, 'error');
+        }
+    }, [addToast]);
+
+    const handleRestoreFromServerBackup = useCallback(async (filename: string) => {
+        openConfirmModal({
+            title: 'Restore from Server Backup',
+            message: `Are you sure you want to restore from "${filename}"? This will overwrite your current live sync file on the server. Your local data will not be changed until you fetch from the server.`,
+            onConfirm: async () => {
+                try {
+                    await backupService.restoreFromServerBackup(filename);
+                    addToast(`Successfully restored live data from backup "${filename}". You should now fetch from the server to update your local data.`, 'success');
+                } catch (e) {
+                    const message = e instanceof Error ? e.message : "Failed to restore from server backup.";
+                    addToast(message, 'error');
+                }
+            }
+        });
+    }, [addToast, openConfirmModal]);
+
+    const handleDeleteServerBackup = useCallback(async (filename: string) => {
+        try {
+            await backupService.deleteServerBackup(filename);
+            addToast(`Successfully deleted server backup: ${filename}`, 'success');
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Failed to delete server backup.";
+            addToast(message, 'error');
+            throw e;
+        }
+    }, [addToast]);
+
     return {
         updateLastOpened,
         updateLastOpenedSeries,
@@ -1315,5 +1351,8 @@ export const useDataManagement = ({
         handleCancelAIGeneration,
         handleSaveLearningBlock,
         handleDeleteLearningBlock,
+        handleCreateServerBackup,
+        handleRestoreFromServerBackup,
+        handleDeleteServerBackup,
     };
 };

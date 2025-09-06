@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+// FIX: Add LearningDeck and InfoCard to imports
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
 import Button from './ui/Button';
 import Link from './ui/Link';
@@ -19,7 +20,10 @@ import Spinner from './ui/Spinner';
 import MasteryOverTimeGraph from './ui/MasteryOverTimeGraph';
 import { useSettings } from '../hooks/useSettings';
 import { useToast } from '../hooks/useToast';
+// FIX: Add LearningItemListEditor and related modal imports
 import LearningItemListEditor from './LearningItemListEditor';
+import LearningBlockDetailModal from './LearningBlockDetailModal';
+import { LearningBlockData } from './EditLearningBlockModal';
 
 interface DeckDetailsPageProps {
   deck: Deck;
@@ -29,6 +33,7 @@ interface DeckDetailsPageProps {
   onUpdateLastOpened: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
   onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
+  // FIX: Added missing props for Learning Decks and AI features
   onGenerateContentForLearningDeck: (deck: LearningDeck) => void;
   onCancelAIGeneration: () => void;
   onSaveLearningBlock: (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => Promise<void>;
@@ -38,6 +43,7 @@ interface DeckDetailsPageProps {
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
+    // FIX: Handle LearningDeck
     const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
                   deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
                   (deck as QuizDeck).questions;
@@ -75,6 +81,7 @@ type Tab = 'overview' | 'items' | 'stats';
 const StatisticsTabContent: React.FC<{ deck: Deck }> = ({ deck }) => {
     const [reviewHistory, setReviewHistory] = useState<ReviewLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    // FIX: Handle LearningDeck
     const allItems = deck.type === DeckType.Flashcard ? deck.cards : 
                      deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
                      (deck as QuizDeck).questions;
@@ -169,6 +176,8 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   const [editedFolderId, setEditedFolderId] = useState(deck.folderId || '');
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [isBlockDetailModalOpen, setIsBlockDetailModalOpen] = useState(false);
+  const [selectedBlock, setSelectedBlock] = useState<LearningBlockData | null>(null);
   const { navigate } = useRouter();
   const { addToast } = useToast();
   const { aiFeaturesEnabled } = useSettings();
@@ -221,7 +230,13 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     });
   };
 
-  const isGeneratingThisDeck = aiGenerationStatus.isGenerating && aiGenerationStatus.generatingDeckId === deck.id;
+  const handleBlockClick = (block: LearningBlockData) => {
+    setSelectedBlock(block);
+    setIsBlockDetailModalOpen(true);
+  };
+
+  // FIX: Use currentTask !== null to determine if generating, and check currentTask's deckId.
+  const isGeneratingThisDeck = aiGenerationStatus.currentTask?.deckId === deck.id;
   const activeItems = allItems.filter(item => !item.suspended);
   const suspendedCount = allItems.length - activeItems.length;
   const progressStats = calculateProgressStats(activeItems);
@@ -452,6 +467,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                     deck={deck as LearningDeck}
                     onSaveBlock={(data) => onSaveLearningBlock(deck.id, data)}
                     onDeleteBlock={(infoCardId) => onDeleteLearningBlock(deck.id, infoCardId)}
+                    onBlockClick={handleBlockClick}
                 />
              ) : (
                 <div className="p-6 text-center text-text-muted"><p>Unsupported deck type.</p></div>
@@ -469,6 +485,13 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
       </div>
       
       {isBulkAddModalOpen && <BulkAddModal isOpen={isBulkAddModalOpen} onClose={() => setIsBulkAddModalOpen(false)} onAddItems={handleBulkAddItems} deckType={deck.type} />}
+      {isBlockDetailModalOpen && (
+        <LearningBlockDetailModal
+            isOpen={isBlockDetailModalOpen}
+            onClose={() => setIsBlockDetailModalOpen(false)}
+            block={selectedBlock}
+        />
+      )}
     </div>
   );
 };

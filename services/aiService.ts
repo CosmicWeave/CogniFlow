@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
 import { ImportedQuizDeck, SeriesLevel, ImportedQuestion, DeckSeries, QuizDeck, AIGeneratedDeck, AIGeneratedLevel, AIGenerationParams, DeckType, InfoCard, Question, LearningDeck } from "../types";
 
@@ -14,6 +13,14 @@ export type AIGeneratedSeriesScaffold = {
 export type AIGeneratedQuestions = {
     questions: ImportedQuestion[];
 };
+
+// Custom error for aborted requests
+class AbortError extends Error {
+    constructor(message = 'AI generation was aborted.') {
+        super(message);
+        this.name = 'AbortError';
+    }
+}
 
 
 const getAiClient = (): GoogleGenAI => {
@@ -193,7 +200,7 @@ const learningBlockSchema = { // This schema is for generating content to INJECT
 
 
 
-export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams): Promise<AIGeneratedSeriesScaffold> => {
+export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams, signal: AbortSignal): Promise<AIGeneratedSeriesScaffold> => {
     const ai = getAiClient();
     const generationContext = buildContextFromParams(params);
 
@@ -208,13 +215,14 @@ export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams): 
         2.  Each level should contain 1-6 decks. Decide the optimal number of decks to properly cover the material for that level.
         3.  For each deck, provide a \`suggestedQuestionCount\`. Aim for approximately 15-25 questions, but suggest a higher or lower number if it's better for the topic.
         4.  Deck and Series descriptions can use basic HTML like <b> and <i> for formatting.
-        5.  **Content Style & Quality:** Descriptions and titles must be engaging and spark curiosity. Avoid a dry, academic, textbook-like tone. Frame topics in a way that highlights their real-world relevance or interesting aspects. All factual claims must be accurate and come from reliable sources.
+        5.  **Content Style & Quality:** Descriptions and titles must be engaging and spark curiosity. Avoid a dry, academic, textbook-like tone. Frame topics in a way that highlights their real-world relevance or interesting aspects. All factual claims must be accurate and from reliable sources.
         6.  **Crucially, for every deck object, include a "questions" key with an empty array: "questions": []**
         7.  All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
         8.  The entire output must conform to the provided JSON schema. Do not output any text or markdown before or after the JSON object.
     `;
 
     try {
+        if (signal.aborted) throw new AbortError();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -224,6 +232,7 @@ export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams): 
             },
         });
         
+        if (signal.aborted) throw new AbortError();
         const jsonText = response.text.trim();
         const parsedData = JSON.parse(jsonText) as AIGeneratedSeriesScaffold;
 
@@ -234,6 +243,7 @@ export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams): 
         return parsedData;
 
     } catch (error) {
+        if (error instanceof AbortError) throw error;
         console.error("Error generating series scaffold with AI:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings. Please try a different topic.");
@@ -242,7 +252,7 @@ export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams): 
     }
 };
 
-export const generateDeckWithAI = async (params: AIGenerationParams): Promise<ImportedQuizDeck> => {
+export const generateDeckWithAI = async (params: AIGenerationParams, signal: AbortSignal): Promise<ImportedQuizDeck> => {
     const ai = getAiClient();
     const generationContext = buildContextFromParams(params);
     const questionCount = {
@@ -271,6 +281,7 @@ export const generateDeckWithAI = async (params: AIGenerationParams): Promise<Im
     `;
 
     try {
+        if (signal.aborted) throw new AbortError();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -280,6 +291,7 @@ export const generateDeckWithAI = async (params: AIGenerationParams): Promise<Im
             },
         });
         
+        if (signal.aborted) throw new AbortError();
         const jsonText = response.text.trim();
         const parsedData = JSON.parse(jsonText) as ImportedQuizDeck;
 
@@ -290,6 +302,7 @@ export const generateDeckWithAI = async (params: AIGenerationParams): Promise<Im
         return parsedData;
 
     } catch (error) {
+        if (error instanceof AbortError) throw error;
         console.error("Error generating deck with AI:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings. Please try a different topic.");
@@ -298,7 +311,7 @@ export const generateDeckWithAI = async (params: AIGenerationParams): Promise<Im
     }
 };
 
-export const generateLearningDeckWithAI = async (params: AIGenerationParams): Promise<any> => {
+export const generateLearningDeckWithAI = async (params: AIGenerationParams, signal: AbortSignal): Promise<any> => {
     const ai = getAiClient();
     const generationContext = buildContextFromParams(params);
     const blockCount = {
@@ -319,7 +332,7 @@ export const generateLearningDeckWithAI = async (params: AIGenerationParams): Pr
             a. A single \`infoCardContent\` field with well-written, informative text (using HTML for formatting).
             b. An array of 3-5 high-quality \`questions\` that are directly based on the information in the \`infoCardContent\`.
         2.  **Progressive Learning:** The blocks should be ordered logically to guide the user from basic concepts to more complex ones.
-        3.  **Engaging & Curiosity-Driven:** The \`infoCardContent\` must be written in an engaging, interesting style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material memorable. All factual information must be accurate and from reliable sources.
+        3.  **Engaging & Curiosity-Driven:** The \`infoCardContent\` must be written in an engaging, interesting style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable. All factual information must be accurate and from reliable sources.
         4.  **Question Quality:** Questions must test understanding of the info card. Explanations must be thorough. Incorrect options must be plausible.
         5.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` extensively for rich text formatting.
         6.  **Metric System:** Prefer the metric system for all units.
@@ -327,6 +340,7 @@ export const generateLearningDeckWithAI = async (params: AIGenerationParams): Pr
     `;
 
     try {
+        if (signal.aborted) throw new AbortError();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -336,6 +350,7 @@ export const generateLearningDeckWithAI = async (params: AIGenerationParams): Pr
             },
         });
         
+        if (signal.aborted) throw new AbortError();
         const jsonText = response.text.trim();
         const parsedData = JSON.parse(jsonText);
 
@@ -346,6 +361,7 @@ export const generateLearningDeckWithAI = async (params: AIGenerationParams): Pr
         return parsedData;
 
     } catch (error) {
+        if (error instanceof AbortError) throw error;
         console.error("Error generating learning deck with AI:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings. Please try a different topic.");
@@ -357,7 +373,8 @@ export const generateLearningDeckWithAI = async (params: AIGenerationParams): Pr
 
 export const generateMoreLevelsForSeries = async (
     series: DeckSeries,
-    allDecksInStore: QuizDeck[]
+    allDecksInStore: QuizDeck[],
+    signal: AbortSignal
 ): Promise<{ newLevels: AIGeneratedLevel[], history: any[] }> => {
     const ai = getAiClient();
     const existingLevelsText = series.levels.map((level, index) => {
@@ -391,12 +408,15 @@ export const generateMoreLevelsForSeries = async (
     });
 
     try {
+        if (signal.aborted) throw new AbortError();
         const response = await chat.sendMessage({ message: prompt });
+        if (signal.aborted) throw new AbortError();
         const jsonText = response.text.trim();
         const newLevels = JSON.parse(jsonText) as AIGeneratedLevel[];
         const history = await chat.getHistory();
         return { newLevels, history };
     } catch (error) {
+        if (error instanceof AbortError) throw error;
         console.error("Error generating more levels with AI:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings.");
@@ -408,7 +428,8 @@ export const generateMoreLevelsForSeries = async (
 export const generateMoreDecksForLevel = async (
     series: DeckSeries,
     levelIndex: number,
-    allDecksInStore: QuizDeck[]
+    allDecksInStore: QuizDeck[],
+    signal: AbortSignal
 ): Promise<{ newDecks: AIGeneratedDeck[], history: any[] }> => {
     const ai = getAiClient();
     const level = series.levels[levelIndex];
@@ -441,12 +462,15 @@ export const generateMoreDecksForLevel = async (
     });
 
     try {
+        if (signal.aborted) throw new AbortError();
         const response = await chat.sendMessage({ message: prompt });
+        if (signal.aborted) throw new AbortError();
         const jsonText = response.text.trim();
         const newDecks = JSON.parse(jsonText) as AIGeneratedDeck[];
         const history = await chat.getHistory();
         return { newDecks, history };
     } catch (error) {
+        if (error instanceof AbortError) throw error;
         console.error("Error generating more decks with AI:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings.");
@@ -461,7 +485,8 @@ type ProgressCallback = (deckId: string, questions: ImportedQuestion[]) => void;
 export const generateSeriesQuestionsInBatches = async (
     series: DeckSeries,
     decksToPopulate: QuizDeck[],
-    onProgress: ProgressCallback
+    onProgress: ProgressCallback,
+    signal: AbortSignal
 ): Promise<any[]> => {
     
     const ai = getAiClient();
@@ -497,16 +522,19 @@ export const generateSeriesQuestionsInBatches = async (
             
             For each request, you must respond with a JSON object containing a "questions" array.
         `;
+        if (signal.aborted) throw new AbortError();
         await chat.sendMessage({ message: initialPrompt });
     }
 
     for (const deck of decksToPopulate) {
+        if (signal.aborted) throw new AbortError();
         const totalQuestionsNeeded = deck.suggestedQuestionCount || 15;
         let allGeneratedQuestions: ImportedQuestion[] = [];
 
         const numBatches = Math.ceil(totalQuestionsNeeded / BATCH_SIZE);
 
         for (let i = 0; i < numBatches; i++) {
+            if (signal.aborted) throw new AbortError();
             const questionsInThisBatch = Math.min(BATCH_SIZE, totalQuestionsNeeded - allGeneratedQuestions.length);
             if (questionsInThisBatch <= 0) break;
 
@@ -519,6 +547,7 @@ export const generateSeriesQuestionsInBatches = async (
             
             try {
                 const response = await chat.sendMessage({ message: batchPrompt });
+                if (signal.aborted) throw new AbortError();
                 const jsonText = response.text.trim();
                 const parsedData = JSON.parse(jsonText) as AIGeneratedQuestions;
                 
@@ -529,6 +558,7 @@ export const generateSeriesQuestionsInBatches = async (
                 allGeneratedQuestions.push(...parsedData.questions);
                 
             } catch (error) {
+                if (error instanceof AbortError) throw error;
                 console.error(`Error generating questions for deck "${deck.name}", batch ${i+1}:`, error);
                 if (error instanceof Error && error.message.includes('SAFETY')) {
                     throw new Error(`Request for "${deck.name}" was blocked. Please try a different topic.`);
@@ -546,7 +576,8 @@ export const generateSeriesQuestionsInBatches = async (
 export const generateSeriesLearningContentInBatches = async (
     series: DeckSeries,
     decksToPopulate: LearningDeck[],
-    onProgress: (deckId: string, content: any) => void
+    onProgress: (deckId: string, content: any) => void,
+    signal: AbortSignal
 ): Promise<any[]> => {
     
     const ai = getAiClient();
@@ -580,10 +611,12 @@ export const generateSeriesLearningContentInBatches = async (
             
             For each request, you must respond with a JSON object containing a "learningContent" array.
         `;
+        if (signal.aborted) throw new AbortError();
         await chat.sendMessage({ message: initialPrompt });
     }
 
     for (const deck of decksToPopulate) {
+        if (signal.aborted) throw new AbortError();
         const blockCount = {
             "Quick Overview": "3-5",
             "Standard": "5-8",
@@ -600,6 +633,7 @@ export const generateSeriesLearningContentInBatches = async (
         
         try {
             const response = await chat.sendMessage({ message: prompt });
+            if (signal.aborted) throw new AbortError();
             const jsonText = response.text.trim();
             const parsedData = JSON.parse(jsonText);
             
@@ -610,6 +644,7 @@ export const generateSeriesLearningContentInBatches = async (
             onProgress(deck.id, parsedData.learningContent);
             
         } catch (error) {
+            if (error instanceof AbortError) throw error;
             console.error(`Error generating content for learning deck "${deck.name}":`, error);
             if (error instanceof Error && error.message.includes('SAFETY')) {
                 throw new Error(`Request for "${deck.name}" was blocked. Please try a different topic.`);
@@ -624,7 +659,8 @@ export const generateSeriesLearningContentInBatches = async (
 export const generateQuestionsForDeck = async (
     deck: QuizDeck,
     count: number,
-    seriesContext?: { series: DeckSeries; allDecks: QuizDeck[] }
+    seriesContext: { series: DeckSeries; allDecks: QuizDeck[] } | undefined,
+    signal: AbortSignal
 ): Promise<AIGeneratedQuestions> => {
     const ai = getAiClient();
 
@@ -672,6 +708,7 @@ export const generateQuestionsForDeck = async (
     `;
 
     try {
+        if (signal.aborted) throw new AbortError();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -681,6 +718,7 @@ export const generateQuestionsForDeck = async (
             },
         });
         
+        if (signal.aborted) throw new AbortError();
         const jsonText = response.text.trim();
         const parsedData = JSON.parse(jsonText) as AIGeneratedQuestions;
 
@@ -691,6 +729,7 @@ export const generateQuestionsForDeck = async (
         return parsedData;
 
     } catch (error) {
+        if (error instanceof AbortError) throw error;
         console.error("Error generating deck questions with AI:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
             throw new Error("The request was blocked due to safety settings. Please try a different topic.");

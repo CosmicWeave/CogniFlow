@@ -1,6 +1,8 @@
 
+
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel, Card, Question, AIAction, LearningDeck, InfoCard } from './types';
+import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel, Card, Question, AIAction, LearningDeck, InfoCard, FullBackupData, AIMessage } from './types';
 import * as db from './services/db';
 import * as backupService from './services/backupService';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
@@ -18,13 +20,13 @@ import EditSeriesModal from './components/EditSeriesModal';
 import { onDataChange } from './services/syncService';
 import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
 import { parseAnkiPkg, parseAnkiPkgMainThread } from './services/ankiImportService';
-
 import { useDataManagement } from './hooks/useDataManagement';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import Header from './components/Header';
 import AppRouter from './components/AppRouter';
 import CommandPalette from './components/CommandPalette';
-import Icon from './components/ui/Icon';
+// FIX: Imported `IconName` to resolve type errors for command palette actions.
+import Icon, { IconName } from './components/ui/Icon';
 import { useStore } from './store/store';
 import { analyzeFileContent, createCardsFromImport, createQuestionsFromImport } from './services/importService';
 import DroppedFileConfirmModal, { DroppedFileAnalysis } from './components/DroppedFileConfirmModal';
@@ -34,6 +36,8 @@ import AIChatFab from './components/AIChatFab';
 import AIChatModal from './components/AIChatModal';
 import AIGenerationStatusIndicator from './components/AIGenerationStatusIndicator';
 import AIGenerationStatusModal from './components/AIGenerationStatusModal';
+import ServerBackupModal from './components/ServerBackupModal';
+import { parseServerDate } from './services/time';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -43,6 +47,7 @@ const App: React.FC = () => {
   const [isAIGenerationModalOpen, setAIGenerationModalOpen] = useState(false);
   const [isAIStatusModalOpen, setAIStatusModalOpen] = useState(false);
   const [isRestoreModalOpen, setRestoreModalOpen] = useState(false);
+  const [isServerBackupModalOpen, setServerBackupModalOpen] = useState(false);
   const [isResetProgressModalOpen, setResetProgressModalOpen] = useState(false);
   const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -60,21 +65,6 @@ const App: React.FC = () => {
   const [sortPreference, setSortPreference] = useState<SortPreference>('lastOpened');
   const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
   const [openFolderIds, setOpenFolderIds] = useState(new Set<string>());
-
-  // Helper to safely parse server date strings which might be timestamps or formatted strings
-  const parseServerDate = (dateValue?: string | null): Date => {
-    // Return an invalid date if the input is null, undefined, or an empty string
-    if (!dateValue) {
-      return new Date(NaN);
-    }
-    // Check if it's a numeric string (unix timestamp in seconds)
-    if (/^\d+(\.\d+)?$/.test(dateValue)) {
-      return new Date(parseFloat(dateValue) * 1000);
-    }
-    // Otherwise, try to parse it as a date string, making it more compatible.
-    // Handles ISO 8601 format like "2025-08-31T06:43:54Z" correctly.
-    return new Date(dateValue.replace(' ', 'T'));
-  };
 
   const onToggleFolder = useCallback((folderId: string) => {
     setOpenFolderIds(prev => {
@@ -161,19 +151,21 @@ const App: React.FC = () => {
     if (isManual) addToast('Manual sync started...', 'info');
 
     try {
-        const { timestamp, etag } = await backupService.uploadBackup();
-        const syncDate = new Date(timestamp);
+        const { timestamp, etag } = await backupService.syncDataToServer();
+        
+        if (aiFeaturesEnabled) {
+            await backupService.syncAIChatHistoryToServer();
+        }
+
+        const syncDate = parseServerDate(timestamp);
+        if (isNaN(syncDate.getTime())) throw new Error('Received an invalid date from the server during sync.');
+        
         localStorage.setItem('cogniflow-lastSyncTimestamp', syncDate.toISOString());
         localStorage.setItem('cogniflow-lastSyncEtag', etag);
         
-        const successMessage = `Data successfully synced to server at ${syncDate.toLocaleTimeString()}`;
-        console.log(successMessage);
         setLastSyncStatus(`Last synced: ${syncDate.toLocaleTimeString()}`);
         
-        // Only show a success toast for manual syncs, not for automatic background syncs.
-        if (isManual) {
-            addToast('Data successfully synced to server.', 'success');
-        }
+        if (isManual) addToast('Data successfully synced to server.', 'success');
     } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
         console.error("Sync failed:", e);
@@ -182,7 +174,7 @@ const App: React.FC = () => {
     } finally {
         setIsSyncing(false);
     }
-  }, [backupEnabled, backupApiKey, isSyncing, addToast]);
+  }, [backupEnabled, backupApiKey, isSyncing, addToast, aiFeaturesEnabled]);
   
   const dataHandlers = useDataManagement({
     sessionsToResume,
@@ -207,18 +199,13 @@ const App: React.FC = () => {
                 const allNewDecks: QuizDeck[] = [];
                 const newLevels: SeriesLevel[] = levelsData.map((levelData: any) => {
                     const decksForLevel: QuizDeck[] = levelData.decks.map((d: any) => ({
-                        id: crypto.randomUUID(),
-                        name: d.name,
-                        description: d.description,
-                        type: DeckType.Quiz,
-                        questions: createQuestionsFromImport(d.questions)
+                        id: crypto.randomUUID(), name: d.name, description: d.description, type: DeckType.Quiz, questions: createQuestionsFromImport(d.questions)
                     }));
                     allNewDecks.push(...decksForLevel);
                     return { title: levelData.title, deckIds: decksForLevel.map(deck => deck.id) };
                 });
                 const newSeries: DeckSeries = {
-                    id: crypto.randomUUID(), type: 'series', name: seriesName, description: seriesDescription, levels: newLevels,
-                    archived: false, createdAt: new Date().toISOString()
+                    id: crypto.randomUUID(), type: 'series', name: seriesName, description: seriesDescription, levels: newLevels, archived: false, createdAt: new Date().toISOString()
                 };
                 handleAddSeriesWithDecks(newSeries, allNewDecks);
                 break;
@@ -226,8 +213,7 @@ const App: React.FC = () => {
             case 'quiz': {
                 const questions = createQuestionsFromImport(analysis.data.questions);
                 const newDeck: QuizDeck = {
-                    id: crypto.randomUUID(), name: deckName || analysis.data.name, description: analysis.data.description,
-                    type: DeckType.Quiz, questions: questions
+                    id: crypto.randomUUID(), name: deckName || analysis.data.name, description: analysis.data.description, type: DeckType.Quiz, questions: questions
                 };
                 handleAddDecks([newDeck]);
                 addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
@@ -240,8 +226,7 @@ const App: React.FC = () => {
                 }
                 const cards = createCardsFromImport(analysis.data);
                 const newDeck: FlashcardDeck = {
-                    id: crypto.randomUUID(), name: deckName, type: DeckType.Flashcard, cards: cards,
-                    description: `${cards.length} imported flashcard${cards.length === 1 ? '' : 's'}.`
+                    id: crypto.randomUUID(), name: deckName, type: DeckType.Flashcard, cards: cards, description: `${cards.length} imported flashcard${cards.length === 1 ? '' : 's'}.`
                 };
                 handleAddDecks([newDeck]);
                 addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
@@ -254,7 +239,60 @@ const App: React.FC = () => {
     }
   };
 
-  const handleFetchFromServer = useCallback(async () => {
+  const fetchFromServerLogic = useCallback(async () => {
+    setIsSyncing(true);
+    setLastSyncStatus('Fetching from server...');
+    try {
+        const mainData = await backupService.syncDataFromServer();
+        let aiHistory: AIMessage[] | undefined = undefined;
+        if (aiFeaturesEnabled) {
+            try {
+                aiHistory = await backupService.syncAIChatHistoryFromServer();
+            } catch (e: any) {
+                if (e.status === 404) {
+                    const localHistory = await db.getAIChatHistory();
+                    if (localHistory && localHistory.length > 0) {
+                        try {
+                            await backupService.syncAIChatHistoryToServer();
+                            aiHistory = localHistory;
+                            addToast('AI chat history uploaded to server.', 'info');
+                        } catch (uploadError) {
+                            addToast('Failed to upload local AI history.', 'error');
+                            aiHistory = localHistory;
+                        }
+                    } else {
+                        aiHistory = [];
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        const fullData: FullBackupData = { ...mainData, aiChatHistory: aiHistory };
+        await dataHandlers.handleRestoreData(fullData);
+
+        const syncDate = new Date();
+        localStorage.setItem('cogniflow-lastSyncTimestamp', syncDate.toISOString());
+        setLastSyncStatus(`Synced from server: ${syncDate.toLocaleTimeString()}`);
+        addToast('Successfully fetched and restored data from server.', 'success');
+    } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        console.error("Fetch failed:", e);
+        if ((e as any).status === 404 || (message.includes('404'))) {
+            const userMessage = 'No sync file found on the server.';
+            setLastSyncStatus(userMessage);
+            addToast(userMessage, 'info');
+        } else {
+            setLastSyncStatus(`Error: ${message}`);
+            addToast(`Failed to fetch server data: ${message}`, 'error');
+        }
+    } finally {
+        setIsSyncing(false);
+    }
+  }, [aiFeaturesEnabled, addToast, dataHandlers]);
+
+  const handleFetchFromServer = useCallback(() => {
     if (!backupEnabled || !backupApiKey) {
         addToast('Server sync is not enabled or API key is missing.', 'error');
         return;
@@ -266,59 +304,37 @@ const App: React.FC = () => {
 
     openConfirmModal({
         title: 'Fetch from Server',
-        message: 'This will download the latest backup from the server and overwrite any unsynced local changes. Are you sure you want to continue?',
+        message: 'This will download the latest sync data from the server and overwrite any unsynced local changes. Are you sure you want to continue?',
         confirmText: 'Fetch',
-        onConfirm: async () => {
-            setIsSyncing(true);
-            setLastSyncStatus('Fetching from server...');
-            try {
-                const { metadata } = await backupService.getLatestBackupMetadata();
-                if (!metadata) {
-                    throw new Error("Failed to retrieve backup metadata from server.");
-                }
-                const data = await backupService.downloadBackup(metadata);
-                await dataHandlers.handleRestoreData(data);
-                
-                const serverDate = parseServerDate(metadata.modified);
-                if (isNaN(serverDate.getTime())) {
-                    throw new Error('Received an invalid date from the server.');
-                }
-                const serverLastModified = serverDate.toISOString();
-
-                localStorage.setItem('cogniflow-lastSyncTimestamp', serverLastModified);
-                localStorage.setItem('cogniflow-lastSyncEtag', metadata.etag);
-                setLastSyncStatus(`Synced from server: ${serverDate.toLocaleTimeString()}`);
-                addToast('Successfully fetched and restored data from server.', 'success');
-            } catch (e) {
-                const message = e instanceof Error ? e.message : "Unknown error";
-                console.error("Fetch failed:", e);
-                if (message.includes('404')) {
-                    const userMessage = 'No backup found on the server to fetch from.';
-                    setLastSyncStatus(userMessage);
-                    addToast(userMessage, 'info');
-                } else {
-                    setLastSyncStatus(`Error: ${message}`);
-                    addToast(`Failed to fetch server data: ${message}`, 'error');
-                }
-            } finally {
-                setIsSyncing(false);
-            }
-        }
+        onConfirm: fetchFromServerLogic
     });
-  }, [backupEnabled, backupApiKey, isSyncing, addToast, openConfirmModal, dataHandlers]);
+  }, [backupEnabled, backupApiKey, isSyncing, addToast, openConfirmModal, fetchFromServerLogic]);
   
   const loadData = useCallback(async (isInitialLoad = false) => {
     try {
-      const [decks, folders, deckSeries, sessionKeys] = await Promise.all([
+      const [decks, folders, deckSeries, sessionKeys, aiChatHistory, seriesProgressData] = await Promise.all([
         db.getAllDecks(),
         db.getAllFolders(),
         db.getAllDeckSeries(),
-        isInitialLoad ? db.getAllSessionKeys() : Promise.resolve<string[]>([])
+        isInitialLoad ? db.getAllSessionKeys() : Promise.resolve<string[]>([]),
+        isInitialLoad ? db.getAIChatHistory() : Promise.resolve<AIMessage[]>([]),
+        isInitialLoad ? db.getAllSeriesProgress() : Promise.resolve<Record<string, string[]>>({}),
       ]);
+      
       dispatch({ type: 'LOAD_DATA', payload: { decks, folders, deckSeries } });
+
       if (isInitialLoad) {
+        const progressMap = new Map<string, Set<string>>();
+        for (const [seriesId, completedDeckIds] of Object.entries(seriesProgressData)) {
+            progressMap.set(seriesId, new Set(completedDeckIds));
+        }
+        dispatch({ type: 'SET_SERIES_PROGRESS', payload: progressMap });
+
         const deckIdsWithSessions = new Set(sessionKeys.map((key: string) => key.replace('session_deck_', '')));
         setSessionsToResume(deckIdsWithSessions);
+        if (aiChatHistory.length > 0) {
+            dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: aiChatHistory });
+        }
       }
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -358,6 +374,76 @@ const App: React.FC = () => {
     }
   }, [addToast]);
 
+  const checkServerForUpdates = useCallback(async () => {
+    if (!backupEnabled || !backupApiKey) return;
+
+    try {
+        setLastSyncStatus('Checking for updates...');
+        const { metadata: mainMeta, isNotModified: mainIsNotModified } = await backupService.getSyncDataMetadata();
+        
+        let aiMeta = null;
+        let aiIsNotModified = true;
+        if (aiFeaturesEnabled) {
+            const { metadata, isNotModified } = await backupService.getAIChatMetadata();
+            aiMeta = metadata;
+            aiIsNotModified = isNotModified;
+        }
+
+        if (mainIsNotModified && aiIsNotModified) {
+            const lastSync = localStorage.getItem('cogniflow-lastSyncTimestamp');
+            setLastSyncStatus(lastSync ? `Last synced: ${new Date(lastSync).toLocaleTimeString()}` : 'In sync with server.');
+            return;
+        }
+        
+        const localLastSync = new Date(localStorage.getItem('cogniflow-lastSyncTimestamp') || 0).getTime();
+        const mainServerDate = mainMeta ? parseServerDate(mainMeta.modified) : new Date(0);
+        const aiServerDate = aiMeta ? parseServerDate(aiMeta.modified) : new Date(0);
+        const newestServerDate = Math.max(mainServerDate.getTime(), aiServerDate.getTime());
+        
+        if (newestServerDate > (localLastSync + 60000)) { // 1 minute threshold
+            openConfirmModal({
+                title: 'Update Available',
+                message: 'Newer data found on the server. Download and merge now? This will overwrite any unsynced local changes.',
+                onConfirm: fetchFromServerLogic,
+            });
+        } else {
+            const lastSync = localStorage.getItem('cogniflow-lastSyncTimestamp');
+            setLastSyncStatus(lastSync ? `Last synced: ${new Date(lastSync).toLocaleTimeString()}` : 'Never synced.');
+        }
+    } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        if ((e as any).status === 404) {
+            setLastSyncStatus('No sync file found on server.');
+        } else {
+            setLastSyncStatus(`Error: ${message}`);
+        }
+    }
+  }, [backupEnabled, backupApiKey, aiFeaturesEnabled, openConfirmModal, fetchFromServerLogic]);
+
+  const performAutoBackup = useCallback(async () => {
+    if (!backupEnabled || !backupApiKey) return;
+
+    const lastBackupStr = localStorage.getItem('cogniflow-lastAutoBackupTimestamp');
+    const now = new Date().getTime();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+    if (lastBackupStr) {
+        const lastBackupTime = new Date(lastBackupStr).getTime();
+        if (now - lastBackupTime < ONE_DAY_MS) {
+            return; // Not time yet
+        }
+    }
+
+    console.log("Performing automatic daily server backup...");
+    try {
+        await backupService.createServerBackup();
+        localStorage.setItem('cogniflow-lastAutoBackupTimestamp', new Date().toISOString());
+        // Do not show a toast for a background task, it can be annoying
+    } catch (e) {
+        console.error("Automatic backup failed:", e);
+    }
+  }, [backupEnabled, backupApiKey]);
+
   useEffect(() => {
     const loadInitialData = async () => {
       await loadData(true);
@@ -369,68 +455,14 @@ const App: React.FC = () => {
   useEffect(() => {
     if (initialLoadComplete.current) return;
     
-    const checkServerForUpdates = async () => {
-        if (!backupEnabled || !backupApiKey) return;
-        
-        try {
-            setLastSyncStatus('Checking for updates...');
-            const localEtag = localStorage.getItem('cogniflow-lastSyncEtag');
-            const { metadata, isNotModified } = await backupService.getLatestBackupMetadata(localEtag || undefined);
-            
-            if (isNotModified) {
-                const lastSync = localStorage.getItem('cogniflow-lastSyncTimestamp');
-                setLastSyncStatus(lastSync ? `Last synced: ${new Date(lastSync).toLocaleTimeString()}` : 'In sync with server.');
-                return;
-            }
-
-            if (metadata) {
-                const serverDate = parseServerDate(metadata.modified);
-                if (isNaN(serverDate.getTime())) {
-                    throw new Error('Invalid date format from server.');
-                }
-                const serverLastModified = serverDate.getTime();
-                const localLastSync = new Date(localStorage.getItem('cogniflow-lastSyncTimestamp') || 0).getTime();
-
-                if (serverLastModified > (localLastSync + 60000)) {
-                    openConfirmModal({
-                        title: 'Update Available',
-                        message: 'Newer data found on the server. Download and merge now? This will overwrite any unsynced local changes.',
-                        onConfirm: async () => {
-                            try {
-                                const data = await backupService.downloadBackup(metadata);
-                                await handleRestoreData(data);
-                                const newTimestamp = new Date(serverLastModified).toISOString();
-                                localStorage.setItem('cogniflow-lastSyncTimestamp', newTimestamp);
-                                localStorage.setItem('cogniflow-lastSyncEtag', metadata.etag);
-                                setLastSyncStatus(`Synced from server: ${new Date(serverLastModified).toLocaleTimeString()}`);
-                            } catch (e) {
-                                const message = e instanceof Error ? e.message : "Unknown error";
-                                addToast(`Failed to download server data: ${message}`, 'error');
-                            }
-                        }
-                    });
-                } else {
-                     const lastSync = localStorage.getItem('cogniflow-lastSyncTimestamp');
-                     setLastSyncStatus(lastSync ? `Last synced: ${new Date(lastSync).toLocaleTimeString()}` : 'Never synced.');
-                }
-            }
-        } catch (e) {
-            const message = e instanceof Error ? e.message : "";
-            if (message.includes('404')) {
-                setLastSyncStatus('No backup found on server.');
-            } else {
-                setLastSyncStatus(`Error: ${message}`);
-            }
-        }
-    };
-
     if (!state.isLoading && !initialLoadComplete.current) {
         cleanupTrash();
         dataHandlers.reconcileSeriesProgress();
         checkServerForUpdates();
+        performAutoBackup();
         initialLoadComplete.current = true;
     }
-  }, [state.isLoading, backupEnabled, backupApiKey, openConfirmModal, handleRestoreData, addToast, cleanupTrash, dataHandlers]);
+  }, [state.isLoading, cleanupTrash, dataHandlers, checkServerForUpdates, performAutoBackup]);
 
   const { activeDeck, activeSeries } = useMemo(() => {
     const [pathname] = path.split('?');
@@ -534,6 +566,8 @@ const App: React.FC = () => {
                     onCancelAIGeneration={dataHandlers.handleCancelAIGeneration}
                     onSaveLearningBlock={dataHandlers.handleSaveLearningBlock}
                     onDeleteLearningBlock={dataHandlers.handleDeleteLearningBlock}
+                    onManageServerBackups={() => setServerBackupModalOpen(true)}
+                    handleCreateServerBackup={dataHandlers.handleCreateServerBackup}
                     {...dataHandlers}
                 />
             )}
@@ -543,6 +577,7 @@ const App: React.FC = () => {
       {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={closeImportModal} onAddDecks={handleAddDecks} onAddSeriesWithDecks={handleAddSeriesWithDecks} />}
       {isAIGenerationModalOpen && <AIGenerationModal isOpen={isAIGenerationModalOpen} onClose={closeAIGenerationModal} onGenerate={dataHandlers.handleGenerateWithAI} />}
       {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={closeRestoreModal} onRestore={handleRestoreData} />}
+      {isServerBackupModalOpen && <ServerBackupModal isOpen={isServerBackupModalOpen} onClose={() => setServerBackupModalOpen(false)} onRestore={dataHandlers.handleRestoreFromServerBackup} onDelete={dataHandlers.handleDeleteServerBackup} />}
       {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={closeResetProgressModal} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}
       {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={closeConfirm} {...confirmModalProps} />}
       {folderToEdit && <FolderModal folder={folderToEdit === 'new' ? null : folderToEdit} onClose={() => { setFolderToEdit(null); modalTriggerRef.current?.focus(); }} onSave={dataHandlers.handleSaveFolder} />}
@@ -551,11 +586,11 @@ const App: React.FC = () => {
         isOpen={isCommandPaletteOpen}
         onClose={closeCommandPalette}
         actions={[
-          { id: 'import', label: 'Create / Import Deck', icon: 'plus', action: openImportModal, keywords: ['new', 'add'] },
-          { id: 'settings', label: 'Settings', icon: 'settings', action: () => { navigate('/settings') } },
-          { id: 'trash', label: 'View Trash', icon: 'trash-2', action: () => { navigate('/trash') } },
-          { id: 'archive', label: 'View Archive', icon: 'archive', action: () => { navigate('/archive') } },
-          { id: 'progress', label: 'View Progress', icon: 'trending-up', action: () => { navigate('/progress') } },
+          { id: 'import', label: 'Create / Import Deck', icon: 'plus' as IconName, action: openImportModal, keywords: ['new', 'add'] },
+          { id: 'settings', label: 'Settings', icon: 'settings' as IconName, action: () => { navigate('/settings') } },
+          { id: 'trash', label: 'View Trash', icon: 'trash-2' as IconName, action: () => { navigate('/trash') } },
+          { id: 'archive', label: 'View Archive', icon: 'archive' as IconName, action: () => { navigate('/archive') } },
+          { id: 'progress', label: 'View Progress', icon: 'trending-up' as IconName, action: () => { navigate('/progress') } },
         ]}
       />
       {isDraggingOverWindow && (

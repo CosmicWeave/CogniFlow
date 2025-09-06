@@ -51,7 +51,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [disableAnimations, setDisableAnimationsState] = useState<boolean>(() => getInitialState('cogniflow-disableAnimations', false));
   const [hapticsEnabled, setHapticsEnabledState] = useState<boolean>(() => getInitialState('cogniflow-hapticsEnabled', true));
   const [aiFeaturesEnabled, setAiFeaturesEnabledState] = useState<boolean>(getInitialAiState);
-  const [backupEnabled, setBackupEnabledState] = useState<boolean>(() => getInitialState('cogniflow-backupEnabled', false));
+  const [backupEnabled, setBackupEnabledState] = useState<boolean>(() => getInitialState('cogniflow-backupEnabled', true));
   const [backupApiKey, setBackupApiKeyState] = useState<string>(() => {
     try {
         return window.localStorage.getItem('cogniflow-backupApiKey') || 'qRt+gU/57GHKhxTZeRnRi+dfT274iSkKKq2UnTr9Bxs=';

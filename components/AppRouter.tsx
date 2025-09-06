@@ -1,7 +1,6 @@
 import React from 'react';
 import { useRouter } from '../contexts/RouterContext';
-import { Deck, Folder, DeckSeries, QuizDeck, Reviewable, ReviewRating, DeckType, FlashcardDeck, Card, Question, LearningDeck, InfoCard } from '../types';
-import { RestoreData } from '../services/googleDriveService';
+import { Deck, Folder, DeckSeries, QuizDeck, Reviewable, ReviewRating, DeckType, FlashcardDeck, Card, Question, LearningDeck, InfoCard, FullBackupData } from '../types';
 
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -55,7 +54,7 @@ interface AppRouterProps {
     handleMoveDeck: (deckId: string, folderId: string | null) => Promise<void>;
     handleItemReviewed: (deckId: string, reviewedItem: Reviewable, rating: ReviewRating | null, seriesId?: string) => Promise<void>;
     handleExportData: () => Promise<void>;
-    handleRestoreData: (data: RestoreData) => Promise<void>;
+    handleRestoreData: (data: FullBackupData) => Promise<void>;
     handleResetDeckProgress: (deckId: string) => Promise<void>;
     handleFactoryReset: () => void;
     handleStartGeneralStudy: () => void;
@@ -63,7 +62,6 @@ interface AppRouterProps {
     handleSaveFolder: (folderData: { id: string | null; name: string; }) => Promise<void>;
     handleDeleteFolder: (folderId: string) => Promise<void>;
     handleUpdateSeries: (series: DeckSeries, options?: { silent?: boolean; toastMessage?: string; }) => Promise<void>;
-    // FIX: Update handleSaveSeries signature to allow for scaffold data on creation.
     handleSaveSeries: (data: { id: string | null; name: string; description: string; scaffold?: any; }) => Promise<void>;
     handleDeleteSeries: (seriesId: string) => Promise<void>;
     handleAddDeckToSeries: (seriesId: string, newDeck: QuizDeck) => Promise<void>;
@@ -74,12 +72,13 @@ interface AppRouterProps {
     handleAiAddLevelsToSeries: (seriesId: string) => Promise<void>;
     handleAiAddDecksToLevel: (seriesId: string, levelIndex: number) => Promise<void>;
     onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
-    // FIX: Add missing AI-related handler props.
     onGenerateContentForLearningDeck: (deck: LearningDeck) => void;
     onGenerateQuestionsForEmptyDecksInSeries: (seriesId: string) => void;
     onCancelAIGeneration: () => void;
     onSaveLearningBlock: (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => Promise<void>;
     onDeleteLearningBlock: (deckId: string, infoCardId: string) => Promise<void>;
+    onManageServerBackups: () => void;
+    handleCreateServerBackup: () => void;
 }
 
 const AppRouter: React.FC<AppRouterProps> = (props) => {
@@ -105,6 +104,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onFetchFromServer={props.onFetchFromServer}
             isSyncing={props.isSyncing}
             lastSyncStatus={props.lastSyncStatus}
+            onManageServerBackups={props.onManageServerBackups}
+            onCreateServerBackup={props.handleCreateServerBackup}
         />;
     }
     
@@ -147,6 +148,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onAiAddLevelsToSeries={props.handleAiAddLevelsToSeries}
             onAiAddDecksToLevel={props.handleAiAddDecksToLevel}
             onGenerateQuestionsForEmptyDecksInSeries={props.onGenerateQuestionsForEmptyDecksInSeries}
+            onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
             onCancelAIGeneration={props.onCancelAIGeneration}
         />;
     }

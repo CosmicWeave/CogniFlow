@@ -1,6 +1,4 @@
 
-
-
 export enum ReviewRating {
   Again = 1,
   Hard = 2,
@@ -214,3 +212,24 @@ export type AIGeneratedLevel = {
     title: string;
     decks: AIGeneratedDeck[];
 };
+
+// --- Backup & Restore Types ---
+export interface SessionState {
+    id: string;
+    reviewQueue: any[];
+    currentIndex: number;
+    readInfoCardIds?: string[];
+    unlockedQuestionIds?: string[];
+}
+
+export interface FullBackupData {
+    version: number;
+    decks: Deck[];
+    folders: Folder[];
+    deckSeries: DeckSeries[];
+    reviews?: ReviewLog[];
+    seriesProgress?: Record<string, string[]>;
+    sessions?: SessionState[];
+    aiOptions?: any;
+    aiChatHistory?: AIMessage[]; // Only for local backup
+}

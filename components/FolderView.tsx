@@ -22,8 +22,7 @@ interface FolderViewProps {
   onUpdateDeck: (deck: Deck, options?: { toastMessage?: string }) => void;
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
-  onSaveFolder: (folderData: { id: string; name: string }) => void;
-  // FIX: Add missing props for AI generation handlers.
+  onSaveFolder: (folderData: { id: string; name: string; }) => void;
   onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
   onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
 }

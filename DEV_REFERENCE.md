@@ -67,6 +67,26 @@ This is the **most important hook** for data manipulation. **All C.R.U.D. operat
 
 > **Golden Rule:** Never call `services/db.ts` directly from a component. Always go through `useDataManagement.ts`.
 
+### 3.4. AI Task Queue System
+
+To handle asynchronous AI generation tasks gracefully and prevent race conditions, the application implements a persistent, task-based queue. This allows users to initiate multiple AI requests without waiting for the previous one to complete.
+
+**Core Components:**
+
+-   **State (`AIGenerationStatus` in `store.ts`):** The Zustand store holds the complete state of the AI queue, including:
+    -   `queue`: An array of `AIGenerationTask` objects waiting to be processed.
+    -   `currentTask`: The task currently being executed, which includes an `AbortController` to handle cancellation.
+    -   `isGenerating`, `statusText`, etc.: UI-facing state derived from the queue and current task.
+-   **Actions (in `store.ts`):** The `appReducer` manages the queue's state transitions with specific actions:
+    -   `ADD_AI_TASK_TO_QUEUE`: Adds a new task to the end of the queue.
+    -   `START_NEXT_AI_TASK`: Moves the first task from the queue to `currentTask` and initiates processing.
+    -   `FINISH_CURRENT_AI_TASK`: Clears the `currentTask` upon completion.
+    -   `CANCEL_AI_TASK`: Aborts the `currentTask` or removes a specific task from the `queue`.
+-   **Queue Processor (Effect in `App.tsx`):** A `useEffect` hook monitors the `aiGenerationStatus`. When `currentTask` is `null` and the `queue` is not empty, it triggers the processing of the next task by dispatching `START_NEXT_AI_TASK` and calling the relevant `aiService` function.
+-   **UI Feedback (`AIGenerationStatusIndicator.tsx` & `AIGenerationStatusModal.tsx`):** These components subscribe to the `aiGenerationStatus` from the Zustand store to provide real-time feedback to the user about the current task and the number of items in the queue.
+
+This architecture ensures that AI tasks are executed sequentially, state is managed predictably, and the user has clear visibility into background processes.
+
 ---
 
 ## 4. Key Conventions & Best Practices

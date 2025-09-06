@@ -1,7 +1,8 @@
 
 
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Card, Question, ReviewRating, Deck, DeckType, Reviewable, QuizDeck, LearningDeck, InfoCard, FlashcardDeck } from '../types';
+import { Card, Question, ReviewRating, Deck, DeckType, Reviewable, QuizDeck, LearningDeck, InfoCard, FlashcardDeck, SessionState } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs';
 import { getSessionState, saveSessionState, deleteSessionState } from '../services/db';
 import Flashcard from './Flashcard';
@@ -58,12 +59,14 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
   const isGeneralSession = useMemo(() => deck.id === 'general-study-deck', [deck.id]);
   const sessionKey = `session_deck_${deck.id}${sessionKeySuffix}`;
 
-  const sessionState = useMemo(() => ({
+  // FIX: Added 'id' property to match the SessionState type.
+  const sessionState: SessionState = useMemo(() => ({
+      id: sessionKey,
       reviewQueue: sessionQueue,
       currentIndex,
       readInfoCardIds: Array.from(readInfoCardIds),
       unlockedQuestionIds: Array.from(unlockedQuestionIds),
-  }), [sessionQueue, currentIndex, readInfoCardIds, unlockedQuestionIds]);
+  }), [sessionQueue, currentIndex, readInfoCardIds, unlockedQuestionIds, sessionKey]);
 
   // Effect 1: Update the "last opened" timestamp.
   useEffect(() => {
@@ -97,7 +100,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
               setCurrentIndex(savedSession.currentIndex);
               setDisplayIndex(savedSession.currentIndex);
               if (isLearningDeck) {
-                // FIX: Added optional chaining as these properties might not exist in older session data.
                 setReadInfoCardIds(new Set(savedSession.readInfoCardIds || []));
                 setUnlockedQuestionIds(new Set(savedSession.unlockedQuestionIds || []));
               }
@@ -214,37 +216,33 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     if (!isLearningDeck || !isInfoCard || !isCurrent) return;
 
     const currentInfoCard = displayedItem as InfoCard;
+
+    // Persist read/unlocked state for session resume
     const newReadIds = new Set(readInfoCardIds).add(currentInfoCard.id);
+    setReadInfoCardIds(newReadIds);
     const newUnlockedIds = new Set(unlockedQuestionIds);
     currentInfoCard.unlocksQuestionIds.forEach(id => newUnlockedIds.add(id));
-
-    setReadInfoCardIds(newReadIds);
     setUnlockedQuestionIds(newUnlockedIds);
 
+    // Get all questions unlocked by this info card that are due
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    
-    const unlockedDueQuestions = (deck as LearningDeck).questions.filter(q =>
-        newUnlockedIds.has(q.id) &&
+    const questionsToInject = (deck as LearningDeck).questions.filter(q =>
+        currentInfoCard.unlocksQuestionIds.includes(q.id) &&
         !q.suspended &&
         new Date(q.dueDate) <= today
     );
 
-    // Find the next item in the current queue that isn't the one we just read
-    const remainingQueue = sessionQueue.slice(currentIndex + 1);
-    
-    // Intersperse the next due question
-    if (unlockedDueQuestions.length > 0) {
-        // Find the next question that isn't already in the upcoming queue
-        const nextDueQuestion = unlockedDueQuestions.find(q => !remainingQueue.some(item => item.id === q.id));
-        if (nextDueQuestion) {
-            const newQueue = [...sessionQueue.slice(0, currentIndex + 1), nextDueQuestion, ...remainingQueue.filter(item => item.id !== nextDueQuestion.id)];
-            setSessionQueue(newQueue);
-        }
-    }
+    // Replace the current info card with its unlocked, due questions.
+    // This removes the info card from the queue for the rest of the session.
+    const newQueue = [...sessionQueue];
+    newQueue.splice(currentIndex, 1, ...questionsToInject);
+    setSessionQueue(newQueue);
 
-    advanceToNext();
-  }, [isLearningDeck, isInfoCard, isCurrent, displayedItem, readInfoCardIds, unlockedQuestionIds, deck, sessionQueue, currentIndex, advanceToNext]);
+    // No need to call advanceToNext. The component re-renders with the new queue.
+    // The item at `currentIndex` is now the first injected question, or the next item
+    // if no questions were injected. This provides a seamless transition.
+}, [isLearningDeck, isInfoCard, isCurrent, displayedItem, readInfoCardIds, unlockedQuestionIds, deck, sessionQueue, currentIndex]);
 
   const handleReview = useCallback(async (rating: ReviewRating) => {
     if (!displayedItem || !isCurrent || isReviewing || isInfoCard) return;
@@ -261,7 +259,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     if (hapticsEnabled && 'vibrate' in navigator) navigator.vibrate(20);
 
     const oldMastery = getEffectiveMasteryLevel(displayedItem as Reviewable);
-    // FIX: Use a more specific type assertion to ensure the returned item type matches the state's expected type.
     let updatedItem = calculateNextReview(displayedItem as (Card | Question), rating);
     const newMastery = updatedItem.masteryLevel || 0;
     
@@ -389,7 +386,58 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
       );
     }
     
-    // ... (rest of the session end summary, unchanged)
+    const summary = reviewedItems.reduce((acc, { rating }) => {
+        if (rating) acc[rating] = (acc[rating] || 0) + 1;
+        return acc;
+    }, {} as Record<ReviewRating, number>);
+    const masteryChanges = reviewedItems.map(({ oldItem, newItem }) => {
+        const oldMastery = getEffectiveMasteryLevel(oldItem);
+        const newMastery = newItem.masteryLevel || 0;
+        return newMastery - oldMastery;
+    });
+    const avgMasteryChange = masteryChanges.length > 0 ? (masteryChanges.reduce((a,b) => a+b, 0) / masteryChanges.length) * 100 : 0;
+    
+    return (
+        <div className="text-center p-8 animate-fade-in relative">
+            <Confetti />
+            <h2 className="text-2xl font-bold text-green-500">Session Complete!</h2>
+            <p className="text-text-muted mt-2">You reviewed {reviewedItems.length} item{reviewedItems.length !== 1 ? 's' : ''}.</p>
+            
+            <div className="mt-8 max-w-sm mx-auto bg-surface p-4 rounded-lg border border-border">
+                <h3 className="font-semibold text-lg mb-3">Session Summary</h3>
+                <div className="flex justify-around text-center">
+                    <div>
+                        <p className="text-2xl font-bold text-red-500">{summary[ReviewRating.Again] || 0}</p>
+                        <p className="text-xs text-text-muted">Again</p>
+                    </div>
+                     <div>
+                        <p className="text-2xl font-bold text-orange-500">{summary[ReviewRating.Hard] || 0}</p>
+                        <p className="text-xs text-text-muted">Hard</p>
+                    </div>
+                     <div>
+                        <p className="text-2xl font-bold text-green-500">{summary[ReviewRating.Good] || 0}</p>
+                        <p className="text-xs text-text-muted">Good</p>
+                    </div>
+                     <div>
+                        <p className="text-2xl font-bold text-blue-500">{summary[ReviewRating.Easy] || 0}</p>
+                        <p className="text-xs text-text-muted">Easy</p>
+                    </div>
+                </div>
+                <div className="mt-4 text-sm">
+                    <p>Average Mastery Change: <strong className={avgMasteryChange >= 0 ? 'text-green-500' : 'text-red-500'}>{avgMasteryChange >= 0 ? '+' : ''}{avgMasteryChange.toFixed(1)}%</strong></p>
+                </div>
+            </div>
+            <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mt-8">
+                {nextDeckId && onStudyNextDeck && (
+                  <Button onClick={() => onStudyNextDeck(deck.id, seriesId!, nextDeckId)} variant="primary" size="lg">
+                    <Icon name="zap" className="w-5 h-5 mr-2" />
+                    Start Next Deck
+                  </Button>
+                )}
+                 <Button onClick={() => onSessionEnd(deck.id, seriesId)} variant={nextDeckId ? 'secondary' : 'primary'} size="lg">Finish Session</Button>
+            </div>
+        </div>
+    );
   }
 
   const showRatingButtons = (isFlipped || (isQuiz && isAnswered)) && isCurrent;
@@ -398,7 +446,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
   return (
     <div className="w-full max-w-3xl mx-auto p-4 flex flex-col h-full overflow-x-hidden">
       <InfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} infoCards={infoForModal} />
-      <ProgressBar current={currentIndex + 1} total={sessionQueue.length} />
+      <ProgressBar current={Math.min(currentIndex + 1, sessionQueue.length)} total={sessionQueue.length} />
       <div className="flex-grow flex flex-col items-center justify-center my-4 w-full">
         {displayedItem && (
           <div key={displayIndex} className="w-full relative animate-fade-in">
@@ -456,7 +504,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                     <Icon name="chevron-left" className="w-8 h-8" />
                 </Button>
                 <div className="text-center w-28">
-                    <span className="text-sm text-text-muted">Item {displayIndex + 1} of {sessionQueue.length}</span>
+                    <span className="text-sm text-text-muted">Item {Math.min(displayIndex + 1, sessionQueue.length)} of {sessionQueue.length}</span>
                 </div>
                 <Button variant="ghost" onClick={handleNavigateNext} disabled={displayIndex >= currentIndex} className="p-3 rounded-full disabled:opacity-30" aria-label="Next item">
                     <Icon name="chevron-left" className="w-8 h-8 rotate-180" />

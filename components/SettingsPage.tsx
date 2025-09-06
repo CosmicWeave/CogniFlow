@@ -16,6 +16,8 @@ interface SettingsPageProps {
   onFetchFromServer: () => void;
   isSyncing: boolean;
   lastSyncStatus: string;
+  onManageServerBackups: () => void;
+  onCreateServerBackup: () => void;
 }
 
 const AccordionSection: React.FC<{
@@ -57,8 +59,29 @@ const AccordionSection: React.FC<{
     );
 };
 
+const SyncStatusIndicator: React.FC<{ isSyncing: boolean; statusText: string }> = ({ isSyncing, statusText }) => {
+    if (isSyncing) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-blue-500">
+                <Spinner size="sm" />
+                <span className="font-semibold">{statusText}</span>
+            </div>
+        );
+    }
+    const isError = statusText.toLowerCase().startsWith('error');
+    const isSuccess = statusText.toLowerCase().startsWith('last synced');
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onResetProgress, onFactoryReset, onTriggerSync, onFetchFromServer, isSyncing, lastSyncStatus }) => {
+    return (
+        <div className={`flex items-center gap-2 text-sm ${isError ? 'text-red-500' : 'text-text-muted'}`}>
+            {isSuccess && <Icon name="check-circle" className="w-4 h-4 text-green-500 flex-shrink-0" />}
+            {isError && <Icon name="x-circle" className="w-4 h-4 flex-shrink-0" />}
+            <span>{statusText}</span>
+        </div>
+    );
+};
+
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore, onResetProgress, onFactoryReset, onTriggerSync, onFetchFromServer, isSyncing, lastSyncStatus, onManageServerBackups, onCreateServerBackup }) => {
   const { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled, backupEnabled, setBackupEnabled, backupApiKey, setBackupApiKey } = useSettings();
   const { addToast } = useToast();
   const { themeId, setThemeById } = useTheme();
@@ -92,13 +115,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore,
       <AccordionSection id="data" title="Data Management" openSection={openSection} setOpenSection={setOpenSection}>
           <div className="space-y-6">
               <div id="settings-server-sync">
-                <h4 className="font-semibold text-text">Server Sync</h4>
+                <h4 className="font-semibold text-text">Live Server Sync</h4>
                 <p className="text-text-muted my-2 text-sm">
-                  Automatically back up and synchronize your data with a remote server. "Sync Now" uploads your local data, while "Fetch" downloads the server version.
+                  Synchronize your data with a single live file on the server. "Sync Now" uploads your local data, while "Fetch" downloads the server version, overwriting local changes.
                 </p>
                 <div className="space-y-4 p-4 bg-background rounded-lg border border-border">
                   <ToggleSwitch
-                    label="Enable Automatic Server Sync"
+                    label="Enable Server Sync & Backups"
                     checked={backupEnabled}
                     onChange={setBackupEnabled}
                   />
@@ -118,15 +141,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onExport, onRestore,
                   </div>
                   <div className="flex flex-col sm:flex-row gap-4 items-center pt-2">
                       <Button onClick={onTriggerSync} disabled={isSyncing || !backupEnabled}>
-                          {isSyncing ? <Spinner size="sm" /> : <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />}
-                          {isSyncing ? 'Syncing...' : 'Sync Now'}
+                          <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
+                          Sync Now
                       </Button>
                        <Button onClick={onFetchFromServer} variant="secondary" disabled={isSyncing || !backupEnabled}>
                           <Icon name="download" className="w-5 h-5 mr-2" />
                           Fetch from Server
                        </Button>
-                      <p className="text-sm text-text-muted">{lastSyncStatus}</p>
+                      <SyncStatusIndicator isSyncing={isSyncing} statusText={lastSyncStatus} />
                   </div>
+                </div>
+              </div>
+
+              <div id="settings-server-backup" className="border-t border-border pt-6">
+                <h4 className="font-semibold text-text">Server Backups</h4>
+                <p className="text-text-muted my-2 text-sm">
+                  Create timestamped backups of your live sync file on the server. You can restore your live data from one of these backups at any time.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button onClick={onCreateServerBackup} variant="secondary" disabled={isSyncing || !backupEnabled}>
+                    <Icon name="save" className="w-5 h-5 mr-2" />
+                    Create Server Backup
+                  </Button>
+                  <Button onClick={onManageServerBackups} variant="secondary" disabled={isSyncing || !backupEnabled}>
+                    <Icon name="list" className="w-5 h-5 mr-2" />
+                    Manage & Restore Backups
+                  </Button>
                 </div>
               </div>
 

@@ -1,4 +1,3 @@
-
 const STOCKHOLM_TIMEZONE = 'Europe/Stockholm';
 
 /**
@@ -51,4 +50,27 @@ export const formatUTCToStockholmString = (dateString: string): string => {
         console.error("Failed to format date string:", dateString, e);
         return 'Invalid Date';
     }
+};
+
+/**
+ * Helper to safely parse server date strings which might be timestamps or formatted strings.
+ * @param dateValue The date value from the server (string, number, null, or undefined).
+ * @returns {Date} A valid Date object or an invalid Date object if parsing fails.
+ */
+export const parseServerDate = (dateValue?: string | number | null): Date => {
+    // Return an invalid date if the input is null, undefined, or an empty string
+    if (!dateValue) {
+      return new Date(NaN);
+    }
+    // Handle numeric timestamps (assuming seconds, convert to milliseconds)
+    if (typeof dateValue === 'number') {
+        return new Date(dateValue * 1000);
+    }
+    // Check if it's a numeric string (unix timestamp in seconds)
+    if (/^\d+(\.\d+)?$/.test(dateValue)) {
+      return new Date(parseFloat(dateValue) * 1000);
+    }
+    // Otherwise, try to parse it as a date string, making it more compatible.
+    // Handles ISO 8601 format like "2025-08-31T06:43:54Z" correctly.
+    return new Date(String(dateValue).replace(' ', 'T'));
 };

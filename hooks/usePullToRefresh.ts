@@ -13,7 +13,10 @@ export const usePullToRefresh = () => {
   const { hapticsEnabled } = useSettings();
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (window.scrollY === 0) {
+    const targetElement = e.target as HTMLElement;
+    // Do not initiate pull-to-refresh if the touch starts on an interactive element.
+    // This prevents blocking default behaviors like focusing an input field on tap.
+    if (window.scrollY === 0 && !targetElement.closest('input, textarea, button, a[href], select, [role="button"], [role="switch"]')) {
       setPullToRefreshState(s => ({ ...s, startY: e.touches[0].clientY, pullDistance: 0, isRefreshing: false, thresholdMet: false }));
     } else {
       setPullToRefreshState(s => ({ ...s, startY: 0 }));

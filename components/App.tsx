@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel, Card, Question, AIAction, LearningDeck, InfoCard } from '../types';
 import * as db from '../services/db';
@@ -34,6 +35,7 @@ import AIChatFab from './AIChatFab';
 import AIChatModal from './AIChatModal';
 import AIGenerationStatusIndicator from './AIGenerationStatusIndicator';
 import AIGenerationStatusModal from './AIGenerationStatusModal';
+import ServerBackupModal from './ServerBackupModal';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -43,6 +45,7 @@ const App: React.FC = () => {
   const [isAIGenerationModalOpen, setAIGenerationModalOpen] = useState(false);
   const [isAIStatusModalOpen, setAIStatusModalOpen] = useState(false);
   const [isRestoreModalOpen, setRestoreModalOpen] = useState(false);
+  const [isServerBackupModalOpen, setServerBackupModalOpen] = useState(false);
   const [isResetProgressModalOpen, setResetProgressModalOpen] = useState(false);
   const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -161,12 +164,17 @@ const App: React.FC = () => {
     if (isManual) addToast('Manual sync started...', 'info');
 
     try {
-        const { timestamp, etag } = await backupService.uploadBackup();
+        // FIX: Corrected function name from uploadBackup to syncDataToServer
+        const { timestamp, etag } = await backupService.syncDataToServer();
         const syncDate = new Date(timestamp);
         localStorage.setItem('cogniflow-lastSyncTimestamp', syncDate.toISOString());
         localStorage.setItem('cogniflow-lastSyncEtag', etag);
+        
         setLastSyncStatus(`Last synced: ${syncDate.toLocaleTimeString()}`);
-        addToast('Data successfully synced to server.', 'success');
+        
+        if (isManual) {
+            addToast('Data successfully synced to server.', 'success');
+        }
     } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
         console.error("Sync failed:", e);
@@ -259,34 +267,35 @@ const App: React.FC = () => {
 
     openConfirmModal({
         title: 'Fetch from Server',
-        message: 'This will download the latest backup from the server and overwrite any unsynced local changes. Are you sure you want to continue?',
+        message: 'This will download the latest sync data from the server and overwrite any unsynced local changes. Are you sure you want to continue?',
         confirmText: 'Fetch',
         onConfirm: async () => {
             setIsSyncing(true);
             setLastSyncStatus('Fetching from server...');
             try {
-                const { metadata } = await backupService.getLatestBackupMetadata();
+                // FIX: Corrected function names to get metadata then download.
+                const { metadata } = await backupService.getSyncDataMetadata();
                 if (!metadata) {
-                    throw new Error("Failed to retrieve backup metadata from server.");
+                    throw new Error("No sync file found on server to fetch from.");
                 }
-                const data = await backupService.downloadBackup(metadata);
+                const data = await backupService.syncDataFromServer();
                 await dataHandlers.handleRestoreData(data);
                 
-                const serverDate = parseServerDate(metadata.modified);
-                if (isNaN(serverDate.getTime())) {
+                const syncDate = parseServerDate(metadata.modified);
+                 if (isNaN(syncDate.getTime())) {
                     throw new Error('Received an invalid date from the server.');
                 }
-                const serverLastModified = serverDate.toISOString();
+                const serverLastModified = syncDate.toISOString();
 
                 localStorage.setItem('cogniflow-lastSyncTimestamp', serverLastModified);
-                localStorage.setItem('cogniflow-lastSyncEtag', metadata.etag);
-                setLastSyncStatus(`Synced from server: ${serverDate.toLocaleTimeString()}`);
+                if(metadata.etag) localStorage.setItem('cogniflow-lastSyncEtag', metadata.etag);
+                setLastSyncStatus(`Synced from server: ${syncDate.toLocaleTimeString()}`);
                 addToast('Successfully fetched and restored data from server.', 'success');
             } catch (e) {
                 const message = e instanceof Error ? e.message : "Unknown error";
                 console.error("Fetch failed:", e);
-                if (message.includes('404')) {
-                    const userMessage = 'No backup found on the server to fetch from.';
+                if ((e as any).status === 404 || (message.includes('404'))) {
+                    const userMessage = 'No sync file found on the server.';
                     setLastSyncStatus(userMessage);
                     addToast(userMessage, 'info');
                 } else {
@@ -298,7 +307,7 @@ const App: React.FC = () => {
             }
         }
     });
-  }, [backupEnabled, backupApiKey, isSyncing, addToast, openConfirmModal, dataHandlers, parseServerDate]);
+  }, [backupEnabled, backupApiKey, isSyncing, addToast, openConfirmModal, dataHandlers]);
   
   const loadData = useCallback(async (isInitialLoad = false) => {
     try {
@@ -367,8 +376,8 @@ const App: React.FC = () => {
         
         try {
             setLastSyncStatus('Checking for updates...');
-            const localEtag = localStorage.getItem('cogniflow-lastSyncEtag');
-            const { metadata, isNotModified } = await backupService.getLatestBackupMetadata(localEtag || undefined);
+            // FIX: Corrected function name from getRemoteBackupMetadata to getSyncDataMetadata
+            const { metadata, isNotModified } = await backupService.getSyncDataMetadata();
             
             if (isNotModified) {
                 const lastSync = localStorage.getItem('cogniflow-lastSyncTimestamp');
@@ -384,17 +393,18 @@ const App: React.FC = () => {
                 const serverLastModified = serverDate.getTime();
                 const localLastSync = new Date(localStorage.getItem('cogniflow-lastSyncTimestamp') || 0).getTime();
 
-                if (serverLastModified > (localLastSync + 60000)) {
+                if (serverLastModified > (localLastSync + 60000)) { // 1 minute threshold
                     openConfirmModal({
                         title: 'Update Available',
                         message: 'Newer data found on the server. Download and merge now? This will overwrite any unsynced local changes.',
                         onConfirm: async () => {
                             try {
-                                const data = await backupService.downloadBackup(metadata);
+                                // FIX: Corrected function name from downloadBackup to syncDataFromServer
+                                const data = await backupService.syncDataFromServer();
                                 await handleRestoreData(data);
                                 const newTimestamp = new Date(serverLastModified).toISOString();
                                 localStorage.setItem('cogniflow-lastSyncTimestamp', newTimestamp);
-                                localStorage.setItem('cogniflow-lastSyncEtag', metadata.etag);
+                                if (metadata.etag) localStorage.setItem('cogniflow-lastSyncEtag', metadata.etag);
                                 setLastSyncStatus(`Synced from server: ${new Date(serverLastModified).toLocaleTimeString()}`);
                             } catch (e) {
                                 const message = e instanceof Error ? e.message : "Unknown error";
@@ -410,7 +420,7 @@ const App: React.FC = () => {
         } catch (e) {
             const message = e instanceof Error ? e.message : "";
             if (message.includes('404')) {
-                setLastSyncStatus('No backup found on server.');
+                setLastSyncStatus('No sync file found on server.');
             } else {
                 setLastSyncStatus(`Error: ${message}`);
             }
@@ -423,7 +433,7 @@ const App: React.FC = () => {
         checkServerForUpdates();
         initialLoadComplete.current = true;
     }
-  }, [state.isLoading, backupEnabled, backupApiKey, openConfirmModal, handleRestoreData, addToast, cleanupTrash, dataHandlers, parseServerDate]);
+  }, [state.isLoading, backupEnabled, backupApiKey, openConfirmModal, handleRestoreData, addToast, cleanupTrash, dataHandlers]);
 
   const { activeDeck, activeSeries } = useMemo(() => {
     const [pathname] = path.split('?');
@@ -527,6 +537,8 @@ const App: React.FC = () => {
                     onCancelAIGeneration={dataHandlers.handleCancelAIGeneration}
                     onSaveLearningBlock={dataHandlers.handleSaveLearningBlock}
                     onDeleteLearningBlock={dataHandlers.handleDeleteLearningBlock}
+                    onManageServerBackups={() => setServerBackupModalOpen(true)}
+                    handleCreateServerBackup={dataHandlers.handleCreateServerBackup}
                     {...dataHandlers}
                 />
             )}
@@ -536,6 +548,7 @@ const App: React.FC = () => {
       {isImportModalOpen && <ImportModal isOpen={isImportModalOpen} onClose={closeImportModal} onAddDecks={handleAddDecks} onAddSeriesWithDecks={handleAddSeriesWithDecks} />}
       {isAIGenerationModalOpen && <AIGenerationModal isOpen={isAIGenerationModalOpen} onClose={closeAIGenerationModal} onGenerate={dataHandlers.handleGenerateWithAI} />}
       {isRestoreModalOpen && <RestoreModal isOpen={isRestoreModalOpen} onClose={closeRestoreModal} onRestore={handleRestoreData} />}
+      {isServerBackupModalOpen && <ServerBackupModal isOpen={isServerBackupModalOpen} onClose={() => setServerBackupModalOpen(false)} onRestore={dataHandlers.handleRestoreFromServerBackup} onDelete={dataHandlers.handleDeleteServerBackup} />}
       {isResetProgressModalOpen && <ResetProgressModal isOpen={isResetProgressModalOpen} onClose={closeResetProgressModal} onReset={dataHandlers.handleResetDeckProgress} decks={state.decks} />}
       {isConfirmModalOpen && <ConfirmModal isOpen={isConfirmModalOpen} onClose={closeConfirm} {...confirmModalProps} />}
       {folderToEdit && <FolderModal folder={folderToEdit === 'new' ? null : folderToEdit} onClose={() => { setFolderToEdit(null); modalTriggerRef.current?.focus(); }} onSave={dataHandlers.handleSaveFolder} />}

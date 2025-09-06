@@ -191,7 +191,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, action
         title = item.label;
         break;
       case 'deck':
-        // FIX: Handle 'learning' deck type and set appropriate icon
         iconName = 'help-circle'; // Default for quiz
         if (item.itemType === DeckType.Flashcard) iconName = 'laptop';
         else if (item.itemType === DeckType.Learning) iconName = 'layers';

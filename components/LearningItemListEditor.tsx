@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { LearningDeck, InfoCard, Question } from '../types';
 import Button from './ui/Button';
@@ -9,9 +10,10 @@ interface LearningItemListEditorProps {
   deck: LearningDeck;
   onSaveBlock: (data: LearningBlockData) => void;
   onDeleteBlock: (infoCardId: string) => void;
+  onBlockClick: (block: LearningBlockData) => void;
 }
 
-const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, onSaveBlock, onDeleteBlock }) => {
+const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, onSaveBlock, onDeleteBlock, onBlockClick }) => {
   const [editingBlock, setEditingBlock] = useState<LearningBlockData | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -51,7 +53,14 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
         {learningBlocks.length > 0 ? (
           <ul className="space-y-4">
             {learningBlocks.map(block => (
-              <li key={block.infoCard.id} className="p-4 rounded-lg bg-background border border-border">
+              <li
+                key={block.infoCard.id}
+                className="p-4 rounded-lg bg-background border border-border transition-all duration-200 hover:border-primary hover:shadow-md cursor-pointer"
+                onClick={() => onBlockClick(block)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBlockClick(block); }}
+                tabIndex={0}
+                role="button"
+              >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0 mr-4">
                     <div className="flex items-center gap-2 text-text font-semibold">
@@ -72,10 +81,10 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
                     )}
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-1">
-                    <Button variant="ghost" className="p-2 h-auto" onClick={(e) => openEditModal(block, e)} title="Edit this block">
+                    <Button variant="ghost" className="p-2 h-auto" onClick={(e) => { e.stopPropagation(); openEditModal(block, e); }} title="Edit this block">
                       <Icon name="edit" className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={() => onDeleteBlock(block.infoCard.id)} title="Delete this block">
+                    <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => { e.stopPropagation(); onDeleteBlock(block.infoCard.id); }} title="Delete this block">
                       <Icon name="trash-2" className="w-4 h-4" />
                     </Button>
                   </div>
