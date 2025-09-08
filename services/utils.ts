@@ -1,4 +1,3 @@
-
 export const stripHtml = (html: string | undefined): string => {
     if (!html) return "";
     try {

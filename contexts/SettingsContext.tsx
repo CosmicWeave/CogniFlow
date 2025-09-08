@@ -11,6 +11,8 @@ interface SettingsContextType {
   setBackupEnabled: (enabled: boolean) => void;
   backupApiKey: string;
   setBackupApiKey: (key: string) => void;
+  syncOnCellular: boolean;
+  setSyncOnCellular: (enabled: boolean) => void;
 }
 
 export const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -59,6 +61,8 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         return 'qRt+gU/57GHKhxTZeRnRi+dfT274iSkKKq2UnTr9Bxs=';
     }
   });
+  const [syncOnCellular, setSyncOnCellularState] = useState<boolean>(() => getInitialState('cogniflow-syncOnCellular', true));
+
 
   const setDisableAnimations = useCallback((disabled: boolean) => {
     setDisableAnimationsState(disabled);
@@ -105,8 +109,17 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
+  const setSyncOnCellular = useCallback((enabled: boolean) => {
+    setSyncOnCellularState(enabled);
+    try {
+        window.localStorage.setItem('cogniflow-syncOnCellular', JSON.stringify(enabled));
+    } catch (error) {
+        console.error('Error writing syncOnCellular setting to localStorage', error);
+    }
+  }, []);
 
-  const value = { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled, backupEnabled, setBackupEnabled, backupApiKey, setBackupApiKey };
+
+  const value = { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled, backupEnabled, setBackupEnabled, backupApiKey, setBackupApiKey, syncOnCellular, setSyncOnCellular };
 
   return (
     <SettingsContext.Provider value={value}>

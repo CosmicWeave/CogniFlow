@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useMemo } from 'react';
 // FIX: Add LearningDeck and InfoCard to imports
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
@@ -169,7 +171,8 @@ const StatisticsTabContent: React.FC<{ deck: Deck }> = ({ deck }) => {
     );
 };
 
-const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, onGenerateQuestionsForDeck, onGenerateContentForLearningDeck, onSaveLearningBlock, onDeleteLearningBlock }) => {
+// FIX: Changed to named export
+export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, onGenerateQuestionsForDeck, onGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
@@ -495,5 +498,3 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     </div>
   );
 };
-
-export default DeckDetailsPage;

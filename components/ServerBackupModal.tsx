@@ -34,7 +34,8 @@ const ServerBackupModal: React.FC<ServerBackupModalProps> = ({ isOpen, onClose, 
                     backupService.listServerBackups(),
                     backupService.getSyncDataMetadata()
                 ]);
-                setFiles(fetchedFiles);
+                const sortedFiles = fetchedFiles.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+                setFiles(sortedFiles);
                 if (metadata) {
                     const syncDate = new Date(metadata.modified);
                     const sizeKB = (metadata.size / 1024).toFixed(1);

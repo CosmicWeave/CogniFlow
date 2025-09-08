@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -55,6 +54,8 @@ const AddDeckToSeriesModal: React.FC<AddDeckToSeriesModalProps> = ({ isOpen, onC
         questions: parsed.data.questions.map(q => ({
             ...q,
             id: crypto.randomUUID(),
+            // FIX: Added missing 'questionType' property required by the Question interface.
+            questionType: 'multipleChoice',
             dueDate: new Date().toISOString(),
             interval: 0,
             easeFactor: 2.5,

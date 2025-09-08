@@ -1,5 +1,5 @@
+
 import React, { useMemo } from 'react';
-// FIX: Add QuizDeck and LearningDeck to imports
 import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -19,7 +19,6 @@ interface DashboardPageProps {
   openConfirmModal: (props: any) => void;
   seriesProgress: SeriesProgress;
   onStartSeriesStudy: (seriesId: string) => Promise<void>;
-  // FIX: Added missing AI-related props.
   onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
   onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
   onGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
@@ -48,12 +47,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   openConfirmModal,
   seriesProgress,
   onStartSeriesStudy,
-  // FIX: Destructured the added AI-related props.
   onGenerateQuestionsForDeck,
   onGenerateContentForLearningDeck,
   onGenerateQuestionsForEmptyDecksInSeries,
-  // FIX: Destructure the onCancelAIGeneration prop.
-  onCancelAIGeneration
 }) => {
   const { decks, deckSeries } = useStore();
 

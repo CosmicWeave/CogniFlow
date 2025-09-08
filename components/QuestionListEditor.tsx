@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Question } from '../types';
 import Button from './ui/Button';
@@ -161,6 +159,13 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                                         <Icon name="list" className="w-3 h-3 inline-block mr-1" />{question.options.length} options
                                     </span>
                                 </div>
+                                {question.tags && question.tags.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1 mt-2">
+                                        {question.tags.map(tag => (
+                                            <span key={tag} className="bg-border/50 text-text-muted text-xs px-2 py-0.5 rounded-full">{tag}</span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="flex-shrink-0 relative" ref={menuOpenForQuestion === question.id ? menuRef : null}>

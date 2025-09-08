@@ -1,36 +1,35 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { useStore } from '../store/store';
 import { AIAction, AIMessage } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
-import { getAIResponse } from '../services/aiChatService';
 import * as db from '../services/db';
+import { useStore } from '../store/store';
+import { getAIResponse } from '../services/aiService';
+
 
 interface AIChatModalProps {
+  isOpen: boolean;
+  onClose: () => void;
   onExecuteAction: (action: AIAction) => void;
+  history: AIMessage[];
 }
 
-const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
-    const { dispatch, isAIChatOpen, aiChatHistory, decks, folders, deckSeries } = useStore();
+const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, onExecuteAction, history }) => {
+    const { dispatch, decks, folders, deckSeries } = useStore();
     const [userInput, setUserInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    const handleClose = () => {
-        dispatch({ type: 'TOGGLE_AI_CHAT', payload: false });
-    };
-    
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [aiChatHistory]);
+    }, [history]);
 
     useEffect(() => {
-        // Persist chat history to DB whenever it changes, but not on initial load
-        if (aiChatHistory.length > 0) {
-            db.saveAIChatHistory(aiChatHistory);
+        // Persist chat history to DB whenever it changes
+        if (isOpen) { // Only save when modal is open to avoid saving on initial load
+            db.saveAIChatHistory(history);
         }
-    }, [aiChatHistory]);
+    }, [history, isOpen]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -42,7 +41,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
         const newUserMessage: AIMessage = { id: crypto.randomUUID(), role: 'user', text: prompt };
         const loadingMessage: AIMessage = { id: crypto.randomUUID(), role: 'model', text: '', isLoading: true };
         
-        const updatedHistory = [...aiChatHistory, newUserMessage, loadingMessage];
+        const updatedHistory = [...history, newUserMessage, loadingMessage];
         dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: updatedHistory });
 
         try {
@@ -58,7 +57,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
             // Replace loading message with the actual response
             dispatch({ 
                 type: 'SET_AI_CHAT_HISTORY', 
-                payload: [...aiChatHistory, newUserMessage, modelResponseMessage]
+                payload: [...history, newUserMessage, modelResponseMessage]
             });
 
         } catch (error) {
@@ -69,20 +68,20 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
             };
             dispatch({ 
                 type: 'SET_AI_CHAT_HISTORY', 
-                payload: [...aiChatHistory, newUserMessage, errorMessage]
+                payload: [...history, newUserMessage, errorMessage]
             });
         }
     };
     
     const handleActionClick = (action: AIAction) => {
         onExecuteAction(action);
-        handleClose();
+        onClose();
     };
 
-    if (!isAIChatOpen) return null;
+    if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-end" onClick={handleClose}>
+        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-end" onClick={onClose}>
             <div 
                 className="bg-surface w-full max-w-2xl h-[70vh] max-h-[600px] rounded-t-2xl shadow-2xl flex flex-col transform transition-transform duration-300 animate-fade-in"
                 style={{ animationName: 'slideUp', animationDuration: '0.3s' }}
@@ -93,12 +92,12 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
                         <Icon name="bot" className="w-6 h-6 text-primary" />
                         <h2 className="text-xl font-bold text-text">AI Assistant</h2>
                     </div>
-                    <Button variant="ghost" onClick={handleClose} className="p-1 h-auto"><Icon name="x" /></Button>
+                    <Button variant="ghost" onClick={onClose} className="p-1 h-auto"><Icon name="x" /></Button>
                 </header>
                 
                 <main className="flex-grow p-4 overflow-y-auto">
                     <div className="space-y-4">
-                        {aiChatHistory.map(message => (
+                        {history.map(message => (
                             <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 {message.role === 'model' && <Icon name="bot" className="w-6 h-6 text-primary flex-shrink-0 mt-1" />}
                                 <div className={`max-w-md p-3 rounded-2xl ${message.role === 'user' ? 'bg-primary text-on-primary rounded-br-lg' : 'bg-background rounded-bl-lg'}`}>
@@ -115,7 +114,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ onExecuteAction }) => {
                                             {message.actions.map((action, index) => (
                                                 action.action !== 'NO_ACTION' && (
                                                     <Button key={index} size="sm" variant="secondary" onClick={() => handleActionClick(action)}>
-                                                        {action.action.replace(/_/g, ' ').toLowerCase()}
+                                                        {action.confirmationMessage}
                                                     </Button>
                                                 )
                                             ))}

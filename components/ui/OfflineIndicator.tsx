@@ -2,7 +2,7 @@ import React from 'react';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
 const OfflineIndicator: React.FC = () => {
-  const isOnline = useOnlineStatus();
+  const { isOnline } = useOnlineStatus();
 
   if (isOnline) {
     return null;

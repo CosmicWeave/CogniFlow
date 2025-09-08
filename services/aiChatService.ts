@@ -1,5 +1,3 @@
-
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Deck, DeckSeries, Folder, AIActionType, AIAction } from "../types";
 
@@ -13,7 +11,7 @@ const getAiClient = (): GoogleGenAI => {
 
 const actionSchema = {
     type: Type.ARRAY,
-    description: "An array of one or more actions the user wants to perform. If the user is just chatting, return an empty array or an array with a single NO_ACTION.",
+    description: "An array of one or more actions the user wants to perform. If the user is just chatting, return an array with a single NO_ACTION.",
     items: {
         type: Type.OBJECT,
         properties: {
@@ -77,7 +75,7 @@ export const getAIResponse = async (
         2.  Analyze the provided application state to find the relevant IDs for decks and folders mentioned by name.
         3.  If the user's request is ambiguous (e.g., "delete the history deck" when multiple exist), ask for clarification by using the 'NO_ACTION' type and formulating a question in the 'confirmationMessage'.
         4.  If the user is just chatting or asking a question you can't perform an action for, use the 'NO_ACTION' type and provide a helpful response in the 'confirmationMessage'.
-        5.  For any action that modifies data, construct a clear and concise 'confirmationMessage' for the user to approve. Example: "Are you sure you want to delete the deck 'Ancient Rome'?" or "Okay, I'll create a new folder named 'Languages'. Correct?"
+        5.  For any action that modifies data, construct a clear and concise 'confirmationMessage' that will be presented as a button for the user to approve. Example: "Delete 'Ancient Rome' Deck?" or "Create 'Languages' Folder?".
         6.  For MOVE_DECK_TO_FOLDER, if the user wants to move a deck out of a folder, the 'folderId' in the payload should be \`null\`.
         7.  For EXPAND_SERIES_ADD_DECKS, you must identify the correct series by name to get its ID, and determine the correct 0-based 'levelIndex' from the user's request (e.g., "add a deck to the first level" means levelIndex: 0).
         8.  For GENERATE_QUESTIONS_FOR_DECK, identify the target deck by name to get its ID. If the user specifies a number (e.g., "add 10 questions"), include it in the 'count' payload property. The generated content should leverage HTML formatting where appropriate for clarity (e.g., using <b> for emphasis or <ruby> for annotations in language decks).

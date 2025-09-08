@@ -235,6 +235,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     setIsBlockDetailModalOpen(true);
   };
 
+  // FIX: Use currentTask !== null to determine if generating, and check currentTask's deckId.
   const isGeneratingThisDeck = aiGenerationStatus.currentTask?.deckId === deck.id;
   const activeItems = allItems.filter(item => !item.suspended);
   const suspendedCount = allItems.length - activeItems.length;

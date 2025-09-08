@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { Card } from '../types';
 import Button from './ui/Button';
@@ -11,7 +10,7 @@ import { getEffectiveMasteryLevel } from '../services/srs';
 interface CardListEditorProps {
   cards: Card[];
   onCardsChange: (newCards: Card[]) => void;
-  onAddCard: (newCardData: Pick<Card, 'front' | 'back'>) => void;
+  onAddCard: (newCardData: Pick<Card, 'front' | 'back' | 'css'>) => void;
   onBulkAdd: () => void;
 }
 
@@ -74,7 +73,7 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
     setCardToDelete(null);
   };
 
-  const handleSaveCard = (cardToSave: Pick<Card, 'front' | 'back' | 'id'>) => {
+  const handleSaveCard = (cardToSave: Pick<Card, 'front' | 'back' | 'id' | 'css'>) => {
     if (editingCard) { // Editing existing card
       onCardsChange(cards.map(c => c.id === cardToSave.id ? { ...c, ...cardToSave } : c));
     } else { // Adding new card

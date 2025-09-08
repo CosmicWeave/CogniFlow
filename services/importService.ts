@@ -31,11 +31,17 @@ export const parseAndValidateBackupFile = (jsonString: string): FullBackupData =
       const decks = data.decks as Deck[];
       const folders = (data.folders || []) as Folder[];
       const aiOptions = data.aiOptions || undefined;
-      const reviews = data.reviews || [];
-      const sessions = data.sessions || [];
-      const seriesProgress = data.seriesProgress || {};
-      const aiChatHistory = data.aiChatHistory || [];
       
+      // Perform stricter validation on nested/complex data types.
+      const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+      const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+      const seriesProgressIsValid = typeof data.seriesProgress === 'object' 
+                              && data.seriesProgress !== null 
+                              && !Array.isArray(data.seriesProgress)
+                              && Object.values(data.seriesProgress).every(val => Array.isArray(val) && val.every(v => typeof v === 'string'));
+      const seriesProgress = seriesProgressIsValid ? data.seriesProgress : {};
+      const aiChatHistory = Array.isArray(data.aiChatHistory) ? data.aiChatHistory : [];
+
       const deckSeries = (Array.isArray(data.deckSeries) ? data.deckSeries : [])
         .filter((s: any) => s && typeof s.id === 'string' && typeof s.name === 'string')
         .map((s: any) => {
@@ -204,6 +210,8 @@ export const createQuestionsFromImport = (importedQuestions: ImportedQuestion[])
     return importedQuestions.map(importedQuestion => ({
         ...importedQuestion,
         id: crypto.randomUUID(),
+        // FIX: Added missing 'questionType' property required by the Question interface.
+        questionType: 'multipleChoice',
         dueDate: today.toISOString(),
         interval: 0,
         easeFactor: INITIAL_EASE_FACTOR,

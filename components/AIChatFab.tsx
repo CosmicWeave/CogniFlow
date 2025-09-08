@@ -2,20 +2,14 @@
 import React from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
-import { useStore } from '../store/store';
+import { useModal } from '../contexts/ModalContext';
 
 const AIChatFab: React.FC = () => {
-    const dispatch = useStore(state => state.dispatch);
-    const isAIChatOpen = useStore(state => state.isAIChatOpen);
+    const { openModal } = useModal();
 
     const handleOpenChat = () => {
-        dispatch({ type: 'TOGGLE_AI_CHAT', payload: true });
+        openModal('aiChat');
     };
-    
-    // Hide FAB if chat is open to avoid overlap
-    if (isAIChatOpen) {
-        return null;
-    }
 
     return (
         <div className="fixed bottom-6 right-6 z-40">

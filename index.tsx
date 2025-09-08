@@ -1,3 +1,4 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -6,6 +7,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { RouterProvider } from './contexts/RouterContext';
+import { ModalProvider } from './contexts/ModalContext';
 
 // --- Global Error Handling ---
 window.addEventListener('error', (event) => {
@@ -36,9 +38,11 @@ root.render(
       <ToastProvider>
         <SettingsProvider>
           <RouterProvider>
-            <ErrorBoundary>
-              <App />
-            </ErrorBoundary>
+            <ModalProvider>
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
+            </ModalProvider>
           </RouterProvider>
         </SettingsProvider>
       </ToastProvider>

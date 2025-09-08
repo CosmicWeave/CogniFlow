@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '../types';
 import Button from './ui/Button';
@@ -9,12 +8,13 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 interface EditCardModalProps {
   card: Card | null; // null for creating a new card
   onClose: () => void;
-  onSave: (card: Pick<Card, 'front' | 'back' | 'id'>) => void;
+  onSave: (card: Pick<Card, 'front' | 'back' | 'id' | 'css'>) => void;
 }
 
 const EditCardModal: React.FC<EditCardModalProps> = ({ card, onClose, onSave }) => {
   const [front, setFront] = useState('');
   const [back, setBack] = useState('');
+  const [css, setCss] = useState('');
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, true);
@@ -23,6 +23,7 @@ const EditCardModal: React.FC<EditCardModalProps> = ({ card, onClose, onSave }) 
     if (card) {
       setFront(card.front);
       setBack(card.back);
+      setCss(card.css || '');
     }
   }, [card]);
 
@@ -36,10 +37,11 @@ const EditCardModal: React.FC<EditCardModalProps> = ({ card, onClose, onSave }) 
       id: card?.id || '', // id is only used for editing
       front: front.trim(),
       back: back.trim(),
+      css: css.trim(),
     });
   };
   
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Allow tab navigation within textareas
     if (e.key === 'Tab') {
         e.preventDefault();
@@ -86,6 +88,24 @@ const EditCardModal: React.FC<EditCardModalProps> = ({ card, onClose, onSave }) 
                 placeholder="Enter back content (answer, definition, etc.)"
               />
             </div>
+             <details className="space-y-2">
+                <summary className="cursor-pointer text-sm font-medium text-primary hover:underline">
+                    Advanced CSS Styling
+                </summary>
+                <div className="pt-2">
+                     <label htmlFor="card-css" className="block text-sm font-medium text-text-muted mb-1">Custom CSS</label>
+                      <textarea
+                        id="card-css"
+                        value={css}
+                        onChange={(e) => setCss(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        rows={5}
+                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-xs"
+                        placeholder=".card { color: blue; }"
+                      />
+                      <p className="text-xs text-text-muted mt-1">CSS is applied directly to the card. Useful for Anki imports.</p>
+                </div>
+            </details>
           </div>
 
           <div className="flex justify-end p-4 bg-background/50 border-t border-border">

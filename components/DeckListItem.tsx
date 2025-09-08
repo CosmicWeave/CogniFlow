@@ -54,7 +54,7 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
     let iconName: IconName;
     if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
         itemLabel = itemCount === 1 ? 'question' : 'questions';
-        iconName = deck.type === DeckType.Learning ? 'layers' : 'help-circle';
+        iconName = deck.type === DeckType.Learning ? 'book-open' : 'help-circle';
     } else {
         itemLabel = itemCount === 1 ? 'card' : 'cards';
         iconName = 'laptop';
@@ -200,7 +200,7 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
                             passAs={Button}
                             variant="primary"
                             size="sm"
-                            disabled={deck.locked || (dueCount === 0 && !canResume)}
+                            disabled={deck.locked || (dueCount === 0 && !canResume) || itemCount === 0}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 onUpdateLastOpened(deck.id);

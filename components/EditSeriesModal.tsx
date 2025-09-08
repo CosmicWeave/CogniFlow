@@ -9,17 +9,18 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface EditSeriesModalProps {
   series: DeckSeries | null;
+  isOpen: boolean;
   onClose: () => void;
   onSave: (data: { id: string | null; name: string; description: string; scaffold?: any; }) => void;
 }
 
-const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSave }) => {
+const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, isOpen, onClose, onSave }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [scaffold, setScaffold] = useState<any | null>(null);
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(modalRef, true);
+  useFocusTrap(modalRef, isOpen);
 
   const isNew = series === null;
 
@@ -65,7 +66,10 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
       description: description.trim(),
       scaffold: isNew ? scaffold : null,
     });
+    onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
@@ -87,6 +91,7 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, onClose, onSa
                 onPaste={handlePaste}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                 placeholder="e.g., Introduction to Algebra"
+                autoFocus
               />
                {isNew && <p className="text-xs text-text-muted mt-1">You can paste a full JSON scaffold object here to auto-populate.</p>}
             </div>

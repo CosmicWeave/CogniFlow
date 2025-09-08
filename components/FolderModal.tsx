@@ -9,19 +9,22 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface FolderModalProps {
   folder: Folder | null; // null for creating a new folder
+  isOpen: boolean;
   onClose: () => void;
   onSave: (folderData: { id: string | null; name: string }) => void;
 }
 
-const FolderModal: React.FC<FolderModalProps> = ({ folder, onClose, onSave }) => {
+const FolderModal: React.FC<FolderModalProps> = ({ folder, isOpen, onClose, onSave }) => {
   const [name, setName] = useState('');
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(modalRef, true);
+  useFocusTrap(modalRef, isOpen);
 
   useEffect(() => {
     if (folder) {
       setName(folder.name);
+    } else {
+      setName('');
     }
   }, [folder]);
 
@@ -35,7 +38,10 @@ const FolderModal: React.FC<FolderModalProps> = ({ folder, onClose, onSave }) =>
       id: folder?.id || null,
       name: name.trim(),
     });
+    onClose();
   };
+  
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
@@ -56,6 +62,7 @@ const FolderModal: React.FC<FolderModalProps> = ({ folder, onClose, onSave }) =>
                 onChange={(e) => setName(e.target.value)}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                 placeholder="e.g., University Courses"
+                autoFocus
               />
             </div>
           </div>

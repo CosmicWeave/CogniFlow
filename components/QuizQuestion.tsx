@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import type { Question, QuestionOption, InfoCard } from '../types';
 import Icon from './ui/Icon';
@@ -55,7 +56,16 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
     <div className="bg-surface rounded-lg shadow-lg border border-border">
       {/* Question Text */}
       <div className="p-6 md:p-8">
-        {deckName && <p className="text-xs text-text-muted mb-2 uppercase tracking-wider font-semibold">{deckName}</p>}
+        <div className="flex justify-between items-start mb-2">
+            {deckName && <p className="text-xs text-text-muted uppercase tracking-wider font-semibold">{deckName}</p>}
+            {question.tags && question.tags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                    {question.tags.map(tag => (
+                        <span key={tag} className="bg-border/50 text-text-muted text-xs px-2 py-0.5 rounded-full">{tag}</span>
+                    ))}
+                </div>
+            )}
+        </div>
         <DangerousHtmlRenderer html={question.questionText} className="text-xl font-semibold text-text" as="h3"/>
       </div>
 

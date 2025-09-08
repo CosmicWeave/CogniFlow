@@ -27,7 +27,6 @@ const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount,
     const totalCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
     const isCompleted = completedCount >= totalCount && totalCount > 0;
 
-    // FIX: Use currentTask !== null to determine if generating, and check currentTask's seriesId.
     const isGeneratingThisSeries = aiGenerationStatus.currentTask?.seriesId === series.id;
 
     const hasEmptyDecks = useMemo(() => {

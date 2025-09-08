@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData } from '../types';
 
@@ -28,7 +29,6 @@ export type AppState = {
   isLoading: boolean;
   lastModified: number | null;
   aiGenerationStatus: AIGenerationStatus;
-  isAIChatOpen: boolean;
   aiChatHistory: AIMessage[];
 };
 
@@ -53,7 +53,6 @@ export type AppAction =
   | { type: 'UPDATE_CURRENT_AI_TASK_STATUS'; payload: { statusText: string, deckId?: string, seriesId?: string } }
   | { type: 'FINISH_CURRENT_AI_TASK' }
   | { type: 'CANCEL_AI_TASK'; payload?: { taskId?: string } }
-  | { type: 'TOGGLE_AI_CHAT'; payload: boolean }
   | { type: 'SET_AI_CHAT_HISTORY'; payload: AIMessage[] }
   | { type: 'SET_AI_GENERATION_STATUS'; payload: { isGenerating: boolean; statusText: string | null; generatingDeckId: string | null; generatingSeriesId: string | null, queue?: AIGenerationTask[], currentTask?: (AIGenerationTask & { abortController: AbortController }) | null } };
 
@@ -117,8 +116,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
             } };
         }
 
-    case 'TOGGLE_AI_CHAT':
-        return { ...state, isAIChatOpen: action.payload };
     case 'SET_AI_CHAT_HISTORY':
         return { ...state, aiChatHistory: action.payload };
 
@@ -200,7 +197,7 @@ const initialState: AppState = {
   decks: [],
   folders: [],
   deckSeries: [],
-  seriesProgress: new Map(),
+  seriesProgress: new Map<string, Set<string>>(),
   isLoading: true,
   lastModified: null,
   aiGenerationStatus: {
@@ -211,7 +208,6 @@ const initialState: AppState = {
     queue: [],
     currentTask: null,
   },
-  isAIChatOpen: false,
   aiChatHistory: [],
 };
 
@@ -259,11 +255,12 @@ export const useTotalDueCount = () => useStore(state => {
     state.deckSeries.forEach(series => {
         if (!series.archived && !series.deletedAt) {
             const completedCount = state.seriesProgress.get(series.id)?.size || 0;
-            const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
-            flatDeckIds.forEach((deckId, index) => {
-                if (index <= completedCount) {
-                    unlockedSeriesDeckIds.add(deckId);
-                }
+            let deckCount = 0;
+            series.levels.forEach(level => {
+                level.deckIds.forEach((deckId) => {
+                    if (deckCount <= completedCount) unlockedSeriesDeckIds.add(deckId);
+                    deckCount++;
+                });
             });
         }
     });
