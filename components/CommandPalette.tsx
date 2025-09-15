@@ -80,9 +80,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, action
 
     decks.filter(d => !d.archived && !d.deletedAt).forEach(d => {
       if (d.type === 'flashcard') {
-        d.cards.forEach(c => items.push({ type: 'card', id: c.id, deckId: d.id, deckName: d.name, front: c.front }));
+        (d.cards || []).forEach(c => items.push({ type: 'card', id: c.id, deckId: d.id, deckName: d.name, front: c.front }));
       } else {
-        (d as QuizDeck | LearningDeck).questions.forEach(q => items.push({ type: 'question', id: q.id, deckId: d.id, deckName: d.name, text: q.questionText }));
+        (((d as QuizDeck | LearningDeck).questions) || []).forEach(q => items.push({ type: 'question', id: q.id, deckId: d.id, deckName: d.name, text: q.questionText }));
       }
     });
 

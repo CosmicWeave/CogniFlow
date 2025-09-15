@@ -155,8 +155,9 @@ const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle
                 onUpdateDeck={onUpdateDeck}
                 onDeleteDeck={onDeleteDeck}
                 openConfirmModal={openConfirmModal}
-                onGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
-                onGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
+                // FIX: Renamed props to match the DeckListItem component's expected prop names.
+                handleGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
+                handleGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
               />
             ))
           ) : (

@@ -1,9 +1,9 @@
-
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import * as googleDriveService from '../../services/googleDriveService';
+import { useToast } from '../useToast';
 
-// This factory function creates handlers specifically for Google Drive operations.
-export const createDriveHandlers = ({ addToast, openConfirmModal, openRestoreFromDriveModal, setDriveFiles, handleRestoreData }: any) => {
+export const useDriveHandlers = ({ openConfirmModal, openRestoreFromDriveModal, setDriveFiles, onRestoreData }: any) => {
+  const { addToast } = useToast();
 
   const handleGoogleSignIn = useCallback(() => {
     googleDriveService.requestManualSignIn();
@@ -44,25 +44,28 @@ export const createDriveHandlers = ({ addToast, openConfirmModal, openRestoreFro
   const handleRestoreFromDrive = useCallback(async (fileId: string) => {
     openConfirmModal({
         title: 'Restore from Google Drive',
-        message: 'Restoring from a backup will merge and overwrite data. Decks and folders with the same ID will be replaced. This action cannot be undone. Are you sure?',
+        message: 'Restoring will merge and overwrite data. Are you sure?',
         onConfirm: async () => {
             try {
                 const data = await googleDriveService.downloadFile(fileId);
-                await handleRestoreData(data); // Re-use the main restore logic
+                await onRestoreData(data);
             } catch (error) {
                 const message = error instanceof Error ? error.message : "Failed to restore from backup.";
                 addToast(message, 'error');
             }
         }
     });
-  }, [addToast, openConfirmModal, handleRestoreData]);
-
-  return {
+  }, [addToast, openConfirmModal, onRestoreData]);
+  
+  return useMemo(() => ({
     handleGoogleSignIn,
     handleGoogleSignOut,
     handleBackupToDrive,
     handleListDriveFiles,
     handleRestoreFromDrive,
-    openRestoreFromDriveModal: handleListDriveFiles, // The action to open the modal should first list the files
-  };
+    openRestoreFromDriveModal: handleListDriveFiles,
+  }), [
+    handleGoogleSignIn, handleGoogleSignOut, handleBackupToDrive, 
+    handleListDriveFiles, handleRestoreFromDrive
+  ]);
 };

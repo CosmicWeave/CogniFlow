@@ -60,7 +60,7 @@ const AIGenerationStatusModal: React.FC<AIGenerationStatusModalProps> = ({ isOpe
                 </div>
             </div>
 
-            {queue.length > 0 && (
+            {queue && queue.length > 0 && (
                 <div>
                     <h3 className="text-sm font-semibold uppercase tracking-wider text-text-muted mb-2">Queued Tasks ({queue.length})</h3>
                     <ul className="space-y-2">

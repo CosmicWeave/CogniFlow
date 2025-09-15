@@ -17,7 +17,7 @@ export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession
             const isLearningDeck = deck.type === DeckType.Learning;
 
             if (isSpecialSession) {
-                const itemsToReview = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck | LearningDeck).questions;
+                const itemsToReview = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck | LearningDeck).questions) || [];
                 setSessionQueue(itemsToReview);
                 setInitialIndex(0);
                 setInitialItemsCompleted(0);
@@ -49,11 +49,27 @@ export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession
                 today.setHours(23, 59, 59, 999);
 
                 if (isLearningDeck) {
-                    setSessionQueue((deck as LearningDeck).infoCards);
+                    const learningDeck = deck as LearningDeck;
+                    const allInfoCards = learningDeck.infoCards || [];
+                    
+                    // Find all question IDs that can be unlocked by any info card in the deck
+                    const allUnlockableQuestionIds = new Set(
+                        allInfoCards.flatMap(ic => ic.unlocksQuestionIds || [])
+                    );
+                    
+                    // Find due questions that are NOT unlocked by any info card
+                    const dueOrphanQuestions = (learningDeck.questions || []).filter(
+                        q => !q.suspended && 
+                             new Date(q.dueDate) <= today &&
+                             !allUnlockableQuestionIds.has(q.id)
+                    );
+
+                    // Initial queue has all info cards, plus any due questions that don't need unlocking
+                    setSessionQueue([...allInfoCards, ...dueOrphanQuestions]);
                     setReadInfoCardIds(new Set());
                     setUnlockedQuestionIds(new Set());
                 } else {
-                    const itemsToReview = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions;
+                    const itemsToReview = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions) || [];
                     const dueItems = itemsToReview
                         .filter(item => !item.suspended && new Date(item.dueDate) <= today)
                         .sort(() => Math.random() - 0.5);

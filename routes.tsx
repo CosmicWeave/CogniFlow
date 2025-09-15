@@ -1,3 +1,6 @@
+/*
+// This file is part of an unused routing system and can be safely deleted.
+// The active router is implemented in `AppRouter.tsx` using `contexts/RouterContext.tsx`.
 
 // routes.tsx
 import React from 'react';
@@ -13,8 +16,8 @@ import ArchivePage from './components/ArchivePage';
 import ProgressPage from './components/ProgressPage';
 import JsonInstructionsPage from './components/JsonInstructionsPage';
 import SeriesOverviewPage from './components/SeriesOverviewPage';
-// FIX: Use named import for DeckDetailsPage
-import { DeckDetailsPage } from './components/DeckDetailsPage';
+// FIX: Corrected import path to point to the correct file location.
+import DeckDetailsPage from './components/DeckDetailsPage';
 import StudySession from './components/StudySession';
 import AllDecksPage from './components/AllDecksPage';
 import AllSeriesPage from './components/AllSeriesPage';
@@ -104,12 +107,12 @@ export const routes: RouteConfig[] = [
             onUpdateDeck: dataHandlers.handleUpdateDeck,
             onDeleteDeck: dataHandlers.handleDeleteDeck,
             openConfirmModal: dataHandlers.openConfirmModal,
-            onNewFolder: () => dataHandlers.openFolderEditor('new'),
-            onImportDecks: dataHandlers.openImportModal,
+            onNewFolder: () => dataHandlers.openModal('folder', { folder: 'new' }),
+            onImportDecks: () => dataHandlers.openModal('import'),
             onCreateSampleDeck: dataHandlers.handleCreateSampleDeck,
             handleSaveFolder: dataHandlers.handleSaveFolder,
-            onGenerateQuestionsForDeck: dataHandlers.handleGenerateQuestionsForDeck,
-            onGenerateContentForLearningDeck: dataHandlers.handleGenerateContentForLearningDeck,
+            handleGenerateQuestionsForDeck: dataHandlers.handleGenerateQuestionsForDeck,
+            handleGenerateContentForLearningDeck: dataHandlers.handleGenerateContentForLearningDeck,
             onCancelAIGeneration: dataHandlers.handleCancelAIGeneration,
         }),
         getBreadcrumbs: () => ([{ label: 'Home', href: '/' }, { label: 'Decks' }]),
@@ -120,10 +123,10 @@ export const routes: RouteConfig[] = [
         getProps: (params, props, dataHandlers) => ({
             ...props,
             onStartSeriesStudy: dataHandlers.handleStartSeriesStudy,
-            onCreateNewSeries: () => dataHandlers.openSeriesEditor('new'),
+            onCreateNewSeries: () => dataHandlers.openModal('series', { series: 'new' }),
             onCreateSampleSeries: dataHandlers.handleCreateSampleSeries,
-            onGenerateAI: dataHandlers.openAIGenerationModal,
-            onGenerateQuestionsForEmptyDecksInSeries: dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries,
+            onGenerateAI: () => dataHandlers.openModal('aiGeneration'),
+            handleGenerateQuestionsForEmptyDecksInSeries: dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries,
             onCancelAIGeneration: dataHandlers.handleCancelAIGeneration,
         }),
         getBreadcrumbs: () => ([{ label: 'Home', href: '/' }, { label: 'Series' }]),
@@ -143,8 +146,8 @@ export const routes: RouteConfig[] = [
             openConfirmModal: dataHandlers.openConfirmModal,
             onAiAddLevelsToSeries: dataHandlers.handleAiAddLevelsToSeries,
             onAiAddDecksToLevel: dataHandlers.handleAiAddDecksToLevel,
-            onGenerateQuestionsForEmptyDecksInSeries: dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries,
-            onGenerateQuestionsForDeck: dataHandlers.handleGenerateQuestionsForDeck,
+            handleGenerateQuestionsForEmptyDecksInSeries: dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries,
+            handleGenerateQuestionsForDeck: dataHandlers.handleGenerateQuestionsForDeck,
             onCancelAIGeneration: dataHandlers.handleCancelAIGeneration,
         }),
         getBreadcrumbs: (params, props) => ([
@@ -163,8 +166,8 @@ export const routes: RouteConfig[] = [
             onDeleteDeck: dataHandlers.handleDeleteDeck,
             onUpdateLastOpened: dataHandlers.updateLastOpened,
             openConfirmModal: dataHandlers.openConfirmModal,
-            onGenerateQuestionsForDeck: dataHandlers.handleGenerateQuestionsForDeck,
-            onGenerateContentForLearningDeck: dataHandlers.handleGenerateContentForLearningDeck,
+            handleGenerateQuestionsForDeck: dataHandlers.handleGenerateQuestionsForDeck,
+            handleGenerateContentForLearningDeck: dataHandlers.handleGenerateContentForLearningDeck,
             onCancelAIGeneration: dataHandlers.handleCancelAIGeneration,
             onSaveLearningBlock: dataHandlers.handleSaveLearningBlock,
             onDeleteLearningBlock: dataHandlers.handleDeleteLearningBlock,
@@ -218,8 +221,11 @@ export const routes: RouteConfig[] = [
         component: StudySession,
         getProps: (params, props, dataHandlers) => {
             const activeDeck = props.activeDeck!;
-            const items = (activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck | LearningDeck).questions).filter(item => !item.suspended);
+            const items = ((activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck | LearningDeck).questions) || [])
+                .filter(item => !item.suspended);
+            
             const shuffledItems = [...items].sort(() => Math.random() - 0.5);
+
             const cramDeck: Deck = activeDeck.type === DeckType.Flashcard 
                 ? { ...activeDeck, name: `${activeDeck.name} (Cram)`, cards: shuffledItems as Card[] } 
                 : { ...activeDeck, name: `${activeDeck.name} (Cram)`, questions: shuffledItems as Question[] };
@@ -243,7 +249,7 @@ export const routes: RouteConfig[] = [
             const reversedDeck: FlashcardDeck = {
                 ...activeDeck,
                 name: `${activeDeck.name} (Reversed)`,
-                cards: activeDeck.cards.map(card => ({
+                cards: (activeDeck.cards || []).map(card => ({
                     ...card,
                     front: card.back,
                     back: card.front,
@@ -266,10 +272,10 @@ export const routes: RouteConfig[] = [
         component: StudySession,
         getProps: (params, props, dataHandlers) => {
             const activeDeck = props.activeDeck as (QuizDeck | LearningDeck);
-            const cards = (activeDeck.questions || [])
+            const cards = ((activeDeck.questions || [])
                 .filter(q => !q.suspended)
                 .map(q => {
-                    const correctAnswer = q.options.find(o => o.id === q.correctAnswerId);
+                    const correctAnswer = (q.options || []).find(o => o.id === q.correctAnswerId);
                     const backContent = `
                         <div class="text-left w-full">
                             <p class="text-xl"><b>Answer:</b> ${correctAnswer?.text || 'N/A'}</p>
@@ -279,7 +285,7 @@ export const routes: RouteConfig[] = [
                         </div>
                     `;
                     return { ...q, front: q.questionText, back: backContent };
-                });
+                })) as Card[];
 
             const virtualFlashcardDeck: FlashcardDeck = {
                 ...activeDeck,
@@ -319,3 +325,4 @@ const getBreadcrumbsForStudy = (params: PathParams, props: AppRouterProps, study
     crumbs.push({ label: studyType });
     return crumbs;
 };
+*/

@@ -1,6 +1,5 @@
-
 import { create } from 'zustand';
-import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData } from '../types';
+import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData, SeriesLevel, Reviewable, Card, Question } from '../types';
 
 export interface AIGenerationTask {
   id: string;
@@ -76,10 +75,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
           ...action.payload,
         }
       };
-    case 'ADD_AI_TASK_TO_QUEUE':
-      return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: [...state.aiGenerationStatus.queue, action.payload] } };
+    case 'ADD_AI_TASK_TO_QUEUE': {
+      const currentQueue = Array.isArray(state.aiGenerationStatus.queue) ? state.aiGenerationStatus.queue : [];
+      return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: [...currentQueue, action.payload] } };
+    }
     case 'START_NEXT_AI_TASK': {
-      const newQueue = state.aiGenerationStatus.queue.slice(1);
+      const currentQueue = Array.isArray(state.aiGenerationStatus.queue) ? state.aiGenerationStatus.queue : [];
+      const newQueue = currentQueue.slice(1);
       const { task, abortController } = action.payload;
       return { ...state, aiGenerationStatus: { 
         ...state.aiGenerationStatus, 
@@ -103,8 +105,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
       } };
     case 'CANCEL_AI_TASK':
         if (action.payload?.taskId) {
+            const currentQueue = Array.isArray(state.aiGenerationStatus.queue) ? state.aiGenerationStatus.queue : [];
             // Cancel a specific task from the queue
-            return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: state.aiGenerationStatus.queue.filter(task => task.id !== action.payload!.taskId) } };
+            return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: currentQueue.filter(task => task.id !== action.payload!.taskId) } };
         } else {
             // Cancel the current task
             state.aiGenerationStatus.currentTask?.abortController.abort();
@@ -147,11 +150,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
               }
               return {
                   ...s,
-                  levels: s.levels
-                      .map(level => ({
-                          ...level,
-                          deckIds: (level.deckIds || []).filter(id => id !== action.payload)
-                      }))
+                  levels: (s.levels || []).filter((l): l is SeriesLevel => !!l).map(level => ({
+                      ...level,
+                      deckIds: (level.deckIds || []).filter(id => id !== action.payload)
+                  }))
               };
           })
       };
@@ -215,49 +217,43 @@ type AppStore = AppState & {
   dispatch: (action: AppAction) => void;
 };
 
-export const useStore = create<AppStore>((set) => ({
+export const useStore = create<AppStore>()((set) => ({
   ...initialState,
   dispatch: (action: AppAction) => set((state) => appReducer(state, action)),
 }));
 
-
 // --- Selectors ---
 
-const getDueItemsCount = (deck: Deck): number => {
+const getDueItemsCountForDeck = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === DeckType.Quiz || deck.type === DeckType.Learning ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards;
+    const items = (deck.type === DeckType.Quiz || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards) || [];
     if (!Array.isArray(items)) {
         return 0;
     }
-    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
+    return items.filter(item => !item.suspended && new Date(item.dueDate).getTime() <= today.getTime()).length;
 };
-
-export const useStandaloneDecks = () => useStore(state => {
-    const seriesDeckIds = new Set<string>();
-    state.deckSeries.forEach(series => {
-        (series.levels || []).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
-    });
-    return state.decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
-});
 
 export const useActiveSeriesList = () => useStore(state => 
     state.deckSeries.filter(s => !s.archived && !s.deletedAt)
 );
 
-export const useTotalDueCount = () => useStore(state => {
+export const useStandaloneDecks = () => useStore(state => {
     const seriesDeckIds = new Set<string>();
     state.deckSeries.forEach(series => {
-        series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId)));
+        (series.levels || []).forEach(level => (level?.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
     });
+    return state.decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
+});
 
+export const useTotalDueCount = () => useStore(state => {
     const unlockedSeriesDeckIds = new Set<string>();
     state.deckSeries.forEach(series => {
         if (!series.archived && !series.deletedAt) {
             const completedCount = state.seriesProgress.get(series.id)?.size || 0;
             let deckCount = 0;
-            series.levels.forEach(level => {
-                level.deckIds.forEach((deckId) => {
+            ((series.levels || []).filter(Boolean)).forEach(level => {
+                (level.deckIds || []).forEach((deckId) => {
                     if (deckCount <= completedCount) unlockedSeriesDeckIds.add(deckId);
                     deckCount++;
                 });
@@ -265,12 +261,14 @@ export const useTotalDueCount = () => useStore(state => {
         }
     });
 
-    return state.decks
-        .filter(deck => {
-            if (deck.archived || deck.deletedAt) return false;
-            // It's a series deck that is locked
-            if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
-            return true;
-        })
-        .reduce((total, deck) => total + getDueItemsCount(deck), 0);
+    return state.decks.reduce((total, deck) => {
+        if (deck.archived || deck.deletedAt) return total;
+        
+        const isSeriesDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && state.deckSeries.some(s => (s.levels || []).some(l => l.deckIds?.includes(deck.id)));
+        if (isSeriesDeck && !unlockedSeriesDeckIds.has(deck.id)) {
+            return total;
+        }
+
+        return total + getDueItemsCountForDeck(deck);
+    }, 0);
 });

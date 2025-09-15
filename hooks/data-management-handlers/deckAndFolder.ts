@@ -1,152 +1,206 @@
-
-import { useCallback } from 'react';
-import { Deck, Folder } from '../../types';
+import { useCallback, useMemo } from 'react';
+import { Deck, Folder, QuizDeck, LearningDeck, InfoCard, Question } from '../../types';
 import * as db from '../../services/db';
 import { useStore } from '../../store/store';
 import { createNatureSampleDeck } from '../../services/sampleData';
+import { useToast } from '../useToast';
 
-// This is not a hook, but a factory function that creates a set of related handlers.
-// It helps organize logic that was previously in the monolithic useDataManagement hook.
-export const createDeckAndFolderHandlers = ({ dispatch, addToast, triggerSync, openConfirmModal }: any) => {
-
-  const handleUpdateDeck = useCallback(async (deck: Deck, options?: { silent?: boolean; toastMessage?: string }) => {
-    dispatch({ type: 'UPDATE_DECK', payload: deck });
-    if (!options?.silent) {
-        if (options?.toastMessage) {
-            addToast(options.toastMessage, 'success');
-        } else if (deck.archived) {
-            addToast(`Deck "${deck.name}" archived.`, 'success');
-        } else if (deck.archived === false) {
-            addToast(`Deck "${deck.name}" unarchived.`, 'success');
-        } else {
-            addToast(`Deck "${deck.name}" updated.`, 'success');
-        }
-    }
-    try {
-        await db.updateDeck(deck);
-        triggerSync();
-    } catch (error) {
-        console.error("Failed to update deck:", error);
-        addToast("There was an error syncing the deck update.", "error");
-    }
-  }, [dispatch, addToast, triggerSync]);
-
-  const updateLastOpened = useCallback(async (deckId: string) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId);
-    if (deck) {
-        const updatedDeck = { ...deck, lastOpened: new Date().toISOString() };
-        await handleUpdateDeck(updatedDeck, { silent: true });
-    }
-  }, [handleUpdateDeck]);
+// This has been refactored into a proper custom hook to follow the Rules of Hooks.
+export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any) => {
+  const { dispatch } = useStore();
+  const { addToast } = useToast();
 
   const handleAddDecks = useCallback(async (decks: Deck[]) => {
+    dispatch({ type: 'ADD_DECKS', payload: decks });
     try {
-        dispatch({ type: 'ADD_DECKS', payload: decks });
-        await db.addDecks(decks);
-        triggerSync();
-    } catch (error) {
-        console.error("Failed to add decks:", error);
-        addToast("There was an error saving the new deck(s).", "error");
+      await db.addDecks(decks);
+      triggerSync({ isManual: false });
+    } catch (e) {
+      addToast('Error saving new deck(s).', 'error');
+      console.error(e);
     }
   }, [dispatch, addToast, triggerSync]);
 
-  const handleCreateSampleDeck = useCallback(() => {
-    const sampleDeck = createNatureSampleDeck();
-    handleAddDecks([sampleDeck]);
-    addToast(`Sample deck "${sampleDeck.name}" created!`, "success");
-  }, [handleAddDecks, addToast]);
+  const handleUpdateDeck = useCallback(async (deck: Deck, options?: { silent?: boolean, toastMessage?: string }) => {
+    const updatedDeck = { ...deck, lastModified: Date.now() };
+    dispatch({ type: 'UPDATE_DECK', payload: updatedDeck });
+    try {
+      await db.updateDeck(updatedDeck);
+      if (!options?.silent) {
+        if (options?.toastMessage) {
+          addToast(options.toastMessage, 'success');
+        }
+        triggerSync({ isManual: false });
+      }
+    } catch (e) {
+      addToast(`Error updating deck "${deck.name}".`, 'error');
+      console.error(e);
+    }
+  }, [dispatch, addToast, triggerSync]);
+  
+  const handleBulkUpdateDecks = useCallback(async (decks: Deck[], options?: { silent?: boolean }) => {
+    const updatedDecks = decks.map(d => ({ ...d, lastModified: Date.now() }));
+    dispatch({ type: 'BULK_UPDATE_DECKS', payload: updatedDecks });
+    try {
+      await db.bulkUpdateDecks(updatedDecks);
+      if (!options?.silent) {
+        triggerSync({ isManual: false });
+      }
+    } catch(e) {
+      addToast('Error updating decks.', 'error');
+    }
+  }, [dispatch, triggerSync, addToast]);
+
+  const handleMoveDeck = useCallback(async (deckId: string, folderId: string | null) => {
+    const deck = useStore.getState().decks.find(d => d.id === deckId);
+    if (deck) {
+      await handleUpdateDeck({ ...deck, folderId });
+      addToast(`Deck moved.`, 'success');
+    }
+  }, [handleUpdateDeck, addToast]);
 
   const handleDeleteDeck = useCallback(async (deckId: string) => {
     const deck = useStore.getState().decks.find(d => d.id === deckId);
-    if (!deck) return;
-    const updatedDeck = { ...deck, deletedAt: new Date().toISOString(), archived: false };
-    await handleUpdateDeck(updatedDeck, { toastMessage: `Moved "${deck.name}" to Trash.` });
+    if (deck) {
+      const updatedDeck = { ...deck, deletedAt: new Date().toISOString(), archived: false };
+      await handleUpdateDeck(updatedDeck, { toastMessage: `Deck "${deck.name}" moved to trash.` });
+    }
   }, [handleUpdateDeck]);
-
-  const handleMoveDeck = useCallback(async (deckId: string, folderId: string | null) => {
-    const { decks, folders } = useStore.getState();
-    const deck = decks.find(d => d.id === deckId);
-    const folder = folders.find(f => f.id === folderId);
-    if (!deck || deck.folderId === folderId) return;
-    const updatedDeck = { ...deck, folderId: folderId };
-    const folderName = folder ? `"${folder.name}"` : 'the ungrouped area';
-    await handleUpdateDeck(updatedDeck, { toastMessage: `Moved "${deck.name}" to ${folderName}.` });
+  
+  const handleRestoreDeck = useCallback(async (deckId: string) => {
+      const deck = useStore.getState().decks.find(d => d.id === deckId);
+      if (deck) {
+          await handleUpdateDeck({ ...deck, deletedAt: null }, { toastMessage: `Deck "${deck.name}" restored.` });
+      }
   }, [handleUpdateDeck]);
+  
+  const handleDeleteDeckPermanently = useCallback(async (deckId: string) => {
+      dispatch({ type: 'DELETE_DECK', payload: deckId });
+      try {
+          await db.deleteDeck(deckId);
+          addToast("Deck permanently deleted.", "success");
+          triggerSync({ isManual: false });
+      } catch (e) {
+          addToast("Error deleting deck permanently.", "error");
+      }
+  }, [dispatch, addToast, triggerSync]);
 
-  const handleSaveFolder = useCallback(async (folderData: {id: string | null, name: string}) => {
-    try {
-        if (folderData.id) {
-            const updatedFolder = { id: folderData.id, name: folderData.name };
-            dispatch({ type: 'UPDATE_FOLDER', payload: updatedFolder });
-            addToast(`Folder "${updatedFolder.name}" updated.`, 'success');
-            await db.updateFolder(updatedFolder);
-        } else {
-            const newFolder: Folder = { id: crypto.randomUUID(), name: folderData.name };
-            dispatch({ type: 'ADD_FOLDER', payload: newFolder });
-            addToast(`Folder "${newFolder.name}" created.`, 'success');
-            await db.addFolder(newFolder);
-        }
-        triggerSync();
-    } catch (error) {
-        console.error("Failed to save folder:", error);
-        addToast("There was an error saving the folder.", "error");
+  const handleSaveFolder = useCallback(async (folderData: { id: string | null; name: string }) => {
+    if (folderData.id) { // Existing folder
+      const updatedFolder = { id: folderData.id, name: folderData.name };
+      dispatch({ type: 'UPDATE_FOLDER', payload: updatedFolder });
+      try {
+        await db.updateFolder(updatedFolder);
+        addToast(`Folder renamed to "${updatedFolder.name}".`, 'success');
+        triggerSync({ isManual: false });
+      } catch(e) {
+        addToast("Error renaming folder.", "error");
+      }
+    } else { // New folder
+      const newFolder: Folder = { id: crypto.randomUUID(), name: folderData.name };
+      dispatch({ type: 'ADD_FOLDER', payload: newFolder });
+      try {
+        await db.addFolder(newFolder);
+        addToast(`Folder "${newFolder.name}" created.`, 'success');
+        triggerSync({ isManual: false });
+      } catch(e) {
+        addToast("Error creating folder.", "error");
+      }
     }
   }, [dispatch, addToast, triggerSync]);
 
   const handleDeleteFolder = useCallback(async (folderId: string) => {
-    const { folders, decks } = useStore.getState();
-    const folder = folders.find(f => f.id === folderId);
+    const folder = useStore.getState().folders.find(f => f.id === folderId);
     if (!folder) return;
 
     openConfirmModal({
-        title: 'Delete Folder',
-        message: `Are you sure you want to delete folder "${folder.name}"? Decks inside will not be deleted.`,
-        onConfirm: async () => {
-            try {
-                dispatch({ type: 'DELETE_FOLDER', payload: folderId });
-                addToast(`Folder "${folder.name}" deleted.`, 'success');
-                const decksToUpdate = decks.filter(d => d.folderId === folderId).map(d => ({ ...d, folderId: null as (string | null) }));
-                if (decksToUpdate.length > 0) await db.bulkUpdateDecks(decksToUpdate);
-                await db.deleteFolder(folderId);
-                triggerSync();
-            } catch (error) {
-                console.error("Failed to delete folder:", error);
-                addToast("There was an error deleting the folder.", "error");
-            }
+      title: 'Delete Folder',
+      message: `Are you sure you want to delete the folder "${folder.name}"? Decks inside will be moved to the main list.`,
+      onConfirm: async () => {
+        dispatch({ type: 'DELETE_FOLDER', payload: folderId });
+        try {
+          await db.deleteFolder(folderId);
+          const decksToUpdate = useStore.getState().decks.filter(d => d.folderId === folderId);
+          if (decksToUpdate.length > 0) {
+              await db.bulkUpdateDecks(decksToUpdate.map(d => ({...d, folderId: null})));
+          }
+          addToast(`Folder "${folder.name}" deleted.`, 'success');
+          triggerSync({ isManual: false });
+        } catch (e) {
+          addToast("Error deleting folder.", "error");
         }
+      },
     });
   }, [dispatch, addToast, triggerSync, openConfirmModal]);
 
-  const handleRestoreDeck = useCallback(async (deckId: string) => {
+  const updateLastOpened = useCallback((deckId: string) => {
     const deck = useStore.getState().decks.find(d => d.id === deckId);
+    if (deck && deck.id !== 'general-study-deck') {
+      const now = new Date();
+      const lastOpenedDate = deck.lastOpened ? new Date(deck.lastOpened) : new Date(0);
+      // Only update if it hasn't been updated in the last 5 seconds to prevent re-render loops.
+      if (now.getTime() - lastOpenedDate.getTime() > 5000) {
+        handleUpdateDeck({ ...deck, lastOpened: now.toISOString() }, { silent: true });
+      }
+    }
+  }, [handleUpdateDeck]);
+  
+  const handleCreateSampleDeck = useCallback(() => {
+    const sampleDeck = createNatureSampleDeck();
+    handleAddDecks([sampleDeck]);
+    addToast(`Sample deck "${sampleDeck.name}" created.`, 'success');
+  }, [handleAddDecks, addToast]);
+
+  const handleSaveLearningBlock = useCallback(async (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => {
+    const deck = useStore.getState().decks.find(d => d.id === deckId) as LearningDeck;
     if (!deck) return;
-    const { deletedAt, ...restoredDeck } = deck;
-    await handleUpdateDeck(restoredDeck, { toastMessage: `Restored deck "${restoredDeck.name}".` });
+    
+    // update or add infoCard
+    const currentInfoCards = deck.infoCards || [];
+    const infoCardExists = currentInfoCards.some(ic => ic.id === blockData.infoCard.id);
+    const updatedInfoCards = infoCardExists
+        ? currentInfoCards.map(ic => ic.id === blockData.infoCard.id ? blockData.infoCard : ic)
+        : [...currentInfoCards, blockData.infoCard];
+
+    // update or add questions
+    const currentQuestions = deck.questions || [];
+    const questionsMap = new Map(currentQuestions.map(q => [q.id, q]));
+    blockData.questions.forEach(q => questionsMap.set(q.id, q));
+    
+    const updatedDeck = { ...deck, infoCards: updatedInfoCards, questions: Array.from(questionsMap.values()) };
+    await handleUpdateDeck(updatedDeck, { toastMessage: 'Learning block saved.' });
   }, [handleUpdateDeck]);
 
-  const handleDeleteDeckPermanently = useCallback(async (deckId: string) => {
-    try {
-        const deckName = useStore.getState().decks.find(d => d.id === deckId)?.name;
-        dispatch({ type: 'DELETE_DECK', payload: deckId });
-        addToast(`Deck "${deckName || 'Deck'}" permanently deleted.`, 'success');
-        await db.deleteDeck(deckId);
-        triggerSync();
-    } catch (error) {
-        console.error("Failed to permanently delete deck:", error);
-        addToast("There was an error permanently deleting the deck.", "error");
-    }
-  }, [dispatch, addToast, triggerSync]);
+  const handleDeleteLearningBlock = useCallback(async (deckId: string, infoCardId: string) => {
+    const deck = useStore.getState().decks.find(d => d.id === deckId) as LearningDeck;
+    if (!deck) return;
 
-  return {
-    handleUpdateDeck,
-    updateLastOpened,
+    const currentInfoCards = deck.infoCards || [];
+    const updatedInfoCards = currentInfoCards.filter(ic => ic.id !== infoCardId);
+    const questionIdsToDelete = new Set(currentInfoCards.find(ic => ic.id === infoCardId)?.unlocksQuestionIds || []);
+    const updatedQuestions = (deck.questions || []).filter(q => !questionIdsToDelete.has(q.id));
+    
+    const updatedDeck = { ...deck, infoCards: updatedInfoCards, questions: updatedQuestions };
+    await handleUpdateDeck(updatedDeck, { toastMessage: 'Learning block deleted.' });
+  }, [handleUpdateDeck]);
+
+  return useMemo(() => ({
     handleAddDecks,
-    handleCreateSampleDeck,
-    handleDeleteDeck,
+    handleUpdateDeck,
+    handleBulkUpdateDecks,
     handleMoveDeck,
-    handleSaveFolder,
-    handleDeleteFolder,
+    handleDeleteDeck,
     handleRestoreDeck,
     handleDeleteDeckPermanently,
-  };
+    handleSaveFolder,
+    handleDeleteFolder,
+    updateLastOpened,
+    handleCreateSampleDeck,
+    handleSaveLearningBlock,
+    handleDeleteLearningBlock,
+  }), [
+    handleAddDecks, handleUpdateDeck, handleBulkUpdateDecks, handleMoveDeck, handleDeleteDeck, 
+    handleRestoreDeck, handleDeleteDeckPermanently, handleSaveFolder, handleDeleteFolder, 
+    updateLastOpened, handleCreateSampleDeck, handleSaveLearningBlock, handleDeleteLearningBlock
+  ]);
 };

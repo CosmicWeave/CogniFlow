@@ -140,6 +140,8 @@ Please act as an expert instructional designer and generate a complete, structur
 -   **Comprehensive Coverage:** The generated series must be comprehensive, covering the topic in-depth to provide a thorough understanding for the specified user level.
 -   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
+-   **Unpredictable Answer Length:** The length of the correct answer's text must be varied and not consistently be the longest or shortest option.
+-   **Option Explanations:** Every option, correct or incorrect, MUST have a brief `explanation` field.
 
 **FINAL JSON OUTPUT FORMAT:**
 The final output MUST be ONLY a single, raw JSON object without any surrounding text or markdown. The root object must have this exact schema:
@@ -159,7 +161,10 @@ The final output MUST be ONLY a single, raw JSON object without any surrounding 
               "questionText": "...",
               "tags": ["tag1", "tag2"],
               "detailedExplanation": "...",
-              "options": [ { "id": "q1_opt1", "text": "..." }, { "id": "q1_opt2", "text": "..." } ],
+              "options": [
+                { "id": "q1_opt1", "text": "...", "explanation": "..." },
+                { "id": "q1_opt2", "text": "...", "explanation": "..." }
+              ],
               "correctAnswerId": "q1_opt2"
             }
           ]
@@ -180,7 +185,7 @@ Please generate a JSON object for a single multiple-choice quiz.
 **Designed for Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS:**
--   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements where appropriate to make the material more memorable.
 -   **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
 -   **In-Depth Questions:** The questions should cover the topic comprehensively, moving beyond surface-level facts to ensure a deep understanding.
 -   **Relevance:** Questions must be directly pertinent to the chosen topic and appropriate for the specified level.
@@ -188,12 +193,14 @@ Please generate a JSON object for a single multiple-choice quiz.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 -   **Problem-Solving Focus:** Prioritize questions that require applying knowledge to solve a problem.
 -   **Explanation Quality:** The `detailedExplanation` must explain the reasoning behind the correct answer and provide additional context.
+-   **Unpredictable Answer Length:** The length of the correct answer's text must be varied and not consistently be the longest or shortest option.
+-   **Option Explanations:** Every option, correct or incorrect, MUST have a brief `explanation` field.
 
 **JSON SCHEMA & RULES:**
 -   The final output must be ONLY the raw JSON object, starting with `{` and ending with `}`.
 -   The root object must contain `name`, `description`, and `questions` (array).
 -   Each question object must contain `questionType` ("multipleChoice"), `questionText`, `tags` (array), `detailedExplanation`, `options` (array), and `correctAnswerId`.
--   Each option object must contain a unique `id` and `text`.
+-   Each option object must contain a unique `id`, `text`, and a brief `explanation`.
 -   Do NOT include top-level SRS fields like `id` or `dueDate` on the questions.
 
 Now, generate the complete JSON deck based on all the above requirements.
@@ -226,8 +233,8 @@ A single JSON object representing a complete, multi-level learning path.
               "tags": ["html", "basics"],
               "detailedExplanation": "HTML stands for HyperText Markup Language...",
               "options": [
-                { "id": "1", "text": "HyperText Markup Language" },
-                { "id": "2", "text": "High-Level Text Machine Language" }
+                { "id": "1", "text": "HyperText Markup Language", "explanation": "Correct. It's the standard for creating web pages." },
+                { "id": "2", "text": "High-Level Text Machine Language", "explanation": "Incorrect. This is not a standard term." }
               ],
               "correctAnswerId": "1"
             }
@@ -253,9 +260,9 @@ A single JSON object representing one multiple-choice quiz.
       "tags": ["astronomy", "planets"],
       "detailedExplanation": "Mars is often called the Red Planet...",
       "options": [
-        { "id": "opt1", "text": "Venus" },
-        { "id": "opt2", "text": "Mars" },
-        { "id": "opt3", "text": "Jupiter", "explanation": "Jupiter is a gas giant..." }
+        { "id": "opt1", "text": "Venus", "explanation": "Venus has a thick, toxic atmosphere." },
+        { "id": "opt2", "text": "Mars", "explanation": "Correct! Iron oxide on its surface gives it a reddish hue." },
+        { "id": "opt3", "text": "Jupiter", "explanation": "Jupiter is a gas giant, not a red, rocky planet." }
       ],
       "correctAnswerId": "opt2"
     }

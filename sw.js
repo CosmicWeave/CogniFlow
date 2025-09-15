@@ -1,5 +1,7 @@
-const APP_CACHE_NAME = 'cogniflow-app-v2';
-const CDN_CACHE_NAME = 'cogniflow-cdn-v2';
+
+
+const APP_CACHE_NAME = 'cogniflow-app-v4';
+const CDN_CACHE_NAME = 'cogniflow-cdn-v4';
 
 const appUrlsToCache = [
   '/',
@@ -10,13 +12,15 @@ const appUrlsToCache = [
 
 const cdnUrlsToCache = [
     'https://cdn.tailwindcss.com',
-    'https://esm.sh/react@18.2.0',
-    'https://esm.sh/react-dom@18.2.0',
-    'https://esm.sh/jszip@3.10.1',
-    'https://esm.sh/sql.js@1.10.3',
+    'https://esm.sh/jszip@3.10.1?dev',
+    'https://esm.sh/sql.js@1.10.3?dev',
     'https://esm.sh/sql.js@1.10.3/dist/sql-wasm.wasm',
-    'https://esm.sh/canvas-confetti@1.9.3',
-    'https://esm.sh/zustand@4.5.2'
+    'https://esm.sh/canvas-confetti@1.9.3?dev',
+    'https://esm.sh/zustand@4.5.2/?dev&external=react',
+    'https://esm.sh/@google/genai?dev',
+    'https://esm.sh/react@18.3.1?dev',
+    'https://esm.sh/react@18.3.1/jsx-runtime?dev',
+    'https://esm.sh/react-dom@18.3.1/client?dev'
 ];
 
 // On install, pre-cache the main application shell and critical CDN files.
@@ -61,7 +65,7 @@ self.addEventListener('fetch', event => {
   }
 
   const url = new URL(event.request.url);
-  const isCdnUrl = url.origin === 'https://esm.sh' || url.origin === 'https://cdn.tailwindcss.com';
+  const isCdnUrl = url.origin === 'https://esm.sh' || url.origin === 'https://cdn.tailwindcss.com' || url.origin === 'https://aistudiocdn.com';
 
   if (isCdnUrl) {
     // Strategy: Cache First, then Network for CDN resources (since we pre-cached them)

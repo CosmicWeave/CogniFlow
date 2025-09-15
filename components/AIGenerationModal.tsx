@@ -12,7 +12,13 @@ import AIOptionsManager from './AIOptionsManager';
 interface AIGenerationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onGenerate: (params: AIGenerationParams & { generationType: 'series' | 'deck' | 'learning', generateQuestions?: boolean, isLearningMode?: boolean }) => void;
+  onGenerate: (params: AIGenerationParams & { 
+    generationType: 'series' | 'deck', 
+    isLearningMode: boolean,
+    generateQuestions?: boolean, 
+    sourceFiles?: File[],
+    useStrictSources?: boolean
+  }) => void;
 }
 
 const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, onGenerate }) => {
@@ -29,6 +35,10 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
   const [language, setLanguage] = useState('');
   const [level, setLevel] = useState('');
   const [generateQuestions, setGenerateQuestions] = useState(true);
+  const [sourceFiles, setSourceFiles] = useState<File[]>([]);
+  const [useStrictSources, setUseStrictSources] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -56,13 +66,35 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
     setLearningStyle('');
     setComprehensiveness(aiOptions.comprehensivenessLevels.includes('Standard') ? 'Standard' : aiOptions.comprehensivenessLevels[0] || '');
     setLanguage(aiOptions.languageOptions.includes('English') ? 'English' : aiOptions.languageOptions[0] || '');
+    setSourceFiles([]);
+    setUseStrictSources(false);
     setView('form');
     onClose();
   };
+  
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setSourceFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+    }
+    e.target.value = ''; // Reset file input to allow re-uploading the same file
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (e.dataTransfer.files?.length) {
+      setSourceFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+      e.dataTransfer.clearData();
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
+  const handleDragLeave = (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (aiGenerationStatus.currentTask || aiGenerationStatus.queue.length > 5) {
+    if (aiGenerationStatus.currentTask || (aiGenerationStatus.queue?.length || 0) > 5) {
       addToast("The AI queue is full. Please wait for some tasks to complete.", "info");
       return;
     }
@@ -84,10 +116,11 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
     
     const generationConfig = {
         ...aiParams,
-        // FIX: Explicitly cast the generationType to satisfy the expected union type.
-        generationType: (isLearningMode ? 'learning' : generationType) as ('series' | 'deck' | 'learning'),
-        generateQuestions: generationType === 'series' ? generateQuestions : undefined,
+        generationType: generationType!,
         isLearningMode,
+        generateQuestions: generationType === 'series' ? generateQuestions : undefined,
+        sourceFiles: sourceFiles.length > 0 ? sourceFiles : undefined,
+        useStrictSources: sourceFiles.length > 0 ? useStrictSources : undefined,
     };
 
     onGenerate(generationConfig);
@@ -114,7 +147,7 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
             />
         </div>
 
-        {generationType === 'series' && !isLearningMode && (
+        {generationType === 'series' && (
             <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
                 <ToggleSwitch 
                     label="Generate questions for all decks" 
@@ -178,6 +211,46 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
                         {aiOptions.languageOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                 </div>
+                <div className="space-y-2 pt-4 border-t border-border">
+                    <label className="block text-sm font-medium text-text-muted">
+                        Source Files (Optional)
+                    </label>
+                    <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileChange} />
+                    <label
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:bg-background'}`}
+                    >
+                        <Icon name="upload-cloud" className="w-8 h-8 text-text-muted mb-2"/>
+                        <p className="text-sm text-text-muted">
+                            <span className="font-semibold text-primary" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}>
+                                Click to upload
+                            </span> or drag and drop
+                        </p>
+                        <p className="text-xs text-text-muted/70">Upload files as context for the AI.</p>
+                    </label>
+                    {sourceFiles.length > 0 && (
+                        <div className="pt-2">
+                            <div className="flex justify-between items-center">
+                                <p className="text-sm font-medium text-text-muted">Selected files:</p>
+                                <Button variant="ghost" size="sm" onClick={() => setSourceFiles([])} className="text-xs">Clear</Button>
+                            </div>
+                            <ul className="list-disc list-inside text-sm text-text-muted bg-background p-2 rounded-md max-h-24 overflow-y-auto">
+                                {sourceFiles.map((file, index) => <li key={index} className="truncate">{file.name}</li>)}
+                            </ul>
+                        </div>
+                    )}
+                    <div className="pt-2">
+                        <ToggleSwitch
+                            label="Strictly use sources"
+                            description="The AI will only use the provided files to generate content."
+                            checked={useStrictSources}
+                            onChange={setUseStrictSources}
+                            disabled={sourceFiles.length === 0}
+                        />
+                    </div>
+                </div>
             </div>
         </details>
     </form>
@@ -227,7 +300,7 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
             <div className="flex-shrink-0 flex justify-end p-4 bg-background/50 border-t border-border">
             <Button type="button" variant="secondary" onClick={handleClose}>Cancel</Button>
             <Button type="submit" variant="primary" onClick={handleSubmit}>
-                {`Generate ${isLearningMode ? 'Content' : (generationType === 'series' ? 'Series' : 'Deck')}`}
+                {`Generate ${isLearningMode ? 'Learning ' : ''}${generationType === 'series' ? 'Series' : 'Deck'}`}
             </Button>
             </div>
         )}

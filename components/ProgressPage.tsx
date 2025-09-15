@@ -1,9 +1,6 @@
-
-
-
 import React, { useState, useEffect, useMemo } from 'react';
 import * as db from '../services/db';
-import { Card, Deck, Question, ReviewLog, Reviewable } from '../types';
+import { Card, Deck, Question, ReviewLog, Reviewable, QuizDeck, LearningDeck } from '../types';
 import Spinner from './ui/Spinner';
 import StatsGrid from './ui/StatsGrid';
 import ActivityHeatmap from './ui/ActivityHeatmap';
@@ -67,9 +64,9 @@ const ProgressPage: React.FC = () => {
     // Calculate Mature Items
     const allItems = decks.reduce<(Card | Question)[]>((acc, deck) => {
         if (deck.type === 'flashcard') {
-            return acc.concat(deck.cards);
+            return acc.concat(deck.cards || []);
         } else {
-            return acc.concat(deck.questions);
+            return acc.concat((deck as QuizDeck | LearningDeck).questions || []);
         }
     }, []);
     const matureCount = allItems.filter(item => (item.interval || 0) >= 21 && !item.suspended).length;
@@ -84,9 +81,9 @@ const ProgressPage: React.FC = () => {
   const allItems: Reviewable[] = useMemo(() => {
     const items = decks.reduce<(Card | Question)[]>((acc, deck) => {
         if (deck.type === 'flashcard') {
-            return acc.concat(deck.cards);
+            return acc.concat(deck.cards || []);
         } else {
-            return acc.concat(deck.questions);
+            return acc.concat((deck as QuizDeck | LearningDeck).questions || []);
         }
     }, []);
     return items.filter(i => !i.suspended);

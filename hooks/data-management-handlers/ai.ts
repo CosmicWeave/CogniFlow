@@ -1,224 +1,304 @@
-import { useCallback } from 'react';
-import { AIGenerationParams, DeckType, LearningDeck, QuizDeck, AIAction, AIActionType, InfoCard, Question, SeriesLevel, DeckSeries } from '../../types';
+import { useCallback, useMemo } from 'react';
+import { AIGenerationParams, DeckType, QuizDeck, LearningDeck, DeckSeries, ImportedQuestion, InfoCard, Question, GenerativePart } from '../../types';
 import * as aiService from '../../services/aiService';
+// FIX: Imported 'AIGenerationTask' to resolve typing errors.
+import { useStore, AIGenerationTask } from '../../store/store';
 import { createQuestionsFromImport } from '../../services/importService';
-import { useStore } from '../../store/store';
+import { useToast } from '../useToast';
 
-// This is not a hook, but a factory function that creates a set of related handlers.
-export const createAIHandlers = ({ dispatch, addToast, handleAddSeriesWithDecks, handleAddDecks, handleUpdateDeck, handleUpdateSeries, handleMoveDeck, handleDeleteDeck, handleSaveFolder, handleDeleteFolder }: any) => {
+const filesToGenerativeParts = async (files: File[]): Promise<GenerativePart[]> => {
+    const parts: GenerativePart[] = [];
+    for (const file of files) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(file);
+        });
+        parts.push({
+            inlineData: {
+                mimeType: file.type,
+                data: base64,
+            },
+        });
+    }
+    return parts;
+};
 
-  const handleGenerateWithAI = useCallback(async (params: AIGenerationParams & { generationType: 'series' | 'deck' | 'learning', generateQuestions?: boolean, isLearningMode?: boolean }) => {
-    const { generationType, generateQuestions, isLearningMode, ...aiParams } = params;
-    
-    const initialTask: any = {
-      id: crypto.randomUUID(),
-      payload: params,
-      statusText: `Initializing AI generation for '${params.topic}'...`
+export const useAIHandlers = ({ deckAndFolderHandlers, seriesHandlers }: any) => {
+  const { dispatch } = useStore();
+  const { addToast } = useToast();
+  const { handleAddDecks, handleUpdateDeck } = deckAndFolderHandlers;
+  const { handleAddSeriesWithDecks } = seriesHandlers;
+
+  const onGenerateSeriesScaffold = useCallback(async (payload: { params: AIGenerationParams, generateQuestions?: boolean, isLearningMode?: boolean }) => {
+    const { params, generateQuestions, isLearningMode } = payload;
+    const { seriesName, seriesDescription, levels } = await aiService.generateSeriesScaffoldWithAI(params);
+    const allNewDecks: (QuizDeck | LearningDeck)[] = [];
+    const newLevels = levels.map(levelData => {
+        // FIX: Refactored to help TypeScript correctly infer the discriminated union type.
+        const decksForLevel = levelData.decks.map((d): QuizDeck | LearningDeck => {
+            const baseDeck = {
+                id: crypto.randomUUID(),
+                name: d.name,
+                description: d.description,
+                questions: [],
+                suggestedQuestionCount: d.suggestedQuestionCount,
+                aiGenerationParams: params,
+            };
+            if (isLearningMode) {
+                return {
+                    ...baseDeck,
+                    type: DeckType.Learning,
+                    infoCards: [],
+                };
+            } else {
+                return {
+                    ...baseDeck,
+                    type: DeckType.Quiz,
+                };
+            }
+        });
+        allNewDecks.push(...decksForLevel);
+        return { title: levelData.title, deckIds: decksForLevel.map(deck => deck.id) };
+    });
+    const newSeries: DeckSeries = {
+        id: crypto.randomUUID(), type: 'series', name: seriesName, description: seriesDescription,
+        levels: newLevels, archived: false, createdAt: new Date().toISOString(), aiGenerationParams: params,
     };
+    await handleAddSeriesWithDecks(newSeries, allNewDecks);
+
+    if (generateQuestions) {
+        const taskType = isLearningMode ? 'generateSeriesLearningContentInBatches' : 'generateSeriesQuestionsInBatches';
+        const taskId = crypto.randomUUID();
+        dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: {
+            id: taskId,
+            type: taskType,
+            payload: { seriesId: newSeries.id },
+            statusText: `Queueing content generation for '${newSeries.name}'...`,
+            seriesId: newSeries.id
+        }});
+    }
+  }, [handleAddSeriesWithDecks, dispatch]);
+
+  const onGenerateSeriesQuestionsInBatches = useCallback(async (seriesId: string) => {
+    const onProgress = ({ deckId, questions }: { deckId: string; questions: ImportedQuestion[] }) => {
+        const { decks } = useStore.getState();
+        const deck = decks.find(d => d.id === deckId) as QuizDeck;
+        if (deck) {
+            const newQuestions = createQuestionsFromImport(questions);
+            const currentQuestions = deck.questions || [];
+            const updatedDeck = { ...deck, questions: [...currentQuestions, ...newQuestions] };
+            handleUpdateDeck(updatedDeck, { silent: true });
+            dispatch({ type: 'UPDATE_CURRENT_AI_TASK_STATUS', payload: { 
+                statusText: `Generated ${currentQuestions.length + newQuestions.length} / ${deck.suggestedQuestionCount || '?'} questions for '${deck.name}'...`
+            }});
+        }
+    };
+    await aiService.generateSeriesQuestionsInBatches(seriesId, onProgress);
+  }, [handleUpdateDeck, dispatch]);
+
+  const onGenerateSeriesLearningContentInBatches = useCallback(async (seriesId: string) => {
+    const onProgress = ({ deckId, newInfoCards, newQuestions }: { deckId: string; newInfoCards: InfoCard[], newQuestions: Question[] }) => {
+        const { decks } = useStore.getState();
+        const deck = decks.find(d => d.id === deckId) as LearningDeck;
+        if (deck) {
+            const updatedDeck = { 
+                ...deck, 
+                infoCards: [...(deck.infoCards || []), ...newInfoCards],
+                questions: [...(deck.questions || []), ...newQuestions],
+            };
+            handleUpdateDeck(updatedDeck, { silent: true });
+             dispatch({ type: 'UPDATE_CURRENT_AI_TASK_STATUS', payload: { 
+                statusText: `Generated ${updatedDeck.infoCards.length} learning blocks for '${deck.name}'...`
+            }});
+        }
+    };
+    await aiService.generateSeriesLearningContentInBatches(seriesId, onProgress);
+  }, [handleUpdateDeck, dispatch]);
+  
+  const onGenerateQuestionsForDeck = useCallback(async (deck: QuizDeck, count: number) => {
+      const { questions } = await aiService.generateQuestionsForDeck(deck, count);
+      const newQuestions = createQuestionsFromImport(questions);
+      const currentQuestions = deck.questions || [];
+      const updatedDeck = { ...deck, questions: [...currentQuestions, ...newQuestions] };
+      await handleUpdateDeck(updatedDeck, { toastMessage: `Added ${newQuestions.length} new questions to "${deck.name}".` });
+  }, [handleUpdateDeck]);
+  
+  const onGenerateDeck = useCallback(async (payload: { params: AIGenerationParams }) => {
+    const { params } = payload;
+    const newDeck: QuizDeck = {
+        id: crypto.randomUUID(),
+        name: params.topic,
+        description: `An AI-generated quiz deck about ${params.topic}.`,
+        type: DeckType.Quiz,
+        questions: [],
+        aiGenerationParams: params,
+        suggestedQuestionCount: params.comprehensiveness === 'Standard' ? 25 : (params.comprehensiveness === 'Quick Overview' ? 10 : 40),
+    };
+    await handleAddDecks([newDeck]);
+
+    dispatch({ type: 'UPDATE_CURRENT_AI_TASK_STATUS', payload: { 
+        statusText: `Generating questions for '${newDeck.name}'...`,
+        deckId: newDeck.id
+    }});
+    
+    await onGenerateQuestionsForDeck(newDeck, newDeck.suggestedQuestionCount || 10);
+  }, [handleAddDecks, dispatch, onGenerateQuestionsForDeck]);
+  
+  const onGenerateLearningDeck = useCallback(async (payload: { deck?: LearningDeck, params: AIGenerationParams }) => {
+    const { deck: existingDeck, params } = payload;
+    
+    const deckToProcess = existingDeck || {
+        id: crypto.randomUUID(),
+        name: params.topic,
+        description: `An AI-generated learning deck about ${params.topic}.`,
+        type: DeckType.Learning,
+        infoCards: [],
+        questions: [],
+        aiGenerationParams: params,
+        suggestedQuestionCount: params.comprehensiveness === 'Comprehensive' ? 20 : 10,
+    } as LearningDeck;
+
+    if (!existingDeck) {
+        await handleAddDecks([deckToProcess]);
+    }
+
+    dispatch({ type: 'UPDATE_CURRENT_AI_TASK_STATUS', payload: { 
+        statusText: `Generating content for '${deckToProcess.name}'...`,
+        deckId: deckToProcess.id
+    }});
+    
+    const { newInfoCards, newQuestions } = await aiService.generateContentForLearningDeck(deckToProcess, params);
+
+    const updatedDeck = { 
+        ...deckToProcess, 
+        infoCards: [...(deckToProcess.infoCards || []), ...newInfoCards],
+        questions: [...(deckToProcess.questions || []), ...newQuestions],
+    };
+
+    await handleUpdateDeck(updatedDeck, { toastMessage: `Generated ${newInfoCards.length} learning blocks for "${deckToProcess.name}".` });
+  }, [handleUpdateDeck, handleAddDecks, dispatch]);
+
+  const handleGenerateWithAI = useCallback(async (config: AIGenerationParams & { 
+    generationType: 'series' | 'deck', 
+    isLearningMode: boolean,
+    generateQuestions?: boolean,
+    sourceFiles?: File[],
+    useStrictSources?: boolean
+  }) => {
+    const taskId = crypto.randomUUID();
+    const { generationType, isLearningMode, generateQuestions, sourceFiles, useStrictSources, ...aiParams } = config;
+    
+    let taskType: AIGenerationTask['type'];
+    let statusText: string;
+    let taskPayload: any;
+    
+    const sourceParts = sourceFiles ? await filesToGenerativeParts(sourceFiles) : undefined;
+    const finalParams: AIGenerationParams = { ...aiParams, sourceParts, useStrictSources };
+
+    console.log('[AI Handler] Creating new AI task with params:', finalParams);
 
     if (generationType === 'series') {
-        initialTask.type = isLearningMode ? 'generateSeriesLearningContentInBatches' : (generateQuestions ? 'generateSeriesQuestionsInBatches' : 'generateSeriesScaffoldWithAI');
-    } else {
-        initialTask.type = isLearningMode ? 'generateLearningDeckWithAI' : 'generateDeckWithAI';
+        taskType = 'generateSeriesScaffoldWithAI';
+        taskPayload = { params: finalParams, generateQuestions, isLearningMode };
+        statusText = `Initializing AI generation for '${aiParams.topic}' ${isLearningMode ? 'learning ' : ''}series...`;
+    } else { // 'deck'
+        taskType = isLearningMode ? 'generateLearningDeckWithAI' : 'generateDeckWithAI';
+        taskPayload = { params: finalParams };
+        statusText = `Initializing AI generation for '${aiParams.topic}' ${isLearningMode ? 'learning ' : ''}deck...`;
     }
 
-    dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: initialTask });
-    addToast("AI task has been added to the queue.", "info");
-
+    dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: { id: taskId, type: taskType, payload: taskPayload, statusText } });
+    addToast('AI generation task has been added to the queue.', 'info');
   }, [dispatch, addToast]);
 
-  const handleGenerateQuestionsForDeck = useCallback(async (deck: QuizDeck) => {
-    const task = {
-      id: crypto.randomUUID(),
-      type: 'generateQuestionsForDeck',
-      payload: { 
-        deckId: deck.id, 
-        count: deck.suggestedQuestionCount || 15 
-      },
-      statusText: `Queueing question generation for "${deck.name}"...`,
-      deckId: deck.id,
+  const handleGenerateQuestionsForDeck = useCallback((deck: QuizDeck) => {
+    const taskId = crypto.randomUUID();
+    // FIX: Explicitly typed the 'task' object to ensure it conforms to the AIGenerationTask interface.
+    const task: AIGenerationTask = {
+        id: taskId,
+        type: 'generateQuestionsForDeck',
+        payload: { deck, count: deck.suggestedQuestionCount || 10 },
+        statusText: `Generating questions for '${deck.name}'...`,
+        deckId: deck.id
     };
     dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: task });
-    addToast(`Task to generate questions for "${deck.name}" has been queued.`, 'info');
+    addToast(`AI is now generating questions for "${deck.name}".`, 'info');
   }, [dispatch, addToast]);
 
-  const handleGenerateContentForLearningDeck = useCallback(async (deck: LearningDeck) => {
-    const task = {
-      id: crypto.randomUUID(),
-      type: 'generateLearningDeckWithAI',
-      payload: { deckId: deck.id },
-      statusText: `Queueing content generation for "${deck.name}"...`,
-      deckId: deck.id
-    };
-     dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: task });
-    addToast(`Task to generate content for "${deck.name}" has been queued.`, 'info');
-  }, [addToast, dispatch]);
-
-  const handleAiAddLevelsToSeries = useCallback(async (seriesId: string) => {
-    const task = {
-        id: crypto.randomUUID(),
-        type: 'generateMoreLevelsForSeries',
-        payload: { seriesId },
-        statusText: `Queueing task to expand series...`,
-        seriesId: seriesId,
+  const handleGenerateContentForLearningDeck = useCallback((deck: LearningDeck) => {
+    const taskId = crypto.randomUUID();
+    // FIX: Explicitly typed the 'task' object to ensure it conforms to the AIGenerationTask interface.
+    const task: AIGenerationTask = {
+        id: taskId,
+        type: 'generateLearningDeckWithAI',
+        payload: { deck, params: deck.aiGenerationParams || { topic: deck.name } },
+        statusText: `Generating content for '${deck.name}'...`,
+        deckId: deck.id
     };
     dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: task });
-    addToast("Task to expand series has been queued.", "info");
+    addToast(`AI is now generating content for "${deck.name}".`, 'info');
   }, [dispatch, addToast]);
-
-  const handleAiAddDecksToLevel = useCallback(async (seriesId: string, levelIndex: number) => {
-     const task = {
-        id: crypto.randomUUID(),
-        type: 'generateMoreDecksForLevel',
-        payload: { seriesId, levelIndex },
-        statusText: `Queueing task to add decks to level ${levelIndex + 1}...`,
-        seriesId: seriesId,
-    };
-    dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: task });
-    addToast("Task to add more decks has been queued.", "info");
-  }, [dispatch, addToast]);
-
-  const handleExecuteAIAction = useCallback(async (action: AIAction) => {
-    const { decks, folders, deckSeries } = useStore.getState();
-    const { payload } = action;
-
-    switch (action.action) {
-        case AIActionType.CREATE_DECK:
-            if (payload.name) handleAddDecks([{ id: crypto.randomUUID(), name: payload.name, type: DeckType.Quiz, questions: [], description: 'Generated by AI Assistant' }]);
-            break;
-        case AIActionType.RENAME_DECK:
-            if (payload.deckId && payload.newName) {
-                const deck = decks.find(d => d.id === payload.deckId);
-                if (deck) handleUpdateDeck({ ...deck, name: payload.newName });
-            }
-            break;
-        case AIActionType.MOVE_DECK_TO_FOLDER:
-            if (payload.deckId) handleMoveDeck(payload.deckId, payload.folderId);
-            break;
-        case AIActionType.DELETE_DECK:
-            if (payload.deckId) handleDeleteDeck(payload.deckId);
-            break;
-        case AIActionType.CREATE_FOLDER:
-            if (payload.name) handleSaveFolder({ id: null, name: payload.name });
-            break;
-        case AIActionType.RENAME_FOLDER:
-            if (payload.folderId && payload.newName) handleSaveFolder({ id: payload.folderId, name: payload.newName });
-            break;
-        case AIActionType.DELETE_FOLDER:
-            if (payload.folderId) handleDeleteFolder(payload.folderId);
-            break;
-        case AIActionType.EXPAND_SERIES_ADD_LEVELS:
-            if (payload.seriesId) handleAiAddLevelsToSeries(payload.seriesId);
-            break;
-        case AIActionType.EXPAND_SERIES_ADD_DECKS:
-            if (payload.seriesId && typeof payload.levelIndex === 'number') handleAiAddDecksToLevel(payload.seriesId, payload.levelIndex);
-            break;
-        case AIActionType.GENERATE_QUESTIONS_FOR_DECK:
-            if (payload.deckId) {
-                const deck = decks.find(d => d.id === payload.deckId);
-                if (deck && (deck.type === DeckType.Quiz || deck.type === DeckType.Learning)) handleGenerateQuestionsForDeck(deck as QuizDeck);
-            }
-            break;
-        case AIActionType.NO_ACTION:
-            // No operation, the message is purely conversational.
-            break;
-        default:
-            addToast(`Action "${action.action}" is not implemented.`, 'error');
-    }
-  }, [addToast, handleAddDecks, handleDeleteDeck, handleDeleteFolder, handleMoveDeck, handleSaveFolder, handleUpdateDeck, handleAiAddDecksToLevel, handleAiAddLevelsToSeries, handleGenerateQuestionsForDeck]);
-
-  const handleGenerateQuestionsForEmptyDecksInSeries = useCallback(async (seriesId: string) => {
-    const { decks, deckSeries, aiGenerationStatus } = useStore.getState();
-    const series = deckSeries.find(s => s.id === seriesId);
+  
+  const handleGenerateQuestionsForEmptyDecksInSeries = useCallback((seriesId: string) => {
+    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
     if (!series) {
         addToast("Series not found.", "error");
         return;
     }
-    const emptyDecks = series.levels
-        .flatMap(l => l.deckIds)
-        .map(id => decks.find(d => d.id === id))
-        .filter((d): d is (QuizDeck | LearningDeck) => !!d && (d.type === DeckType.Quiz || d.type === DeckType.Learning) && d.questions.length === 0);
+    const taskId = crypto.randomUUID();
+    dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: {
+        id: taskId,
+        type: 'generateSeriesQuestionsInBatches',
+        payload: { seriesId },
+        statusText: `Queueing question generation for '${series.name}'...`,
+        seriesId: seriesId
+    }});
+    addToast('AI task to generate questions has been queued.', 'info');
+  }, [dispatch, addToast]);
 
-    if (emptyDecks.length === 0) {
-        addToast("No empty decks to generate questions for.", "info");
-        return;
-    }
-    
-    if (aiGenerationStatus.currentTask || aiGenerationStatus.queue.length > 0) {
-        addToast("An AI task is already running. Please wait.", "info");
-        return;
-    }
-
-    const tasks: any[] = emptyDecks.map(deck => ({
-      id: crypto.randomUUID(),
-      type: deck.type === DeckType.Learning ? 'generateLearningDeckWithAI' : 'generateQuestionsForDeck',
-      payload: { 
-          deckId: deck.id, 
-          count: deck.suggestedQuestionCount || 15 
-      },
-      statusText: `Queueing task for "${deck.name}"...`,
-      deckId: deck.id,
-      seriesId: seriesId,
-    }));
-    
-    tasks.forEach(task => dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: task }));
-    addToast(`Queued ${tasks.length} AI generation tasks for "${series.name}".`, "info");
-  }, [addToast, dispatch]);
+  const handleAiAddLevelsToSeries = useCallback(async (seriesId: string) => {
+    addToast('This feature is coming soon!', 'info');
+  }, [addToast]);
   
+  const handleAiAddDecksToLevel = useCallback(async (seriesId: string, levelIndex: number) => {
+    addToast('This feature is coming soon!', 'info');
+  }, [addToast]);
+
   const handleCancelAIGeneration = useCallback((taskId?: string) => {
-    dispatch({ type: 'CANCEL_AI_TASK', payload: { taskId } });
-    addToast("AI generation task cancelled.", "info");
+    dispatch({ type: 'CANCEL_AI_TASK', payload: { taskId }});
+    if (taskId) {
+        addToast('Task removed from queue.', 'info');
+    } else {
+        addToast('Cancelling current AI task.', 'info');
+    }
   }, [dispatch, addToast]);
   
-  const handleSaveLearningBlock = useCallback(async (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId);
-    if (!deck || deck.type !== DeckType.Learning) return;
-    
-    const { infoCard, questions } = blockData;
-    const isEditing = deck.infoCards.some(ic => ic.id === infoCard.id);
-    
-    let updatedInfoCards: InfoCard[];
-    let updatedQuestions: Question[];
+  const handleExecuteAIAction = useCallback((action: any) => {
+      addToast(`Action: ${action.confirmationMessage}`, 'info');
+      // Placeholder for future implementation
+  }, [addToast]);
 
-    if (isEditing) {
-        updatedInfoCards = deck.infoCards.map(ic => ic.id === infoCard.id ? infoCard : ic);
-        const otherQuestions = deck.questions.filter(q => !infoCard.unlocksQuestionIds.includes(q.id));
-        updatedQuestions = [...otherQuestions, ...questions];
-    } else {
-        updatedInfoCards = [...deck.infoCards, infoCard];
-        updatedQuestions = [...deck.questions, ...questions];
-    }
-    
-    await handleUpdateDeck({ ...deck, infoCards: updatedInfoCards, questions: updatedQuestions });
-    addToast(`Learning block ${isEditing ? 'updated' : 'added'}.`, 'success');
-  }, [handleUpdateDeck, addToast]);
-
-  const handleDeleteLearningBlock = useCallback(async (deckId: string, infoCardId: string) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId);
-    if (!deck || deck.type !== DeckType.Learning) return;
-
-    const infoCardToDelete = deck.infoCards.find(ic => ic.id === infoCardId);
-    if (!infoCardToDelete) return;
-    
-    const questionIdsToDelete = new Set(infoCardToDelete.unlocksQuestionIds);
-
-    const updatedInfoCards = deck.infoCards.filter(ic => ic.id !== infoCardId);
-    const updatedQuestions = deck.questions.filter(q => !questionIdsToDelete.has(q.id));
-    
-    await handleUpdateDeck({ ...deck, infoCards: updatedInfoCards, questions: updatedQuestions });
-    addToast("Learning block deleted.", "success");
-  }, [handleUpdateDeck, addToast]);
-
-  return {
+  return useMemo(() => ({
     handleGenerateWithAI,
     handleGenerateQuestionsForDeck,
     handleGenerateContentForLearningDeck,
+    handleGenerateQuestionsForEmptyDecksInSeries,
     handleAiAddLevelsToSeries,
     handleAiAddDecksToLevel,
-    handleExecuteAIAction,
-    handleGenerateQuestionsForEmptyDecksInSeries,
     handleCancelAIGeneration,
-    handleSaveLearningBlock,
-    handleDeleteLearningBlock,
-  };
+    handleExecuteAIAction,
+    onGenerateSeriesScaffold,
+    onGenerateSeriesQuestionsInBatches,
+    onGenerateSeriesLearningContentInBatches,
+    onGenerateDeck,
+    onGenerateLearningDeck,
+    onGenerateQuestionsForDeck,
+  }), [
+    handleGenerateWithAI, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck,
+    handleGenerateQuestionsForEmptyDecksInSeries, handleAiAddLevelsToSeries, handleAiAddDecksToLevel,
+    handleCancelAIGeneration, handleExecuteAIAction, onGenerateSeriesScaffold, onGenerateSeriesQuestionsInBatches,
+    onGenerateSeriesLearningContentInBatches, onGenerateDeck, onGenerateLearningDeck, onGenerateQuestionsForDeck
+  ]);
 };

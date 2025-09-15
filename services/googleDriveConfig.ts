@@ -3,9 +3,9 @@
 // credentials for a Web application. You must also configure the authorized
 // JavaScript origins to match the domain where you host your app.
 
-// Using these placeholders will result in an error from Google.
-export const API_KEY = "AIzaSyCxQD2rTQvfarBU5QQLwjHdRTJ-jq3GFMY";
-export const CLIENT_ID = "727276393482-almsrnelboiul2343hvs643ok8onqtna.apps.googleusercontent.com";
+// These values must be configured in your environment.
+export const API_KEY = process.env.GDRIVE_API_KEY;
+export const CLIENT_ID = process.env.GDRIVE_CLIENT_ID;
 
 // These values are standard for the Google Drive API.
 export const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';

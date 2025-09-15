@@ -1,18 +1,18 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import * as backupService from '../../services/backupService';
 import * as db from '../../services/db';
-import { useToast } from '../../hooks/useToast';
+import { useToast } from '../useToast';
 import { FullBackupData, AIMessage } from '../../types';
 
-export const createBackupHandlers = ({ addToast, openConfirmModal, onRestoreData, triggerSync, isSyncing, setIsSyncing, setLastSyncStatus }: {
-    addToast: ReturnType<typeof useToast>['addToast'];
-    openConfirmModal: (props: any) => void;
+export const useBackupHandlers = ({ onRestoreData, triggerSync, isSyncing, setIsSyncing, setLastSyncStatus, openConfirmModal }: {
     onRestoreData: (data: FullBackupData) => Promise<void>;
     triggerSync: (options?: { isManual?: boolean; force?: boolean }) => Promise<void>;
     isSyncing: boolean;
     setIsSyncing: (syncing: boolean) => void;
     setLastSyncStatus: (status: string) => void;
+    openConfirmModal: (props: any) => void;
 }) => {
+  const { addToast } = useToast();
 
   const fetchAndRestoreFromServer = useCallback(async (isForce = false) => {
     console.log(`[Restore] Starting fetch from server. Force: ${isForce}`);
@@ -31,14 +31,26 @@ export const createBackupHandlers = ({ addToast, openConfirmModal, onRestoreData
       }
     }
     try {
-        const mainData = await backupService.syncDataFromServer();
-        const aiHistory: AIMessage[] = await backupService.syncAIChatHistoryFromServer().catch(e => {
-            if (e.status === 404) return [];
-            throw e;
-        });
-        await onRestoreData({ ...mainData, aiChatHistory: aiHistory });
+        const fullData = await backupService.syncDataFromServer();
+        let aiHistoryToRestore: AIMessage[] = [];
+
+        if (fullData.aiChatHistory && fullData.aiChatHistory.length > 0) {
+            console.log('[Restore] Found AI chat history in the main sync file.');
+            aiHistoryToRestore = fullData.aiChatHistory;
+        } else {
+            console.log('[Restore] No AI chat history in main sync file, fetching separately.');
+            aiHistoryToRestore = await backupService.syncAIChatHistoryFromServer().catch(e => {
+                if ((e as any).status === 404) {
+                    console.log('[Restore] No separate AI chat history file found.');
+                    return [];
+                }
+                throw e;
+            });
+        }
+        
+        const finalData = { ...fullData, aiChatHistory: aiHistoryToRestore };
+        await onRestoreData(finalData);
         console.log('[Restore] Fetch and restore successful.');
-        // The onRestoreData handler now shows the success toast and reloads the app
     } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
         console.error("[Restore] Fetch from server failed:", e);
@@ -49,7 +61,7 @@ export const createBackupHandlers = ({ addToast, openConfirmModal, onRestoreData
             setLastSyncStatus(`Error: ${message}`);
             addToast(`Failed to fetch server data: ${message}`, 'error');
         }
-         setIsSyncing(false); // Only set this on failure, as success causes a reload
+         setIsSyncing(false);
     }
   }, [addToast, onRestoreData, setIsSyncing, setLastSyncStatus, isSyncing]);
   
@@ -104,22 +116,31 @@ export const createBackupHandlers = ({ addToast, openConfirmModal, onRestoreData
   }, [addToast, openConfirmModal]);
   
   const handleDeleteServerBackup = useCallback(async (filename: string) => {
-    try {
-        await backupService.deleteServerBackup(filename);
-        addToast(`Deleted backup: ${filename}`, 'success');
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to delete backup.";
-        addToast(message, 'error');
-        throw error;
-    }
-  }, [addToast]);
+    openConfirmModal({
+      title: "Delete Server Backup",
+      message: `Are you sure you want to permanently delete the backup file "${filename}" from the server? This action cannot be undone.`,
+      onConfirm: async () => {
+          try {
+              await backupService.deleteServerBackup(filename);
+              addToast(`Deleted backup: ${filename}`, 'success');
+          } catch (error) {
+              const message = error instanceof Error ? error.message : "Failed to delete backup.";
+              addToast(message, 'error');
+              throw error;
+          }
+      }
+    });
+  }, [addToast, openConfirmModal]);
 
-  return {
+  return useMemo(() => ({
     fetchAndRestoreFromServer,
     handleForceFetchFromServer,
     handleForceUploadToServer,
     handleCreateServerBackup,
     handleRestoreFromServerBackup,
     handleDeleteServerBackup,
-  };
+  }), [
+    fetchAndRestoreFromServer, handleForceFetchFromServer, handleForceUploadToServer, 
+    handleCreateServerBackup, handleRestoreFromServerBackup, handleDeleteServerBackup
+  ]);
 };

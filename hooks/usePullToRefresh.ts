@@ -13,6 +13,8 @@ export const usePullToRefresh = () => {
   const { hapticsEnabled } = useSettings();
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 0) return;
+
     const targetElement = e.target as HTMLElement;
     // Do not initiate pull-to-refresh if the touch starts on an interactive element.
     // This prevents blocking default behaviors like focusing an input field on tap.
@@ -24,7 +26,7 @@ export const usePullToRefresh = () => {
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (pullToRefreshState.startY === 0) return;
+    if (pullToRefreshState.startY === 0 || e.touches.length === 0) return;
     const pullDistance = e.touches[0].clientY - pullToRefreshState.startY;
     
     // Only start preventing default and tracking pull distance after a small threshold

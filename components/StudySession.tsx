@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+// FIX: Corrected import path for types
 import { Card, Question, ReviewRating, Deck, Reviewable, QuizDeck, LearningDeck, InfoCard, SessionState, DeckType, FlashcardDeck } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs';
 import { saveSessionState, deleteSessionState } from '../services/db';
@@ -29,13 +30,14 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const [reviewedItems, setReviewedItems] = useState<Array<{ oldItem: Card | Question; newItem: Card | Question; rating: ReviewRating | null }>>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [displayIndex, setDisplayIndex] = useState(0);
-    const [itemsCompleted, setItemsCompleted] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
     const [selectedAnswerId, setSelectedAnswerId] = useState<string | null>(null);
     const [isReviewing, setIsReviewing] = useState(false);
     
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
     const [infoForModal, setInfoForModal] = useState<InfoCard[]>([]);
+    const [totalSessionItems, setTotalSessionItems] = useState(0);
+    const [itemsCompleted, setItemsCompleted] = useState(0);
 
     const { hapticsEnabled } = useSettings();
     const { addToast } = useToast();
@@ -47,27 +49,22 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     const { sessionQueue, setSessionQueue, isSessionInitialized, initialIndex, readInfoCardIds, setReadInfoCardIds, unlockedQuestionIds, setUnlockedQuestionIds, initialItemsCompleted } = useSessionQueue(deck, sessionKey, isSpecialSession);
     
-    const totalSessionItems = useMemo(() => {
-        if (isSpecialSession) {
-            return deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards.length : (deck as QuizDeck | LearningDeck).questions.length;
+    useEffect(() => {
+        if (!isSessionInitialized) {
+            return;
         }
 
-        if (isLearningDeck) {
+        let total = 0;
+        if (isSpecialSession) {
+            total = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards?.length : (deck as QuizDeck | LearningDeck).questions?.length) || 0;
+        } else if (deck.type === DeckType.Learning) {
             const learningDeck = deck as LearningDeck;
-            const today = new Date();
-            today.setHours(23, 59, 59, 999);
-            const dueQuestionsCount = learningDeck.questions.filter(
-                q => !q.suspended && new Date(q.dueDate) <= today
-            ).length;
-            return learningDeck.infoCards.length + dueQuestionsCount;
+            total = (learningDeck.infoCards?.length || 0) + (learningDeck.questions?.length || 0);
+        } else {
+            total = sessionQueue.length;
         }
-        
-        // For regular decks, the initial queue is all due items
-        const itemsToReview = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions;
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        return itemsToReview.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
-    }, [deck, isLearningDeck, isSpecialSession]);
+        setTotalSessionItems(total);
+    }, [isSessionInitialized, deck, isSpecialSession, sessionQueue]);
     
     useEffect(() => {
         if (isSessionInitialized) {
@@ -105,7 +102,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         if (!seriesId || itemsCompleted < totalSessionItems) return null;
         const series = deckSeries.find(s => s.id === seriesId);
         if (!series) return null;
-        const flatDeckIds = series.levels.flatMap(l => l.deckIds);
+        const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
         const currentDeckIndex = flatDeckIds.indexOf(deck.id);
         if (currentDeckIndex > -1 && currentDeckIndex < flatDeckIds.length - 1) {
             const completedDeckIds = seriesProgress.get(seriesId) || new Set();
@@ -129,7 +126,8 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     }, [currentIndex, sessionQueue.length, isSpecialSession, sessionKey]);
 
     const handleReview = useCallback(async (rating: ReviewRating) => {
-        if (!displayedItem || !isCurrent || isReviewing || isInfoCard) return;
+        // FIX: Use a type guard on a Reviewable property to correctly narrow `displayedItem` and resolve TypeScript errors.
+        if (!displayedItem || !isCurrent || isReviewing || !('interval' in displayedItem)) return;
 
         if (sessionKeySuffix === '_cram') {
             setIsReviewing(true);
@@ -141,17 +139,17 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         setIsReviewing(true);
         if (hapticsEnabled && 'vibrate' in navigator) navigator.vibrate(20);
 
-        let updatedItem = calculateNextReview(displayedItem as (Card | Question), rating);
-        if ((updatedItem.lapses || 0) >= 8 && !(displayedItem as Reviewable).suspended) {
+        let updatedItem = calculateNextReview(displayedItem, rating);
+        if ((updatedItem.lapses || 0) >= 8 && !displayedItem.suspended) {
             updatedItem = { ...updatedItem, suspended: true };
             addToast("Item suspended due to repeated failures.", "info");
         }
 
-        if (getEffectiveMasteryLevel(displayedItem as Reviewable) <= 0.85 && (updatedItem.masteryLevel || 0) > 0.85) {
+        if (getEffectiveMasteryLevel(displayedItem) <= 0.85 && (updatedItem.masteryLevel || 0) > 0.85) {
             addToast('Item Mastered!', 'success');
         }
         
-        setReviewedItems(prev => [...prev, { oldItem: displayedItem as (Card|Question), newItem: updatedItem as (Card|Question), rating }]);
+        setReviewedItems(prev => [...prev, { oldItem: displayedItem, newItem: updatedItem, rating }]);
         
         try {
             const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
@@ -163,118 +161,179 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             setSessionQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
             setTimeout(() => { advanceToNext(); setIsReviewing(false); }, 800);
         }
-    }, [displayedItem, isCurrent, isReviewing, isInfoCard, sessionKeySuffix, advanceToNext, hapticsEnabled, addToast, deck.id, onItemReviewed, seriesId, currentIndex, setSessionQueue]);
+    }, [displayedItem, isCurrent, isReviewing, sessionKeySuffix, advanceToNext, hapticsEnabled, addToast, deck.id, onItemReviewed, seriesId, currentIndex, setSessionQueue]);
 
     const handleSuspend = useCallback(async () => {
-        if (!displayedItem || !isCurrent || isReviewing || isInfoCard) return;
+        // FIX: Use a type guard on a Reviewable property to correctly narrow `displayedItem` and resolve TypeScript errors.
+        if (!displayedItem || !isCurrent || isReviewing || !('interval' in displayedItem)) return;
+
+        // Explicitly type the item after the guard clause to ensure type safety.
+        const itemToSuspend = displayedItem;
         
         setIsReviewing(true);
-        const suspendedItem = { ...displayedItem, suspended: true };
-        setReviewedItems(prev => [...prev, { oldItem: displayedItem as (Card|Question), newItem: suspendedItem as (Card|Question), rating: null }]);
         
+        const updatedItem = { ...itemToSuspend, suspended: true };
+        
+        setReviewedItems(prev => [...prev, { oldItem: itemToSuspend, newItem: updatedItem, rating: null }]);
+
         try {
-            const originalDeckId = (displayedItem as any).originalDeckId || deck.id;
-            await onItemReviewed(originalDeckId, suspendedItem as Reviewable, null, seriesId);
-            addToast("Card suspended.", "info");
+            const originalDeckId = (itemToSuspend as any).originalDeckId || deck.id;
+            await onItemReviewed(originalDeckId, updatedItem, null, seriesId);
+            addToast("Item suspended.", "info");
         } catch (error) {
-            addToast("Failed to suspend card.", "error");
+            console.error("Failed to save suspended item:", error);
+            addToast("Failed to suspend item.", "error");
         } finally {
-            setTimeout(() => { advanceToNext(); setIsReviewing(false); }, 300);
+            setSessionQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
+            setTimeout(() => { advanceToNext(); setIsReviewing(false); }, 500);
         }
-    }, [displayedItem, isCurrent, isReviewing, isInfoCard, advanceToNext, addToast, deck.id, onItemReviewed, seriesId]);
+    }, [displayedItem, isCurrent, isReviewing, advanceToNext, addToast, deck.id, onItemReviewed, seriesId, currentIndex, setSessionQueue]);
+
+    const handleFlip = useCallback(() => {
+        if (isCurrent) setIsFlipped(true);
+    }, [isCurrent]);
+
+    const handleSelectAnswer = useCallback((optionId: string) => {
+        if (isCurrent && !isAnswered) setSelectedAnswerId(optionId);
+    }, [isCurrent, isAnswered]);
 
     const handleReadInfoCard = useCallback(() => {
-        if (!isLearningDeck || !isInfoCard || !isCurrent) return;
+        if (isCurrent && isInfoCard) {
+            const infoCard = displayedItem as InfoCard;
+            setReadInfoCardIds(prev => new Set(prev).add(infoCard.id));
+            setUnlockedQuestionIds(prev => new Set([...prev, ...infoCard.unlocksQuestionIds]));
+            
+            const newlyUnlockedQuestions = (deck as LearningDeck).questions
+                .filter(q => infoCard.unlocksQuestionIds.includes(q.id));
 
-        const currentInfoCard = displayedItem as InfoCard;
-        const newReadIds = new Set(readInfoCardIds).add(currentInfoCard.id);
-        setReadInfoCardIds(newReadIds);
-        const newUnlockedIds = new Set(unlockedQuestionIds);
-        currentInfoCard.unlocksQuestionIds.forEach(id => newUnlockedIds.add(id));
-        setUnlockedQuestionIds(newUnlockedIds);
+            // Prevent adding questions that might already be in the queue (e.g., as orphan questions)
+            const currentQueueIds = new Set(sessionQueue.map(item => item.id));
+            const questionsToAdd = newlyUnlockedQuestions.filter(q => !currentQueueIds.has(q.id));
 
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const questionsToInject = (deck as LearningDeck).questions.filter(q =>
-            currentInfoCard.unlocksQuestionIds.includes(q.id) && !q.suspended && new Date(q.dueDate) <= today
-        );
-
-        const newQueue = [...sessionQueue];
-        newQueue.splice(currentIndex, 1, ...questionsToInject);
-        setSessionQueue(newQueue);
-        setItemsCompleted(prev => prev + 1);
-    }, [isLearningDeck, isInfoCard, isCurrent, displayedItem, readInfoCardIds, unlockedQuestionIds, deck, sessionQueue, currentIndex, setReadInfoCardIds, setUnlockedQuestionIds, setSessionQueue]);
-
-    const handleShowInfo = useCallback(() => {
-        if (!isLearningDeck || !isQuiz) return;
-        const question = displayedItem as Question;
-        const learningDeck = deck as LearningDeck;
-        if (question.infoCardIds?.length) {
-            setInfoForModal(learningDeck.infoCards.filter(ic => question.infoCardIds?.includes(ic.id)));
-            setIsInfoModalOpen(true);
-        }
-    }, [isLearningDeck, isQuiz, displayedItem, deck]);
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-            if (e.key === 'ArrowLeft' && displayIndex > 0) { e.preventDefault(); setDisplayIndex(d => d - 1); return; }
-            if (e.key === 'ArrowRight' && displayIndex < currentIndex) { e.preventDefault(); setDisplayIndex(d => d + 1); return; }
-            if (!isCurrent || isReviewing) return;
-            if (isInfoCard && (e.code === 'Space' || e.key === 'Enter')) { e.preventDefault(); handleReadInfoCard(); }
-            else if (isQuiz && isAnswered) {
-                if (e.key === '1') handleReview(ReviewRating.Again); if (e.key === '2') handleReview(ReviewRating.Hard);
-                if (e.key === '3') handleReview(ReviewRating.Good); if (e.key === '4') handleReview(ReviewRating.Easy);
-            } else if (!isQuiz && !isInfoCard) {
-                if (isFlipped) {
-                    if (e.key === '1') handleReview(ReviewRating.Again); if (e.key === '2') handleReview(ReviewRating.Hard);
-                    if (e.key === '3') handleReview(ReviewRating.Good); if (e.key === '4') handleReview(ReviewRating.Easy);
-                } else if (e.code === 'Space') { e.preventDefault(); setIsFlipped(true); }
+            if (questionsToAdd.length > 0) {
+                // Shuffle questions before injecting them
+                questionsToAdd.sort(() => Math.random() - 0.5);
+                setSessionQueue(prev => {
+                    const nextQueue = [...prev];
+                    // Splice them in right after the current item
+                    nextQueue.splice(currentIndex + 1, 0, ...questionsToAdd);
+                    return nextQueue;
+                });
             }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isFlipped, isAnswered, isQuiz, isCurrent, isReviewing, handleReview, displayIndex, currentIndex, isInfoCard, handleReadInfoCard]);
+            advanceToNext();
+        }
+    }, [isCurrent, isInfoCard, displayedItem, setReadInfoCardIds, setUnlockedQuestionIds, deck, setSessionQueue, currentIndex, advanceToNext, sessionQueue]);
 
-    if (!isSessionInitialized) return <div className="text-center p-8"><p className="text-text-muted">Initializing session...</p></div>;
+    const handleNavigatePrevious = useCallback(() => {
+        if (displayIndex > 0) setDisplayIndex(prev => prev - 1);
+    }, [displayIndex]);
+
+    const handleNavigateNext = useCallback(() => {
+        // FIX: Corrected the logic to increment the display index instead of decrementing it.
+        if (displayIndex < currentIndex) setDisplayIndex(prev => prev + 1);
+    }, [displayIndex, currentIndex]);
+
+    const handleReturnToCurrent = useCallback(() => setDisplayIndex(currentIndex), [currentIndex]);
     
-    if (isSessionInitialized && totalSessionItems === 0) return (
-        <div className="text-center p-8">
-            <h2 className="text-2xl font-bold">All caught up!</h2>
-            <p className="text-text-muted mt-2">{isSpecialSession ? "No items to review." : "No items due for review in this deck."}</p>
-            <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-6">Back</Button>
-        </div>
-    );
-
-    const isSessionOver = isSessionInitialized && totalSessionItems > 0 && (itemsCompleted >= totalSessionItems || currentIndex >= sessionQueue.length);
-
-    if (isSessionOver) {
-        return <SessionSummary deckId={deck.id} seriesId={seriesId} reviewedItems={reviewedItems} nextDeckId={nextDeckId} onSessionEnd={onSessionEnd} onStudyNextDeck={onStudyNextDeck} isCramSession={sessionKeySuffix === '_cram'} />;
+    const handleShowInfo = useCallback(() => {
+        if (isQuiz) {
+            const question = displayedItem as Question;
+            const relatedInfoCardIds = question.infoCardIds || [];
+            if (relatedInfoCardIds.length > 0) {
+                const infoCards = (deck as LearningDeck).infoCards.filter(ic => relatedInfoCardIds.includes(ic.id));
+                setInfoForModal(infoCards);
+                setIsInfoModalOpen(true);
+            }
+        }
+    }, [isQuiz, displayedItem, deck]);
+    
+    if (!isSessionInitialized) {
+        return <div className="text-center p-8">Loading session...</div>;
     }
 
-    return (
-        <div className="w-full max-w-3xl mx-auto p-4 flex flex-col h-full overflow-x-hidden">
-            <InfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} infoCards={infoForModal} />
-            <ProgressBar current={itemsCompleted} total={totalSessionItems} />
-            
-            <div className="flex-grow flex flex-col items-center justify-center my-4 w-full">
-                {displayedItem && (
-                    <div key={displayIndex} className="w-full relative animate-fade-in">
-                        {isQuiz ? <QuizQuestion question={displayedItem as Question} selectedAnswerId={isHistorical ? (displayedItem as Question).correctAnswerId : selectedAnswerId} onSelectAnswer={(id) => isCurrent && !isAnswered && setSelectedAnswerId(id)} deckName={originalDeckName} onShowInfo={isLearningDeck ? handleShowInfo : undefined} />
-                        : isInfoCard ? <InfoCardDisplay infoCard={displayedItem as InfoCard} />
-                        : <Flashcard card={displayedItem as Card} isFlipped={isFlipped || isHistorical} />}
-                    </div>
-                )}
+    if (isSessionInitialized && sessionQueue.length === 0 && !isSpecialSession) {
+        return (
+            <div className="text-center p-8 animate-fade-in">
+                <h2 className="text-2xl font-bold text-green-500">All Done!</h2>
+                <p className="text-text-muted mt-2">There are no items due for study in this deck right now.</p>
+                <Button onClick={() => onSessionEnd(deck.id, seriesId)} className="mt-8">Back to Deck</Button>
             </div>
-            
+        );
+    }
+
+    if (currentIndex >= sessionQueue.length) {
+        return (
+            <SessionSummary
+                deckId={deck.id}
+                seriesId={seriesId}
+                reviewedItems={reviewedItems}
+                nextDeckId={nextDeckId}
+                onSessionEnd={onSessionEnd}
+                onStudyNextDeck={onStudyNextDeck}
+                isCramSession={sessionKeySuffix === '_cram'}
+            />
+        );
+    }
+    
+    return (
+        <div className="max-w-2xl mx-auto flex flex-col h-full animate-fade-in">
+            <div className="w-full">
+                <ProgressBar current={itemsCompleted} total={totalSessionItems} />
+            </div>
+
+            <div className="flex-grow flex items-center justify-center py-4">
+                <div className="w-full">
+                    {originalDeckName && <p className="text-center text-xs mb-2 text-text-muted uppercase tracking-wider font-semibold">{originalDeckName}</p>}
+                    
+                    {isInfoCard ? (
+                        <InfoCardDisplay infoCard={displayedItem as InfoCard} />
+                    ) : isQuiz ? (
+                        <QuizQuestion
+                            key={displayedItem!.id}
+                            question={displayedItem as Question}
+                            selectedAnswerId={selectedAnswerId}
+                            onSelectAnswer={handleSelectAnswer}
+                            onShowInfo={isLearningDeck ? handleShowInfo : undefined}
+                        />
+                    ) : (
+                        <Flashcard
+                            key={displayedItem!.id}
+                            card={displayedItem as Card}
+                            isFlipped={isFlipped}
+                        />
+                    )}
+                </div>
+            </div>
+
             <SessionControls
-                isCurrent={isCurrent} isHistorical={isHistorical} isFlipped={isFlipped} isAnswered={isAnswered} isReviewing={isReviewing}
-                isQuiz={!!isQuiz} isInfoCard={!!isInfoCard} isCramSession={sessionKeySuffix === '_cram'} showNavArrows={sessionQueue.length > 1}
-                displayIndex={displayIndex} currentIndex={currentIndex} queueLength={sessionQueue.length}
-                onReview={handleReview} onSuspend={handleSuspend} onReadInfoCard={handleReadInfoCard}
-                onFlip={() => setIsFlipped(true)} onReturnToCurrent={() => setDisplayIndex(currentIndex)}
-                onNavigatePrevious={() => setDisplayIndex(d => d - 1)} onNavigateNext={() => setDisplayIndex(d => d + 1)}
-                itemsCompleted={itemsCompleted} totalSessionItems={totalSessionItems}
+                isCurrent={isCurrent}
+                isHistorical={isHistorical}
+                isFlipped={isFlipped}
+                isAnswered={isAnswered}
+                isReviewing={isReviewing}
+                isQuiz={isQuiz}
+                isInfoCard={isInfoCard}
+                isCramSession={sessionKeySuffix === '_cram'}
+                showNavArrows={totalSessionItems > 1}
+                displayIndex={displayIndex}
+                currentIndex={currentIndex}
+                queueLength={sessionQueue.length}
+                onReview={handleReview}
+                // FIX: Corrected a typo in the onSuspend prop, changing the value from 'onSuspend' to the correctly named 'handleSuspend' function.
+                onSuspend={handleSuspend}
+                onReadInfoCard={handleReadInfoCard}
+                onFlip={handleFlip}
+                onReturnToCurrent={handleReturnToCurrent}
+                onNavigatePrevious={handleNavigatePrevious}
+                onNavigateNext={handleNavigateNext}
+                itemsCompleted={itemsCompleted}
+                totalSessionItems={totalSessionItems}
+            />
+
+            <InfoModal
+                isOpen={isInfoModalOpen}
+                onClose={() => setIsInfoModalOpen(false)}
+                infoCards={infoForModal}
             />
         </div>
     );

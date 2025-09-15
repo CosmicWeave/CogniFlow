@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Deck, DeckSeries, Folder, QuizDeck, SeriesProgress, DeckType, FlashcardDeck, SeriesLevel, Card, Question, AIAction, LearningDeck, InfoCard, FullBackupData, AIMessage, GoogleDriveFile } from './types';
-import * as db from './services/db';
+import { GoogleDriveFile } from './types';
 import * as backupService from './services/backupService';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import OfflineIndicator from './components/ui/OfflineIndicator';
@@ -8,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import { useToast } from './hooks/useToast';
 import Spinner from './components/ui/Spinner';
 import { useRouter } from './contexts/RouterContext';
+import { useModal } from './contexts/ModalContext';
 import { onDataChange } from './services/syncService';
 import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
 import { parseAnkiPkg, parseAnkiPkgMainThread } from './services/ankiImportService';
@@ -15,29 +15,29 @@ import { useDataManagement } from './hooks/useDataManagement';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import Header from './components/Header';
 import AppRouter from './components/AppRouter';
-import CommandPalette from './components/CommandPalette';
-import Icon, { IconName } from './components/ui/Icon';
+import Icon from './components/ui/Icon';
 import Button from './components/ui/Button';
 import { useStore } from './store/store';
-import { analyzeFileContent, createCardsFromImport, createQuestionsFromImport } from './services/importService';
+import { analyzeFileContent } from './services/importService';
 import { DroppedFileAnalysis } from './components/DroppedFileConfirmModal';
 import { useSettings } from './hooks/useSettings';
 import AIChatFab from './components/AIChatFab';
 import AIGenerationStatusIndicator from './components/AIGenerationStatusIndicator';
-import { parseServerDate } from './services/time';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { DataManagementProvider } from './contexts/DataManagementContext';
 import ModalManager from './components/ModalManager';
-import { useModal } from './contexts/ModalContext';
+import * as db from './services/db';
+import { useAutoHideHeader } from './hooks/useAutoHideHeader';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
 const App: React.FC = () => {
   const { dispatch, ...state } = useStore();
+  const { aiGenerationStatus } = state;
   const [initError, setInitError] = useState<Error | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [sessionsToResume, setSessionsToResume] = useState(new Set<string>());
-  const [generalStudyDeck, setGeneralStudyDeck] = useState<QuizDeck | null>(null);
+  const [generalStudyDeck, setGeneralStudyDeck] = useState<any | null>(null);
   const [sortPreference, setSortPreference] = useState<SortPreference>('lastOpened');
   const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
   const [openFolderIds, setOpenFolderIds] = useState(new Set<string>());
@@ -46,21 +46,20 @@ const App: React.FC = () => {
   const [installPrompt, handleInstall] = useInstallPrompt();
   const { addToast } = useToast();
   const { path, navigate } = useRouter();
-  const { openModal } = useModal();
+  // FIX: Imported 'useModal' from './contexts/ModalContext' to resolve 'Cannot find name' error.
+  const { modalType, openModal } = useModal();
   const { aiFeaturesEnabled, backupEnabled, backupApiKey, syncOnCellular } = useSettings();
-  const { isMetered } = useOnlineStatus();
+  const { isOnline } = useOnlineStatus();
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncStatus, setLastSyncStatus] = useState('Never synced.');
   const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd, REFRESH_THRESHOLD } = usePullToRefresh();
   const initialCheckDone = useRef(false);
-  const isSyncingRef = useRef(false);
+  const [serverUpdateInfo, setServerUpdateInfo] = useState<{ modified: string; size: number } | null>(null);
   
-  // Google Drive State
   const [isGapiReady, setIsGapiReady] = useState(false);
   const [isGapiSignedIn, setIsGapiSignedIn] = useState(false);
   const [gapiUser, setGapiUser] = useState<any>(null);
   const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
-
 
   const onToggleFolder = useCallback((folderId: string) => {
     setOpenFolderIds(prev => {
@@ -73,126 +72,98 @@ const App: React.FC = () => {
   const openMenu = useCallback(() => setIsMenuOpen(true), []);
   const closeMenu = useCallback(() => setIsMenuOpen(false), []);
   
-  const triggerSync = useCallback(async (options: { isManual?: boolean, dataToSync?: backupService.ServerSyncData, force?: boolean } = {}) => {
-    const { isManual = false, dataToSync, force = false } = options;
-    console.log(`[Sync] Triggered sync. Manual: ${!!isManual}, Force: ${!!force}.`);
-    
-    if (!isManual && isMetered && !syncOnCellular) { setLastSyncStatus('Sync paused on mobile data.'); return; }
-    if (!backupEnabled || !backupApiKey) { if (isManual) addToast('Server sync is not enabled or API key is missing.', 'error'); return; }
-
-    const lastSyncTimestamp = localStorage.getItem('cogniflow-lastSyncTimestamp');
-    const { lastModified } = useStore.getState();
-    if (!force && !dataToSync && (lastModified === null || (lastSyncTimestamp && lastModified < new Date(lastSyncTimestamp).getTime()))) {
-      if (isManual) {
-        addToast("No local changes to sync.", "info");
-      }
-      setLastSyncStatus(lastSyncTimestamp ? `Up to date. Last synced: ${new Date(lastSyncTimestamp).toLocaleTimeString()}` : 'Up to date.');
-      return;
-    }
-    
-    if (isSyncingRef.current) { 
-        console.log('[Sync] Sync already in progress, skipping.');
-        if (isManual) addToast('A sync operation is already in progress.', 'info'); 
-        return; 
-    }
-    
-    isSyncingRef.current = true;
-    setIsSyncing(true);
-    setLastSyncStatus(force ? 'Force uploading...' : 'Syncing...');
-    console.log('[Sync] Starting sync operation...');
-    if (isManual) addToast(force ? 'Force upload started...' : 'Sync started...', 'info');
-    try {
-        const { timestamp, etag } = await backupService.syncDataToServer(dataToSync, force);
-        if (aiFeaturesEnabled) await backupService.syncAIChatHistoryToServer();
-        const syncDate = parseServerDate(timestamp);
-        if (isNaN(syncDate.getTime())) throw new Error('Received an invalid date from the server during sync.');
-        console.log('[Sync] Sync successful. Server timestamp:', timestamp);
-        localStorage.setItem('cogniflow-lastSyncTimestamp', syncDate.toISOString());
-        localStorage.setItem('cogniflow-lastSyncEtag', etag);
-        setLastSyncStatus(`Last synced: ${syncDate.toLocaleTimeString()}`);
-        if (isManual) addToast('Data successfully synced to server.', 'success');
-    } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        console.error("[Sync] Sync failed:", e);
-        setLastSyncStatus(`Error: ${message}`);
-        addToast(`Server sync failed: ${message}`, 'error');
-    } finally {
-        isSyncingRef.current = false;
-        setIsSyncing(false);
-        console.log('[Sync] Sync operation finished.');
-    }
-  }, [backupEnabled, backupApiKey, addToast, aiFeaturesEnabled, isMetered, syncOnCellular]);
-
   const dataHandlers = useDataManagement({
-    sessionsToResume, setSessionsToResume, setGeneralStudyDeck, triggerSync,
+    sessionsToResume, setSessionsToResume, setGeneralStudyDeck,
     isGapiReady, isGapiSignedIn, gapiUser, setDriveFiles,
-    isSyncing, setIsSyncing, setLastSyncStatus
+    isSyncing, setIsSyncing, setLastSyncStatus,
+    backupEnabled, backupApiKey, syncOnCellular,
   });
   
-  const { handleAddDecks, handleAddSeriesWithDecks, handleRestoreData, fetchAndRestoreFromServer } = dataHandlers;
+  const { fetchAndRestoreFromServer, handleSync } = dataHandlers;
 
-  const handleDroppedFileConfirm = useCallback((analysis: DroppedFileAnalysis, deckName?: string) => {
-    try {
-        switch (analysis.type) {
-            case 'backup': handleRestoreData(analysis.data); break;
-            case 'quiz_series': {
-                const { seriesName, seriesDescription, levels: levelsData } = analysis.data;
-                const allNewDecks: QuizDeck[] = [];
-                const newLevels: SeriesLevel[] = levelsData.map((levelData: any) => {
-                    const decksForLevel: QuizDeck[] = levelData.decks.map((d: any) => ({
-                        id: crypto.randomUUID(), name: d.name, description: d.description, type: DeckType.Quiz, questions: createQuestionsFromImport(d.questions)
-                    }));
-                    allNewDecks.push(...decksForLevel);
-                    return { title: levelData.title, deckIds: decksForLevel.map(deck => deck.id) };
-                });
-                const newSeries: DeckSeries = {
-                    id: crypto.randomUUID(), type: 'series', name: seriesName, description: seriesDescription, levels: newLevels, archived: false, createdAt: new Date().toISOString()
-                };
-                handleAddSeriesWithDecks(newSeries, allNewDecks);
-                break;
-            }
-            case 'quiz': {
-                const newDeck: QuizDeck = {
-                    id: crypto.randomUUID(), name: deckName || analysis.data.name, description: analysis.data.description, type: DeckType.Quiz, questions: createQuestionsFromImport(analysis.data.questions)
-                };
-                handleAddDecks([newDeck]);
-                addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
-                break;
-            }
-            case 'flashcard': {
-                if (!deckName) { addToast('A deck name is required for flashcard imports.', 'error'); return; }
-                const newDeck: FlashcardDeck = {
-                    id: crypto.randomUUID(), name: deckName, type: DeckType.Flashcard, cards: createCardsFromImport(analysis.data), description: `${analysis.data.length} imported flashcard${analysis.data.length === 1 ? '' : 's'}.`
-                };
-                handleAddDecks([newDeck]);
-                addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
-                break;
-            }
+  // AI Queue Processor
+  useEffect(() => {
+    const processQueue = async () => {
+        // FIX: Added more robust checks for `aiGenerationStatus` and its `queue` property to prevent errors if the state is not yet fully initialized.
+        if (!aiGenerationStatus || !aiGenerationStatus.queue) {
+            return;
         }
-    } catch (e) { addToast(e instanceof Error ? e.message : "Failed to process the dropped file.", 'error'); }
-  }, [handleRestoreData, handleAddSeriesWithDecks, handleAddDecks, addToast]);
-  
+        if (aiGenerationStatus.currentTask || aiGenerationStatus.queue.length === 0) {
+            return;
+        }
+
+        console.log('[AI Queue] Picking up next task from queue.');
+        const task = aiGenerationStatus.queue[0];
+        const abortController = new AbortController();
+        dispatch({ type: 'START_NEXT_AI_TASK', payload: { task, abortController } });
+        console.log(`[AI Queue] Starting task: ${task.type} (${task.id})`);
+
+        try {
+            switch (task.type) {
+                case 'generateSeriesScaffoldWithAI':
+                    await dataHandlers.onGenerateSeriesScaffold({ ...task.payload });
+                    break;
+                case 'generateDeckWithAI':
+                    await dataHandlers.onGenerateDeck(task.payload);
+                    break;
+                case 'generateLearningDeckWithAI':
+                    await dataHandlers.onGenerateLearningDeck(task.payload);
+                    break;
+                case 'generateQuestionsForDeck':
+                    await dataHandlers.onGenerateQuestionsForDeck(task.payload.deck, task.payload.count);
+                    break;
+                case 'generateMoreLevelsForSeries':
+                    await dataHandlers.handleAiAddLevelsToSeries(task.payload.seriesId);
+                    break;
+                case 'generateMoreDecksForLevel':
+                    await dataHandlers.handleAiAddDecksToLevel(task.payload.seriesId, task.payload.levelIndex);
+                    break;
+                case 'generateSeriesQuestionsInBatches':
+                    await dataHandlers.onGenerateSeriesQuestionsInBatches(task.payload.seriesId);
+                    break;
+                case 'generateSeriesLearningContentInBatches':
+                    await dataHandlers.onGenerateSeriesLearningContentInBatches(task.payload.seriesId);
+                    break;
+                default:
+                    console.warn(`[AI Queue] Unknown task type: ${(task as any).type}`);
+            }
+            console.log(`[AI Queue] Task completed successfully: ${task.type} (${task.id})`);
+        } catch (error: any) {
+            console.error(`[AI Queue] Task failed: ${task.type} (${task.id})`, error);
+            if (error.name !== 'AbortError') {
+                addToast(`AI Task Failed: ${error.message}`, 'error');
+            }
+        } finally {
+            console.log(`[AI Queue] Finishing task: ${task.type} (${task.id})`);
+            dispatch({ type: 'FINISH_CURRENT_AI_TASK' });
+        }
+    };
+
+    processQueue();
+  }, [aiGenerationStatus.queue, aiGenerationStatus.currentTask, dispatch, addToast, dataHandlers]);
+
+
   const loadInitialData = useCallback(async () => {
     try {
+      console.log('[App] Starting initial data load...');
       const [decks, folders, deckSeries, sessionKeys, aiChatHistory, seriesProgressData] = await Promise.all([
         db.getAllDecks(), db.getAllFolders(), db.getAllDeckSeries(), db.getAllSessionKeys(), db.getAIChatHistory(), db.getAllSeriesProgress(),
       ]);
+      console.log(`[App] Initial data loaded from DB. Decks: ${decks.length}, Folders: ${folders.length}, Series: ${deckSeries.length}, Sessions: ${sessionKeys.length}, Progress sets: ${Object.keys(seriesProgressData).length}, Chat history: ${aiChatHistory.length}.`);
       dispatch({ type: 'LOAD_DATA', payload: { decks, folders, deckSeries } });
       const progressMap = new Map<string, Set<string>>();
-      for (const [seriesId, completedDeckIds] of Object.entries(seriesProgressData)) {
+      Object.entries(seriesProgressData).forEach(([seriesId, completedDeckIds]) => {
           if (Array.isArray(completedDeckIds)) progressMap.set(seriesId, new Set(completedDeckIds));
-      }
+      });
       dispatch({ type: 'SET_SERIES_PROGRESS', payload: progressMap });
       setSessionsToResume(new Set(sessionKeys.map((key: string) => key.replace('session_deck_', ''))));
       if (aiChatHistory.length > 0) dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: aiChatHistory });
 
       if (!initialCheckDone.current && backupEnabled && decks.length === 0 && folders.length === 0 && deckSeries.length === 0) {
         initialCheckDone.current = true;
-        console.log("Local data is empty, checking for server backup...");
         try {
             const { metadata } = await backupService.getSyncDataMetadata();
-            if (metadata && metadata.size > 0) {
-                console.log("Server backup found. Prompting user to restore.");
+            if (metadata?.size) {
                 openModal('confirm', {
                     title: 'Restore from Server?',
                     message: `Your local data is empty, but a backup was found on the server from ${new Date(metadata.modified).toLocaleString()}. Would you like to restore it?`,
@@ -201,22 +172,58 @@ const App: React.FC = () => {
                 });
             }
         } catch (e) {
-            if ((e as any).status !== 404) {
-              console.warn("Failed to check for server backup on initial load:", e);
-            }
+            if ((e as any).status !== 404) console.warn("Failed to check for server backup on initial load:", e);
         }
       }
+      
+      if(localStorage.getItem('cogniflow-post-merge-sync')) {
+        localStorage.removeItem('cogniflow-post-merge-sync');
+        handleSync({ force: true });
+      }
+
     } catch (error) {
-        console.error("Initialization Error:", error);
+        console.error("Initialization Error during data load:", error);
         setInitError(error as Error);
         dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [dispatch, addToast, backupEnabled, openModal, fetchAndRestoreFromServer]);
+  }, [dispatch, addToast, backupEnabled, openModal, fetchAndRestoreFromServer, handleSync]);
 
   useEffect(() => {
-    console.log("App mounted. To run backup service tests, type `runBackupServiceTests()` in the console.");
     loadInitialData();
   }, [loadInitialData]);
+
+  useEffect(() => {
+    const checkForServerUpdates = async () => {
+        if (!backupEnabled || !backupApiKey || !isOnline) return;
+
+        const lastCheckString = localStorage.getItem('cogniflow-lastServerUpdateCheck');
+        const now = new Date().getTime();
+        
+        if (lastCheckString && now - parseInt(lastCheckString, 10) < 24 * 60 * 60 * 1000) return;
+
+        console.log('[Sync Check] Performing daily check for server updates...');
+        localStorage.setItem('cogniflow-lastServerUpdateCheck', now.toString());
+
+        try {
+            const { lastModified } = useStore.getState();
+            const lastSyncTimestamp = localStorage.getItem('cogniflow-lastSyncTimestamp');
+            const localHasChanges = lastModified !== null && (!lastSyncTimestamp || lastModified > new Date(lastSyncTimestamp).getTime());
+            
+            const { metadata } = await backupService.getSyncDataMetadata();
+            const serverHasChanges = metadata && (!lastSyncTimestamp || new Date(metadata.modified).getTime() > new Date(lastSyncTimestamp).getTime());
+            
+            if (localHasChanges && serverHasChanges) {
+                await handleSync({ isManual: false });
+            } else if (serverHasChanges) {
+                setServerUpdateInfo({ modified: metadata.modified, size: metadata.size });
+            }
+        } catch (error) {
+            console.warn('Daily check for server updates failed:', error);
+        }
+    };
+    const timeoutId = setTimeout(checkForServerUpdates, 5000);
+    return () => clearTimeout(timeoutId);
+  }, [backupEnabled, backupApiKey, isOnline, handleSync]);
   
   useEffect(() => {
     const unsubscribe = onDataChange(() => {
@@ -235,9 +242,7 @@ const App: React.FC = () => {
           setOpenFolderIds(new Set(parsed as string[]));
         }
       }
-    } catch (error) { 
-      console.error("Failed to load open folder IDs", error); 
-    }
+    } catch (error) { console.error("Failed to load open folder IDs", error); }
   }, []);
   
   useEffect(() => {
@@ -257,7 +262,18 @@ const App: React.FC = () => {
     return { activeDeck: null, activeSeries: null };
   }, [path, state.decks, state.deckSeries]);
 
-  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); dragCounter.current++; if (e.dataTransfer.items && e.dataTransfer.items.length > 0) setIsDraggingOverWindow(true); };
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Prevent global drag overlay when a modal that accepts files is open
+    if (modalType === 'import' || modalType === 'restore' || modalType === 'aiGeneration') {
+        return;
+    }
+    dragCounter.current++;
+    if (e.dataTransfer.items?.length) {
+        setIsDraggingOverWindow(true);
+    }
+  };
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current === 0) setIsDraggingOverWindow(false); };
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); };
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -270,54 +286,26 @@ const App: React.FC = () => {
       if (file.name.toLowerCase().endsWith('.apkg')) {
         try {
             const buffer = await file.arrayBuffer();
-            let decks: Deck[] = [];
-            try { decks = await parseAnkiPkg(buffer.slice(0)); } catch (workerError) {
-                console.warn("Anki worker failed, trying main thread fallback:", workerError);
-                addToast("Import via worker failed. Trying a slower fallback method...", "info");
-                try { decks = await parseAnkiPkgMainThread(buffer); } catch (mainThreadError) { throw mainThreadError; }
-            }
-            if (decks.length > 0) { handleAddDecks(decks); addToast(`Successfully imported ${decks.length} deck(s).`, 'success'); }
-            else { addToast('No valid decks found in the Anki package.', 'info'); }
-        } catch (error) { addToast(`Error processing Anki package: ${error instanceof Error ? error.message : "Unknown error"}`, 'error'); }
+            const decks = await parseAnkiPkg(buffer.slice(0)).catch(() => parseAnkiPkgMainThread(buffer));
+            if (decks.length > 0) { dataHandlers.handleAddDecks(decks); addToast(`Imported ${decks.length} deck(s).`, 'success'); }
+            else { addToast('No valid decks found.', 'info'); }
+        } catch (error) { addToast(`Error processing Anki package: ${error instanceof Error ? error.message : "Unknown"}`, 'error'); }
       } else {
           const analysis = analyzeFileContent(content);
           if (analysis) {
-            openModal('droppedFile', { analysis: { ...analysis, fileName: file.name }, onConfirm: handleDroppedFileConfirm });
+            openModal('droppedFile', { analysis: { ...analysis, fileName: file.name } });
           } else {
-            addToast("Unsupported or invalid file format.", 'error');
+            addToast("Unsupported file format.", 'error');
           }
       }
     };
     reader.readAsText(file);
   };
+  const isHeaderVisible = useAutoHideHeader();
 
-  if (initError) {
-    const isDbError = initError.message.includes('Could not open or delete the database');
-    return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-            <div className="text-center bg-surface p-6 sm:p-8 rounded-lg shadow-xl max-w-lg w-full border border-border">
-                <Icon name="x-circle" className="w-16 h-16 text-red-500 mx-auto mb-4"/>
-                <h1 className="text-2xl sm:text-3xl font-bold text-red-600 dark:text-red-500 mb-4">
-                  Application Error
-                </h1>
-                <p className="text-text-muted mb-6">
-                  {isDbError 
-                    ? "A critical database error occurred, and the app cannot start. This can happen if browser data becomes corrupted." 
-                    : "An unexpected error occurred during startup. Please try reloading."}
-                </p>
-                {isDbError && (
-                    <div className="text-left bg-background p-4 rounded-md mb-6 border border-border">
-                        <p className="font-semibold text-text mb-2">To fix this, please clear the website data for this app in your browser's settings, then reload the page.</p>
-                        <p className="text-sm text-text-muted mt-2"><strong>Warning:</strong> This will permanently erase all your local decks and progress unless you have a backup.</p>
-                    </div>
-                )}
-                <Button variant="danger" onClick={() => window.location.reload()}>
-                    Reload Page
-                </Button>
-            </div>
-        </div>
-    );
-  }
+  if (initError) return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background"><div className="text-center bg-surface p-8 rounded-lg shadow-xl max-w-lg w-full border border-border"><Icon name="x-circle" className="w-16 h-16 text-red-500 mx-auto mb-4"/><h1 className="text-3xl font-bold text-red-500 mb-4">Application Error</h1><p className="text-text-muted mb-6">A critical database error occurred. Please clear website data in your browser settings, then reload.</p><Button variant="danger" onClick={() => window.location.reload()}>Reload Page</Button></div></div>
+  );
 
   return (
     <DataManagementProvider value={dataHandlers}>
@@ -326,74 +314,30 @@ const App: React.FC = () => {
         onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
       >
         <PullToRefreshIndicator pullDistance={pullToRefreshState.pullDistance} isRefreshing={pullToRefreshState.isRefreshing} threshold={REFRESH_THRESHOLD} />
-        <Sidebar 
-          isOpen={isMenuOpen} 
-          onClose={closeMenu} 
-          onImport={dataHandlers.openImportModal}
-          onCreateSeries={() => dataHandlers.openSeriesEditor('new')}
-          onGenerateAI={dataHandlers.openAIGenerationModal}
-          onInstall={installPrompt ? handleInstall : null}
-        />
+        <Sidebar isOpen={isMenuOpen} onClose={closeMenu} onImport={() => openModal('import')} onCreateSeries={() => openModal('series', { series: 'new' })} onGenerateAI={() => openModal('aiGeneration')} onInstall={installPrompt ? handleInstall : null} />
         <div className="flex-1 flex flex-col">
-          <Header 
-              onOpenMenu={openMenu}
-              onOpenCommandPalette={() => openModal('commandPalette')}
-              activeDeck={activeDeck}
-          />
-          <main className="flex-1 container mx-auto p-4 sm:p-6 lg:p-8">
-              {state.isLoading ? (
-                  <div className="text-center p-8"><Spinner /></div>
-              ) : (
-                  <AppRouter
-                      sessionsToResume={sessionsToResume}
-                      sortPreference={sortPreference}
-                      setSortPreference={setSortPreference}
-                      draggedDeckId={draggedDeckId}
-                      setDraggedDeckId={setDraggedDeckId}
-                      openFolderIds={openFolderIds}
-                      onToggleFolder={onToggleFolder}
-                      generalStudyDeck={generalStudyDeck}
-                      activeDeck={activeDeck}
-                      activeSeries={activeSeries}
-                      onSync={dataHandlers.handleSync}
-                      isSyncing={isSyncing}
-                      lastSyncStatus={lastSyncStatus}
-                      isGapiReady={isGapiReady}
-                      isGapiSignedIn={isGapiSignedIn}
-                      gapiUser={gapiUser}
-                  />
+          <Header onOpenMenu={openMenu} onOpenCommandPalette={() => openModal('commandPalette')} activeDeck={activeDeck} isVisible={isHeaderVisible} />
+          <main className={`main-content-area flex-1 container mx-auto px-4 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 ${isHeaderVisible ? 'pt-20 sm:pt-[5.5rem] lg:pt-24' : 'pt-4 sm:pt-6 lg:pt-8'}`}>
+              {serverUpdateInfo && (
+                <div className="bg-blue-100 dark:bg-blue-900/50 border-l-4 border-blue-500 text-blue-800 dark:text-blue-200 p-4 rounded-r-lg mb-6 flex items-center justify-between gap-4 shadow-md animate-fade-in" role="alert">
+                  <div className="flex items-center gap-3"><Icon name="upload-cloud" className="w-6 h-6 text-blue-500" /><div><p className="font-bold">Update Available</p><p className="text-sm">Newer data found on server from {new Date(serverUpdateInfo.modified).toLocaleString()}.</p></div></div>
+                  <div className="flex items-center gap-2"><Button size="sm" onClick={() => { dataHandlers.handleForceFetchFromServer(); setServerUpdateInfo(null); }}>Sync Now</Button><Button size="sm" variant="ghost" onClick={() => setServerUpdateInfo(null)}>Dismiss</Button></div>
+                </div>
+              )}
+              {state.isLoading ? <div className="text-center p-8"><Spinner /></div> : (
+                  <AppRouter sessionsToResume={sessionsToResume} sortPreference={sortPreference} setSortPreference={setSortPreference} draggedDeckId={draggedDeckId} setDraggedDeckId={setDraggedDeckId} openFolderIds={openFolderIds} onToggleFolder={onToggleFolder} generalStudyDeck={generalStudyDeck} activeDeck={activeDeck} activeSeries={activeSeries} onSync={dataHandlers.handleManualSync} isSyncing={isSyncing} lastSyncStatus={lastSyncStatus} isGapiReady={isGapiReady} isGapiSignedIn={isGapiSignedIn} gapiUser={gapiUser} />
               )}
           </main>
         </div>
         <OfflineIndicator />
-        <ModalManager
-          driveFiles={driveFiles}
-        />
-        <CommandPalette
-          isOpen={false} // Will be managed by ModalContext
-          onClose={() => {}} // Will be managed by ModalContext
-          actions={[
-            { id: 'import', label: 'Create / Import Deck', icon: 'plus', action: dataHandlers.openImportModal, keywords: ['new', 'add'] },
-            { id: 'settings', label: 'Settings', icon: 'settings', action: () => navigate('/settings') },
-            { id: 'trash', label: 'View Trash', icon: 'trash-2', action: () => navigate('/trash') },
-            { id: 'archive', label: 'View Archive', icon: 'archive', action: () => navigate('/archive') },
-            { id: 'progress', label: 'View Progress', icon: 'trending-up', action: () => navigate('/progress') },
-          ]}
-        />
+        <ModalManager driveFiles={driveFiles} />
         {isDraggingOverWindow && (
-          <div className="fixed inset-0 bg-black/50 z-[55] flex items-center justify-center p-4">
-            <div className="bg-surface rounded-lg p-8 text-center border-4 border-dashed border-primary">
-              <Icon name="upload-cloud" className="w-16 h-16 text-primary mx-auto mb-4" />
-              <p className="text-xl font-semibold">Drop file to import</p>
-            </div>
-          </div>
+          <div className="fixed inset-0 bg-black/50 z-[55] flex items-center justify-center p-4"><div className="bg-surface rounded-lg p-8 text-center border-4 border-dashed border-primary"><Icon name="upload-cloud" className="w-16 h-16 text-primary mx-auto mb-4" /><p className="text-xl font-semibold">Drop file to import</p></div></div>
         )}
-        {aiFeaturesEnabled && (
-          <>
-            <AIChatFab />
-            <AIGenerationStatusIndicator onOpen={dataHandlers.openAIStatusModal} onCancel={dataHandlers.handleCancelAIGeneration} />
-          </>
-        )}
+        {aiFeaturesEnabled && (<>
+          <AIChatFab />
+          <AIGenerationStatusIndicator onOpen={() => openModal('aiStatus')} onCancel={dataHandlers.handleCancelAIGeneration} />
+        </>)}
       </div>
     </DataManagementProvider>
   );

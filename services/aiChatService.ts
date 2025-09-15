@@ -55,7 +55,7 @@ export const getAIResponse = async (
     const decksContext = context.decks.map(d => `- Deck: "${d.name}" (id: ${d.id}, folderId: ${d.folderId || 'none'})`).join('\n');
     const foldersContext = context.folders.map(f => `- Folder: "${f.name}" (id: ${f.id})`).join('\n');
     const seriesContext = context.series.map(s => {
-        const levelInfo = s.levels.map((l, i) => `  - Level ${i}: ${l.title} (${l.deckIds.length} decks)`).join('\n');
+        const levelInfo = (s.levels || []).map((l, i) => `  - Level ${i}: ${l.title} (${(l.deckIds || []).length} decks)`).join('\n');
         return `- Series: "${s.name}" (id: ${s.id})\n${levelInfo}`;
     }).join('\n');
 

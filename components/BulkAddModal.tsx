@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useMemo } from 'react';
 import { DeckType, ImportedCard, ImportedQuestion } from '../types';
 import Button from './ui/Button';
@@ -69,22 +68,16 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({ isOpen, onClose, onAddItems
       <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative">
         <form onSubmit={handleSubmit}>
           <div className="flex justify-between items-center p-4 border-b border-border">
-            <h2 className="text-xl font-bold">Bulk Add via JSON</h2>
+            <h2 className="text-xl font-bold">Bulk Add {deckType === DeckType.Flashcard ? 'Cards' : 'Questions'}</h2>
             <Button type="button" variant="ghost" onClick={onClose} className="p-1 h-auto"><Icon name="x" /></Button>
           </div>
 
           <div className="p-6">
-              <div className="flex justify-between items-baseline mb-1">
-                <label htmlFor="json-content" className="block text-sm font-medium text-text-muted">
-                  Paste an array of {deckType === DeckType.Flashcard ? 'card' : 'question'} objects
-                </label>
-                <Link href="/instructions/json" onClick={onClose} className="text-sm text-primary hover:underline inline-flex items-center gap-1">
-                  <Icon name="help-circle" className="w-4 h-4"/>
-                  Format Guide
-                </Link>
-              </div>
+              <label htmlFor="json-content-bulk" className="block text-sm font-medium text-text-muted mb-1">
+                Paste an array of items in JSON format.
+              </label>
               <textarea
-                id="json-content"
+                id="json-content-bulk"
                 value={jsonContent}
                 onChange={(e) => setJsonContent(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -92,6 +85,10 @@ const BulkAddModal: React.FC<BulkAddModalProps> = ({ isOpen, onClose, onAddItems
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-sm"
                 placeholder={placeholder}
               />
+              <Link href="/instructions/json" onClick={onClose} className="text-sm text-primary hover:underline mt-2 inline-flex items-center gap-1">
+                <Icon name="help-circle" className="w-4 h-4"/>
+                View JSON format guide
+              </Link>
           </div>
 
           <div className="flex justify-end p-4 bg-background/50 border-t border-border">

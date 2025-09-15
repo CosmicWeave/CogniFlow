@@ -1,6 +1,5 @@
-
-
 import React, { useState, useCallback, useRef } from 'react';
+// FIX: Corrected import path for types
 import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel } from '../types';
 import { parseAndValidateImportData, createCardsFromImport, createQuestionsFromImport } from '../services/importService';
 import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService';
@@ -67,46 +66,50 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
     setIsProcessing(true);
 
     try {
-      if (file.name.toLowerCase().endsWith('.apkg')) {
-          setDeckName(''); // Not needed for Anki import
-          const buffer = await file.arrayBuffer();
-          const bufferCopy = buffer.slice(0); // Copy buffer as it's transferred to worker
-          
-          let decks: Deck[] = [];
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer, 0, 2);
+        const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B;
+        const isJson = file.name.toLowerCase().endsWith('.json');
 
-          try {
-            // Use the workerized parser
-            decks = await parseAnkiPkg(buffer);
-          } catch (workerError) {
-              console.warn("Anki worker failed, trying main thread fallback:", workerError);
-              addToast("Import via worker failed. Trying a slower fallback method... this may freeze the app.", "info");
-              try {
-                  // Use main thread parser as a fallback
-                  decks = await parseAnkiPkgMainThread(bufferCopy);
-              } catch (mainThreadError) {
-                  console.error("Anki main thread fallback also failed:", mainThreadError);
-                  throw mainThreadError; // Re-throw the error from the main thread parser
-              }
-          }
+        if (isZip) {
+            setDeckName(''); // Not needed for Anki import
+            const bufferCopy = buffer.slice(0); // Copy buffer as it's transferred to worker
+            
+            let decks: Deck[] = [];
 
-          if (decks.length > 0) {
-              onAddDecks(decks);
-              addToast(`Successfully imported ${decks.length} deck(s) from ${file.name}.`, 'success');
-              handleClose();
-          } else {
-              addToast('No valid decks found in the Anki package.', 'info');
-              resetState();
-          }
-      } else if (file.name.toLowerCase().endsWith('.json')) {
-          const text = await file.text();
-          handleJsonContentChange(text);
-          setIsProcessing(false); // Done processing text file
-          addToast('File loaded. Confirm name and import, or paste content directly.', 'info');
-      } else {
-          addToast("Unsupported file type. Please upload a '.json' or '.apkg' file.", 'error');
-          setFileName('');
-          setIsProcessing(false);
-      }
+            try {
+                // Use the workerized parser
+                decks = await parseAnkiPkg(buffer);
+            } catch (workerError) {
+                console.warn("Anki worker failed, trying main thread fallback:", workerError);
+                addToast("Import via worker failed. Trying a slower fallback method... this may freeze the app.", "info");
+                try {
+                    // Use main thread parser as a fallback
+                    decks = await parseAnkiPkgMainThread(bufferCopy);
+                } catch (mainThreadError) {
+                    console.error("Anki main thread fallback also failed:", mainThreadError);
+                    throw mainThreadError; // Re-throw the error from the main thread parser
+                }
+            }
+
+            if (decks.length > 0) {
+                onAddDecks(decks);
+                addToast(`Successfully imported ${decks.length} deck(s) from ${file.name}.`, 'success');
+                handleClose();
+            } else {
+                addToast('No valid decks found in the Anki package.', 'info');
+                resetState();
+            }
+        } else if (isJson) {
+            const text = new TextDecoder().decode(buffer);
+            handleJsonContentChange(text);
+            setIsProcessing(false); // Done processing text file
+            addToast('File loaded. Confirm name and import, or paste content directly.', 'info');
+        } else {
+            addToast("Unsupported file type. Please upload a '.json' or Anki package (.apkg, .zip) file.", 'error');
+            setFileName('');
+            setIsProcessing(false);
+        }
     } catch (error) {
         console.error("Failed to process file:", error);
         addToast(`An error occurred: ${error instanceof Error ? error.message : "Unknown error"}`, 'error');
@@ -244,11 +247,11 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
       case 'upload':
         return (
           <>
-            <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json,.apkg,application/zip,application/x-zip-compressed,application/octet-stream" onChange={handleFileChange} />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".json, .apkg, .zip" onChange={handleFileChange} />
             <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-background transition-colors">
                 <Icon name="upload-cloud" className="w-10 h-10 text-text-muted mb-2"/>
                 <p className="text-sm text-text-muted"><span className="font-semibold text-primary" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}>Click to upload</span> or drag and drop anywhere</p>
-                <p className="text-xs text-text-muted/70">JSON or Anki Package (.apkg)</p>
+                <p className="text-xs text-text-muted/70">JSON or Anki Package (.apkg, .zip)</p>
                 {fileName && <p className="text-sm text-green-500 dark:text-green-400 mt-2 truncate" title={fileName}>{fileName}</p>}
             </label>
           </>

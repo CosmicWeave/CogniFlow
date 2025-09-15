@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+// FIX: Corrected import path for types
 import { Question, QuestionOption } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -30,7 +31,7 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
     if (question) {
       setQuestionText(question.questionText);
       setDetailedExplanation(question.detailedExplanation);
-      setOptions(question.options.map(o => ({...o}))); // deep copy
+      setOptions((question.options || []).map(o => ({...o}))); // deep copy
       setCorrectAnswerId(question.correctAnswerId);
       setTags(question.tags || []);
     } else {

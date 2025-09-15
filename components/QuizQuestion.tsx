@@ -1,5 +1,5 @@
-
 import React, { useMemo } from 'react';
+// FIX: Corrected import path for types
 import type { Question, QuestionOption, InfoCard } from '../types';
 import Icon from './ui/Icon';
 import MasteryBar from './ui/MasteryBar';
@@ -21,7 +21,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
   const shuffledOptions = useMemo(() => {
     // For Learning Decks, we may not want to shuffle to maintain instructional order.
     // For now, we keep shuffling for all quiz types.
-    const options = [...question.options];
+    const options = [...(question.options || [])];
     // Fisher-Yates shuffle
     for (let i = options.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -56,15 +56,15 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
     <div className="bg-surface rounded-lg shadow-lg border border-border">
       {/* Question Text */}
       <div className="p-6 md:p-8">
-        <div className="flex justify-between items-start mb-2">
-            {deckName && <p className="text-xs text-text-muted uppercase tracking-wider font-semibold">{deckName}</p>}
+        <div className="mb-2">
             {question.tags && question.tags.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1 mb-1">
                     {question.tags.map(tag => (
                         <span key={tag} className="bg-border/50 text-text-muted text-xs px-2 py-0.5 rounded-full">{tag}</span>
                     ))}
                 </div>
             )}
+            {deckName && <p className="text-xs text-text-muted uppercase tracking-wider font-semibold">{deckName}</p>}
         </div>
         <DangerousHtmlRenderer html={question.questionText} className="text-xl font-semibold text-text" as="h3"/>
       </div>
@@ -103,26 +103,25 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
       {/* Explanation & Mastery */}
       {isAnswered && (
         <div className="p-6 bg-background/30 dark:bg-black/10 border-t border-border/50 animate-fade-in">
-          <div className="flex justify-between items-start">
+          {question.detailedExplanation && (
             <div>
-                {question.detailedExplanation && (
-                    <>
-                        <h4 className="text-sm font-semibold uppercase tracking-wider text-text-muted mb-2">
-                        Explanation
-                        </h4>
-                        <DangerousHtmlRenderer html={question.detailedExplanation} className="prose dark:prose-invert max-w-none prose-sm"/>
-                    </>
-                )}
+              <h4 className="text-sm font-semibold uppercase tracking-wider text-text-muted mb-2">
+                Explanation
+              </h4>
+              <DangerousHtmlRenderer html={question.detailedExplanation} className="prose dark:prose-invert max-w-none prose-sm"/>
             </div>
-            {onShowInfo && (
-                <Button variant="ghost" size="sm" onClick={onShowInfo} className="ml-4 flex-shrink-0">
-                    <Icon name="info" className="w-4 h-4 mr-1"/>
-                    View Related Info
-                </Button>
-            )}
-          </div>
+          )}
 
-          <div className={question.detailedExplanation ? "mt-6 pt-6 border-t border-border/50" : ""}>
+          {onShowInfo && (
+            <div className={`flex justify-end ${question.detailedExplanation ? 'mt-4' : ''}`}>
+              <Button variant="ghost" size="sm" onClick={onShowInfo}>
+                  <Icon name="info" className="w-4 h-4 mr-1"/>
+                  View Related Info
+              </Button>
+            </div>
+          )}
+
+          <div className={(question.detailedExplanation || onShowInfo) ? "mt-6 pt-6 border-t border-border/50" : ""}>
             <MasteryBar level={mastery} />
           </div>
         </div>

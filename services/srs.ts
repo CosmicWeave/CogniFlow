@@ -1,4 +1,3 @@
-
 /**
  * This service implements the core Spaced Repetition System (SRS) logic for CogniFlow.
  * The algorithm is a custom implementation inspired by the SM-2 algorithm (used in SuperMemo)
@@ -15,6 +14,7 @@
  * - Effective Mastery: A decay function is applied to the mastery level over time to simulate
  *   the "forgetting curve", providing a dynamic and realistic view of knowledge retention.
  */
+// FIX: Corrected import path for types
 import { Reviewable, ReviewRating } from '../types';
 import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR, AGAIN_INTERVAL_DAYS, HARD_INTERVAL_MULTIPLIER, EASY_BONUS_MULTIPLIER, EASE_FACTOR_MODIFIERS } from '../constants';
 

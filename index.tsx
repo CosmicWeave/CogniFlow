@@ -1,4 +1,3 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -10,8 +9,26 @@ import { RouterProvider } from './contexts/RouterContext';
 import { ModalProvider } from './contexts/ModalContext';
 
 // --- Global Error Handling ---
+function logError(type: string, error: any, extraInfo: object = {}) {
+  const isErrorObject = error instanceof Error;
+  
+  console.groupCollapsed(`%c[${type}] ${isErrorObject ? error.message : 'An error occurred'}`, 'color: red; font-weight: bold;');
+  console.error(error);
+
+  if (Object.keys(extraInfo).length > 0) {
+    console.log('Additional Info:', extraInfo);
+  }
+
+  if (isErrorObject && error.stack) {
+    // The stack is often part of the error object logged above, but logging separately can be useful.
+    console.log('Stack Trace:', error.stack);
+  }
+  
+  console.groupEnd();
+}
+
 window.addEventListener('error', (event) => {
-  console.error('Unhandled global error:', event.error, {
+  logError('Unhandled Global Error', event.error || event.message, {
     message: event.message,
     filename: event.filename,
     lineno: event.lineno,
@@ -20,7 +37,7 @@ window.addEventListener('error', (event) => {
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason);
+  logError('Unhandled Promise Rejection', event.reason);
 });
 // --- End Global Error Handling ---
 

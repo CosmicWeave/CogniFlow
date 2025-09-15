@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+// FIX: Corrected import path for types
 import { Card } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';

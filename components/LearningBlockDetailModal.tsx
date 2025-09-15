@@ -1,5 +1,4 @@
 
-
 import React, { useRef } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -48,13 +47,13 @@ const LearningBlockDetailModal: React.FC<LearningBlockDetailModalProps> = ({ isO
             </div>
           </div>
           <div>
-             <h3 className="text-sm font-semibold uppercase tracking-wider text-text-muted mb-2">Associated Questions ({block.questions.length})</h3>
+             <h3 className="text-sm font-semibold uppercase tracking-wider text-text-muted mb-2">Associated Questions ({(block.questions || []).length})</h3>
              <ul className="space-y-3">
-                {block.questions.map(q => (
+                {(block.questions || []).map(q => (
                     <li key={q.id} className="p-3 bg-background rounded-lg border border-border">
                         <p className="font-semibold text-text" dangerouslySetInnerHTML={{ __html: q.questionText }}></p>
                         <ul className="mt-2 pl-4 text-sm space-y-1">
-                            {q.options.map(opt => (
+                            {(q.options || []).map(opt => (
                                 <li key={opt.id} className={`flex items-start gap-2 ${opt.id === q.correctAnswerId ? 'text-green-600 dark:text-green-400 font-medium' : 'text-text-muted'}`}>
                                     {opt.id === q.correctAnswerId 
                                         ? <Icon name="check-circle" className="w-4 h-4 flex-shrink-0 mt-0.5" />

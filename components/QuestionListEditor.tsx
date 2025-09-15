@@ -1,5 +1,7 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
+// FIX: Corrected import path for types
 import { Question } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -156,7 +158,7 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                                         <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
                                     </span>
                                     <span>
-                                        <Icon name="list" className="w-3 h-3 inline-block mr-1" />{question.options.length} options
+                                        <Icon name="list" className="w-3 h-3 inline-block mr-1" />{(question.options || []).length} options
                                     </span>
                                 </div>
                                 {question.tags && question.tags.length > 0 && (

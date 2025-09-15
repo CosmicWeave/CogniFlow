@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo } from 'react';
-import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, Reviewable } from '../types';
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, Reviewable, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import SeriesListItem from './SeriesListItem';
@@ -16,14 +17,14 @@ interface AllSeriesPageProps {
   onCreateNewSeries: () => void;
   onCreateSampleSeries: () => void;
   onGenerateAI: () => void;
-  onGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
+  handleGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
   onCancelAIGeneration: () => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck).questions : (deck as FlashcardDeck).cards;
+    const items = (deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards) || [];
     if (!Array.isArray(items)) {
         return 0;
     }
@@ -35,7 +36,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
   onCreateNewSeries,
   onCreateSampleSeries,
   onGenerateAI,
-  onGenerateQuestionsForEmptyDecksInSeries,
+  handleGenerateQuestionsForEmptyDecksInSeries,
 }) => {
     const { deckSeries: allSeries, decks, seriesProgress } = useStore();
     const { aiFeaturesEnabled } = useSettings();
@@ -48,11 +49,11 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
     const seriesData = useMemo(() => {
         const data = new Map<string, { dueCount: number, mastery: number }>();
         series.forEach(s => {
-            const seriesDecks = (s.levels || []).flatMap(l => l.deckIds || []).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
+            const seriesDecks = (s.levels || []).flatMap(l => l?.deckIds || []).map(id => decks.find(d => d.id === id)).filter(Boolean) as Deck[];
             
             const completedCount = seriesProgress.get(s.id)?.size || 0;
             const unlockedDeckIds = new Set<string>();
-            const flatDeckIds = (s.levels || []).flatMap(l => l.deckIds || []);
+            const flatDeckIds = (s.levels || []).flatMap(l => l?.deckIds || []);
             flatDeckIds.forEach((deckId, index) => {
                 if (index <= completedCount) {
                     unlockedDeckIds.add(deckId);
@@ -66,7 +67,11 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                 return total;
             }, 0);
 
-            const allItems = seriesDecks.flatMap<Reviewable>(d => d.type === DeckType.Flashcard ? (d as FlashcardDeck).cards : (d as QuizDeck).questions).filter(i => !i.suspended);
+            const allItems = seriesDecks.flatMap<Reviewable>(d => 
+                d.type === DeckType.Flashcard ? ((d as FlashcardDeck).cards || []) : 
+                ((d as QuizDeck | LearningDeck).questions || [])
+            ).filter(i => !i.suspended);
+
             const mastery = allItems.length > 0 ? allItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allItems.length : 0;
             
             data.set(s.id, { dueCount, mastery });
@@ -83,7 +88,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
 
         if (filter !== 'all') {
             filteredSeries = filteredSeries.filter(s => {
-                const totalDecks = (s.levels || []).reduce((acc, level) => acc + (level.deckIds || []).length, 0);
+                const totalDecks = (s.levels || []).reduce((acc, level) => acc + (level?.deckIds?.length || 0), 0);
                 if (totalDecks === 0) return filter === 'inProgress';
                 const completedDecks = seriesProgress.get(s.id)?.size || 0;
                 const isCompleted = completedDecks >= totalDecks;
@@ -100,8 +105,8 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                 });
             case 'progress':
                 return filteredSeries.sort((a, b) => {
-                    const progressA = (seriesProgress.get(a.id)?.size || 0) / ((a.levels || []).reduce((acc, l) => acc + (l.deckIds || []).length, 0) || 1);
-                    const progressB = (seriesProgress.get(b.id)?.size || 0) / ((b.levels || []).reduce((acc, l) => acc + (l.deckIds || []).length, 0) || 1);
+                    const progressA = (seriesProgress.get(a.id)?.size || 0) / ((a.levels || []).reduce((acc, l) => acc + (l?.deckIds?.length || 0), 0) || 1);
+                    const progressB = (seriesProgress.get(b.id)?.size || 0) / ((b.levels || []).reduce((acc, l) => acc + (l?.deckIds?.length || 0), 0) || 1);
                     return progressB - progressA;
                 });
             case 'mastery':
@@ -173,7 +178,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                   {filteredAndSortedSeries.map(s => {
                     const data = seriesData.get(s.id) || { dueCount: 0, mastery: 0 };
                     const completedDeckIds = seriesProgress.get(s.id) || new Set();
-                    const flatDeckIds = (s.levels || []).flatMap(l => l.deckIds || []);
+                    const flatDeckIds = (s.levels || []).flatMap(l => l?.deckIds || []);
                     const nextUpDeckId = flatDeckIds.find(id => !completedDeckIds.has(id)) || null;
                     return (
                       <SeriesListItem
@@ -184,7 +189,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                         masteryLevel={data.mastery}
                         onStartSeriesStudy={onStartSeriesStudy}
                         nextUpDeckId={nextUpDeckId}
-                        onGenerateAllQuestions={onGenerateQuestionsForEmptyDecksInSeries}
+                        onGenerateAllQuestions={handleGenerateQuestionsForEmptyDecksInSeries}
                       />
                   )})}
                 </div>

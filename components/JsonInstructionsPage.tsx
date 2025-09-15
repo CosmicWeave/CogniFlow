@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import Icon, { IconName } from './ui/Icon';
 import Button from './ui/Button';
@@ -92,11 +91,11 @@ const JsonInstructionsPage: React.FC = () => {
       "questionType": "multipleChoice",
       "questionText": "Which planet is known as the Red Planet?",
       "tags": ["astronomy", "planets"],
-      "detailedExplanation": "Mars is often called the Red Planet...",
+      "detailedExplanation": "Mars is often called the Red Planet because of the iron oxide prevalent on its surface, which gives it a reddish appearance.",
       "options": [
-        { "id": "opt1", "text": "Venus" },
-        { "id": "opt2", "text": "Mars" },
-        { "id": "opt3", "text": "Jupiter", "explanation": "Jupiter is a gas giant..." }
+        { "id": "opt1", "text": "Venus", "explanation": "Venus is known for its thick, toxic atmosphere, not its red color." },
+        { "id": "opt2", "text": "Mars", "explanation": "Correct! Mars has a reddish appearance due to iron oxide on its surface." },
+        { "id": "opt3", "text": "Jupiter", "explanation": "Jupiter is a gas giant, the largest planet in our solar system, known for its stripes and Great Red Spot." }
       ],
       "correctAnswerId": "opt2"
     }
@@ -114,7 +113,7 @@ const quizFields = [
     { field: 'correctAnswerId', type: 'string', required: true, description: 'The `id` of the correct option.' },
     { field: 'options[].id', type: 'string', required: true, description: 'A unique identifier for this option within the question.' },
     { field: 'options[].text', type: 'string', required: true, description: 'The answer text shown to the user.' },
-    { field: 'options[].explanation', type: 'string', required: false, description: 'A brief explanation for why this specific option is right or wrong.' },
+    { field: 'options[].explanation', type: 'string', required: false, description: 'A brief explanation for why this specific option is right or wrong. While technically optional, providing this for all options is **strongly recommended** for high-quality questions.' },
 ];
 
 
@@ -135,8 +134,8 @@ const quizFields = [
               "tags": ["html", "basics"],
               "detailedExplanation": "HTML stands for HyperText Markup Language...",
               "options": [
-                { "id": "1", "text": "HyperText Markup Language" },
-                { "id": "2", "text": "High-Level Text Machine Language" }
+                { "id": "1", "text": "HyperText Markup Language", "explanation": "Correct. It's the standard markup language for documents designed to be displayed in a web browser." },
+                { "id": "2", "text": "High-Level Text Machine Language", "explanation": "Incorrect. This is not a standard term in web development." }
               ],
               "correctAnswerId": "1"
             }
@@ -256,6 +255,8 @@ Now, based on the text outline I provided, please generate the complete JSON sca
 - **High-Quality Explanations:** The \`detailedExplanation\` is crucial. It must explain the reasoning, principles, or facts behind the correct answer. Provide additional context, examples, or connections to related concepts to deepen understanding. If applicable, cite sources for complex information.
 - **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
 - **Engaging Content:** Write questions and explanations in an interesting way that makes the user want to learn more. Use surprising facts, real-world scenarios, or narrative elements where appropriate to maintain learner interest.
+- **Unpredictable Answer Length:** The length of the correct answer's text must be varied. It should not consistently be the longest or shortest option. This is critical to avoid giving away the answer.
+- **Option Explanations:** Every option, correct or incorrect, MUST have a brief \`explanation\` field.
 
 **JSON OUTPUT FORMAT:**
 - The final output MUST be ONLY a single, raw JSON object, starting with \`{\` and ending with \`}\`. Do not include any surrounding text, explanations, or markdown formatting.
@@ -270,8 +271,8 @@ Now, based on the text outline I provided, please generate the complete JSON sca
       "tags": ["relevant", "tags"],
       "detailedExplanation": "A thorough explanation that meets all quality requirements.",
       "options": [
-        { "id": "q1_opt1", "text": "First answer option" },
-        { "id": "q1_opt2", "text": "Second answer option" }
+        { "id": "q1_opt1", "text": "First answer option", "explanation": "Brief reason why this option is correct or incorrect." },
+        { "id": "q1_opt2", "text": "Second answer option", "explanation": "Brief reason why this option is correct or incorrect." }
       ],
       "correctAnswerId": "q1_opt2"
     }
@@ -288,11 +289,13 @@ Now, based on the text outline I provided, please generate the JSON for the **fi
 **CONTENT REQUIREMENTS FOR ALL QUESTIONS:**
 -   **Comprehensive Coverage:** The generated series must be comprehensive, covering the topic in-depth to provide a thorough understanding for the specified user level.
 -   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
--   **Engaging Content Style:** Frame questions and explanations in an interesting way. Use surprising facts, real-world examples, or historical context to make the material more memorable and engaging. Avoid a dry, academic tone.
+-   **Engaging Content Style:** Frame questions and explanations in an interesting way. Use surprising facts, real-world examples, or historical context to make the material more memorable and engaging. Avoid a dry, academic, textbook-like tone.
 -   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 -   **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').
 -   **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
+-   **Unpredictable Answer Length:** The length of the correct answer's text must be varied and not consistently be the longest or shortest option.
+-   **Option Explanations:** Every option, correct or incorrect, MUST have a brief \`explanation\` field.
 
 **FINAL JSON OUTPUT FORMAT:**
 The final output MUST be ONLY a single, raw JSON object without any surrounding text or markdown. The root object must have this exact schema:
@@ -312,7 +315,7 @@ The final output MUST be ONLY a single, raw JSON object without any surrounding 
               "questionText": "...",
               "tags": ["tag1", "tag2"],
               "detailedExplanation": "...",
-              "options": [ { "id": "q1_opt1", "text": "..." }, { "id": "q1_opt2", "text": "..." } ],
+              "options": [ { "id": "q1_opt1", "text": "...", "explanation": "Brief reason..." }, { "id": "q1_opt2", "text": "...", "explanation": "Brief reason..." } ],
               "correctAnswerId": "q1_opt2"
             }
           ]
@@ -330,23 +333,24 @@ Now, generate the complete JSON object based on all the above requirements.`;
 **Designed for Level:** [USER'S LEVEL HERE]
 
 **CONTENT REQUIREMENTS:**
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements where appropriate to make the material more memorable.
+-   **Factual Accuracy:** All information must be factually correct and from reliable, verifiable sources.
 -   **In-Depth Questions:** The questions should cover the topic comprehensively, moving beyond surface-level facts to ensure a deep understanding.
--   **Factual Accuracy:** All correct answers and explanations must be verifiable and factually correct.
 -   **Relevance:** Questions must be directly pertinent to the chosen topic and appropriate for the specified level.
--   **Engaging Content:** Frame questions and explanations in an interesting way that makes the user want to learn more. Use surprising facts, real-world scenarios, or narrative elements where appropriate.
--   **Practical Application:** Frame questions to enable the user to put the learned information into practice.
 -   **Question Quantity:** Generate 10-100 high-quality questions. Do not include multiple questions that are essentially asking the same thing.
 -   **Clarity:** Questions must be easy to understand and unambiguous.
 -   **Clarity with Acronyms:** When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').
 -   **Problem-Solving Focus:** Prioritize questions that require applying knowledge to solve a problem.
 -   **Explanation Quality:** The \`detailedExplanation\` must explain the reasoning behind the correct answer and provide additional context.
 -   **Metric System:** Prefer the metric system (e.g., meters, kilograms, Celsius) for all units.
+-   **Unpredictable Answer Length:** The length of the correct answer's text must be varied and not consistently be the longest or shortest option.
+-   **Option Explanations:** Every option, correct or incorrect, MUST have a brief \`explanation\` field.
 
 **JSON SCHEMA & RULES:**
 -   The final output must be ONLY the raw JSON object, starting with \`{\` and ending with \`}\`.
 -   The root object must contain \`name\`, \`description\`, and \`questions\` (array).
 -   Each question object must contain \`questionType\` ("multipleChoice"), \`questionText\`, \`tags\` (array), \`detailedExplanation\`, \`options\` (array), and \`correctAnswerId\`.
--   Each option object must contain a unique \`id\` and \`text\`.
+-   Each option object must contain a unique \`id\`, \`text\`, and a brief \`explanation\`.
 -   Do NOT include top-level SRS fields like \`id\` or \`dueDate\` on the questions.
 
 Now, generate the complete JSON deck based on all the above requirements.`;

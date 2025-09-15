@@ -1,11 +1,16 @@
-import { useCallback } from 'react';
+
+import { useCallback, useMemo } from 'react';
 import { Deck, Reviewable, QuizDeck, DeckType, FlashcardDeck, LearningDeck, ReviewRating, ReviewLog } from '../../types';
 import * as db from '../../services/db';
 import { useStore } from '../../store/store';
 import { resetReviewable } from '../../services/srs';
+import { useToast } from '../useToast';
+import { useRouter } from '../../contexts/RouterContext';
 
-// This is not a hook, but a factory function that creates a set of related handlers.
-export const createSessionHandlers = ({ sessionsToResume, setSessionsToResume, setGeneralStudyDeck, navigate, dispatch, addToast, handleUpdateDeck }: any) => {
+export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setGeneralStudyDeck, handleUpdateDeck }: any) => {
+  const { navigate } = useRouter();
+  const { dispatch } = useStore();
+  const { addToast } = useToast();
 
   const handleSessionEnd = useCallback(async (deckId: string, seriesId?: string) => {
     const sessionKey = `session_deck_${deckId}`;
@@ -47,9 +52,9 @@ export const createSessionHandlers = ({ sessionsToResume, setSessionsToResume, s
     let newDeck: Deck;
     const { id, dueDate, interval, easeFactor, suspended, masteryLevel, lastReviewed, lapses } = reviewedItem;
     const srsUpdates = { dueDate, interval, easeFactor, suspended, masteryLevel, lastReviewed, lapses };
-    if (deck.type === DeckType.Flashcard) newDeck = { ...deck, cards: (deck as FlashcardDeck).cards.map(c => c.id === id ? { ...c, ...srsUpdates } : c) };
-    else if (deck.type === DeckType.Learning) newDeck = { ...deck, questions: (deck as LearningDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
-    else newDeck = { ...deck, questions: (deck as QuizDeck | LearningDeck).questions.map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
+    if (deck.type === DeckType.Flashcard) newDeck = { ...deck, cards: ((deck as FlashcardDeck).cards || []).map(c => c.id === id ? { ...c, ...srsUpdates } : c) };
+    else if (deck.type === DeckType.Learning) newDeck = { ...deck, questions: ((deck as LearningDeck).questions || []).map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
+    else newDeck = { ...deck, questions: ((deck as QuizDeck | LearningDeck).questions || []).map(q => q.id === id ? { ...q, ...srsUpdates } : q) };
     await handleUpdateDeck(newDeck, { silent: true });
 
     try {
@@ -74,7 +79,7 @@ export const createSessionHandlers = ({ sessionsToResume, setSessionsToResume, s
             try {
                 await db.saveSeriesProgress(seriesId, currentSeriesProgress);
                 const series = deckSeries.find(s => s.id === seriesId);
-                const flatDeckIds = series?.levels.flatMap(l => l.deckIds) || [];
+                const flatDeckIds = (series?.levels || []).flatMap(l => l?.deckIds || []);
                 const isLastDeckInSeries = flatDeckIds.indexOf(deckId) === flatDeckIds.length - 1;
                 if (isLastDeckInSeries && flatDeckIds.length > 0) addToast(`Congratulations! You've completed the series: "${series?.name}"!`, 'success');
                 else addToast(`Deck "${updatedDeckFromState.name}" completed! Next chapter unlocked.`, 'success');
@@ -88,22 +93,22 @@ export const createSessionHandlers = ({ sessionsToResume, setSessionsToResume, s
     const deckToReset = useStore.getState().decks.find(d => d.id === deckId);
     if (!deckToReset) return;
     let updatedDeck: Deck;
-    if (deckToReset.type === DeckType.Flashcard) updatedDeck = { ...deckToReset, cards: (deckToReset as FlashcardDeck).cards.map(c => resetReviewable(c)) };
-    else updatedDeck = { ...deckToReset, questions: (deckToReset as QuizDeck | LearningDeck).questions.map(q => resetReviewable(q)) };
+    if (deckToReset.type === DeckType.Flashcard) updatedDeck = { ...deckToReset, cards: ((deckToReset as FlashcardDeck).cards || []).map(c => resetReviewable(c)) };
+    else updatedDeck = { ...deckToReset, questions: ((deckToReset as QuizDeck | LearningDeck).questions || []).map(q => resetReviewable(q)) };
     await handleUpdateDeck(updatedDeck, { toastMessage: `Progress for deck "${updatedDeck.name}" has been reset.`});
   }, [handleUpdateDeck]);
   
   const handleStartGeneralStudy = useCallback(() => {
     const { decks, deckSeries, seriesProgress } = useStore.getState();
     const seriesDeckIds = new Set<string>();
-    deckSeries.forEach(series => series.levels.forEach(level => level.deckIds.forEach(deckId => seriesDeckIds.add(deckId))));
+    deckSeries.forEach(series => ((series.levels || []).filter(Boolean)).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId))));
     const unlockedSeriesDeckIds = new Set<string>();
     deckSeries.forEach(series => {
         if (!series.archived && !series.deletedAt) {
             const completedCount = seriesProgress.get(series.id)?.size || 0;
             let deckCount = 0;
-            series.levels.forEach(level => {
-                level.deckIds.forEach((deckId) => {
+            ((series.levels || []).filter(Boolean)).forEach(level => {
+                (level.deckIds || []).forEach((deckId) => {
                     if (deckCount <= completedCount) unlockedSeriesDeckIds.add(deckId);
                     deckCount++;
                 });
@@ -119,13 +124,17 @@ export const createSessionHandlers = ({ sessionsToResume, setSessionsToResume, s
         return true;
       })
       .flatMap(deck => 
-        deck.questions
+        (deck.questions || [])
           .filter(q => !q.suspended && new Date(q.dueDate) <= today)
           .map(q => ({ ...q, originalDeckId: deck.id, originalDeckName: deck.name }))
       )
       .sort(() => Math.random() - 0.5);
     const virtualDeck: QuizDeck = {
-      id: 'general-study-deck', name: 'General Study Session', type: DeckType.Quiz, questions: allDueQuestions
+      id: 'general-study-deck',
+      name: 'General Study Session',
+      description: 'A mix of all due questions.',
+      type: DeckType.Quiz,
+      questions: allDueQuestions
     };
     setGeneralStudyDeck(virtualDeck);
     navigate('/study/general');
@@ -138,36 +147,40 @@ export const createSessionHandlers = ({ sessionsToResume, setSessionsToResume, s
     const unlockedSeriesDeckIds = new Set<string>();
     const completedCount = seriesProgress.get(series.id)?.size || 0;
     let deckCount = 0;
-    series.levels.forEach(level => {
-        level.deckIds.forEach(deckId => {
+    ((series.levels || []).filter(Boolean)).forEach(level => {
+        (level.deckIds || []).forEach(deckId => {
             if (deckCount <= completedCount) unlockedSeriesDeckIds.add(deckId);
             deckCount++;
         });
     });
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const seriesDecks = series.levels.flatMap(l => l.deckIds).map(id => decks.find(d => d.id === id)).filter((d): d is QuizDeck => !!(d && d.type === DeckType.Quiz));
+    const seriesDecks = ((series.levels || []).filter(Boolean)).flatMap(l => l.deckIds || []).map(id => decks.find(d => d.id === id)).filter((d): d is QuizDeck | LearningDeck => !!(d && (d.type === DeckType.Quiz || d.type === DeckType.Learning)));
     const allDueQuestions = seriesDecks
       .filter(deck => unlockedSeriesDeckIds.has(deck.id))
       .flatMap(deck => 
-        deck.questions
+        (deck.questions || [])
           .filter(q => !q.suspended && new Date(q.dueDate) <= today)
           .map(q => ({ ...q, originalDeckId: deck.id, originalDeckName: deck.name }))
       )
       .sort(() => Math.random() - 0.5);
     const virtualDeck: QuizDeck = {
-      id: 'general-study-deck', name: `${series.name} - Study Session`, type: DeckType.Quiz, questions: allDueQuestions
+      id: 'general-study-deck',
+      name: `${series.name} - Study Session`,
+      description: `A study session for due items in the series: ${series.name}`,
+      type: DeckType.Quiz,
+      questions: allDueQuestions
     };
     setGeneralStudyDeck(virtualDeck);
     navigate(`/study/general?seriesId=${seriesId}`);
   }, [navigate, setGeneralStudyDeck]);
-
-  return {
+  
+  return useMemo(() => ({
     handleSessionEnd,
     handleStudyNextDeckInSeries,
     handleItemReviewed,
     handleResetDeckProgress,
     handleStartGeneralStudy,
     handleStartSeriesStudy,
-  };
+  }), [handleSessionEnd, handleStudyNextDeckInSeries, handleItemReviewed, handleResetDeckProgress, handleStartGeneralStudy, handleStartSeriesStudy]);
 };

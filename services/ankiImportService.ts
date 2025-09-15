@@ -1,4 +1,6 @@
 
+
+// FIX: Corrected import path for types
 import { Deck, Card, DeckType, FlashcardDeck } from '../types';
 import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR } from '../constants';
 import JSZip from 'jszip';

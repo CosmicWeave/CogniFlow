@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { DeckSeries } from '../types';
 import Button from './ui/Button';
@@ -112,27 +111,29 @@ const EditSeriesModal: React.FC<EditSeriesModalProps> = ({ series, isOpen, onClo
                 <h4 className="text-sm font-semibold text-text-muted">Structure Preview</h4>
                 <div className="bg-background border border-border rounded-md p-3 max-h-48 overflow-y-auto text-sm">
                   <ul className="space-y-3">
-                    {scaffold.levels.map((level: any, levelIndex: number) => (
+                    {(scaffold.levels || []).filter((l): l is { title: string; decks: any[] } => !!l).map((level, levelIndex: number) => {
+                      const decksInLevel = level.decks || [];
+                      return (
                       <li key={levelIndex}>
                         <div className="flex items-center gap-2 font-medium text-text">
                           <Icon name="layers" className="w-4 h-4 text-purple-500 flex-shrink-0" />
                           <span className="font-semibold">{level.title}</span>
                         </div>
                         <ul className="pl-6 mt-1 space-y-1">
-                          {(level.decks || []).map((deck: any, deckIndex: number) => (
+                          {decksInLevel.map((deck: any, deckIndex: number) => (
                             <li key={deckIndex} className="flex items-center gap-2 text-text-muted">
                               <Icon name="help-circle" className="w-3.5 h-3.5 flex-shrink-0" />
                               <span>{deck.name}</span>
                             </li>
                           ))}
-                           {(!level.decks || level.decks.length === 0) && (
+                           {decksInLevel.length === 0 && (
                                 <li className="flex items-center gap-2 text-xs text-text-muted/70 italic">
                                     (No decks in this level)
                                 </li>
                            )}
                         </ul>
                       </li>
-                    ))}
+                    )})}
                   </ul>
                 </div>
               </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DeckSeries, QuizDeck, Question, DeckType, ImportedQuestion, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -12,6 +13,7 @@ import { useToast } from '../hooks/useToast';
 import Spinner from './ui/Spinner';
 import { useSettings } from '../hooks/useSettings';
 import { stripHtml } from '../services/utils';
+import TruncatedText from './ui/TruncatedText';
 
 interface SeriesOverviewPageProps {
   series: DeckSeries;
@@ -25,8 +27,8 @@ interface SeriesOverviewPageProps {
   openConfirmModal: (props: any) => void;
   onAiAddLevelsToSeries: (seriesId: string) => Promise<void>;
   onAiAddDecksToLevel: (seriesId: string, levelIndex: number) => Promise<void>;
-  onGenerateQuestionsForEmptyDecksInSeries: (seriesId: string) => void;
-  onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
+  handleGenerateQuestionsForEmptyDecksInSeries: (seriesId: string) => void;
+  handleGenerateQuestionsForDeck: (deck: QuizDeck) => void;
   onCancelAIGeneration: () => void;
 }
 
@@ -34,10 +36,10 @@ const getDueItemsCount = (deck?: QuizDeck | LearningDeck): number => {
     if (!deck) return 0;
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    return deck.questions.filter(q => !q.suspended && new Date(q.dueDate) <= today).length;
+    return (deck.questions || []).filter(q => !q.suspended && new Date(q.dueDate) <= today).length;
 };
 
-const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, sessionsToResume, onUpdateSeries, onDeleteSeries, onAddDeckToSeries, onUpdateDeck, onStartSeriesStudy, onUpdateLastOpened, openConfirmModal, onAiAddLevelsToSeries, onAiAddDecksToLevel, onGenerateQuestionsForEmptyDecksInSeries, onGenerateQuestionsForDeck }) => {
+const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, sessionsToResume, onUpdateSeries, onDeleteSeries, onAddDeckToSeries, onUpdateDeck, onStartSeriesStudy, onUpdateLastOpened, openConfirmModal, onAiAddLevelsToSeries, onAiAddDecksToLevel, handleGenerateQuestionsForEmptyDecksInSeries, handleGenerateQuestionsForDeck }) => {
   const { decks: allDecks, seriesProgress, aiGenerationStatus, dispatch } = useStore();
   const { navigate, path } = useRouter();
   const { addToast } = useToast();
@@ -72,7 +74,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
   
   const seriesDecks = useMemo(() => {
     const deckMap = new Map<string, QuizDeck | LearningDeck>();
-    const allSeriesDeckIds = new Set(series.levels.flatMap(level => level.deckIds));
+    const allSeriesDeckIds = new Set((series.levels || []).flatMap(level => level?.deckIds || []));
     allDecks.forEach(deck => {
         if (allSeriesDeckIds.has(deck.id) && (deck.type === DeckType.Quiz || deck.type === DeckType.Learning)) {
             deckMap.set(deck.id, deck as QuizDeck | LearningDeck);
@@ -82,21 +84,21 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
   }, [series.levels, allDecks]);
 
   const completedDeckIds = useMemo(() => seriesProgress.get(series.id) || new Set(), [seriesProgress, series.id]);
-  const totalDecks = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
+  const totalDecks = (series.levels || []).reduce((sum, level) => sum + (level?.deckIds?.length || 0), 0);
 
   const { totalDueCount, averageMastery } = useMemo(() => {
     let dueCount = 0;
     const allItems = [];
     let deckIndex = 0;
 
-    for (const level of series.levels) {
-        for (const deckId of level.deckIds) {
+    for (const level of (series.levels || [])) {
+        for (const deckId of (level?.deckIds || [])) {
             const deck = seriesDecks.get(deckId);
             if (deck) {
                 if (deckIndex <= completedDeckIds.size) { // Unlocked
                     dueCount += getDueItemsCount(deck);
                 }
-                allItems.push(...deck.questions.filter(q => !q.suspended));
+                allItems.push(...(deck.questions || []).filter(q => !q.suspended));
             }
             deckIndex++;
         }
@@ -115,7 +117,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
   };
   
   const handleDelete = () => {
-    const deckCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
+    const deckCount = (series.levels || []).reduce((sum, level) => sum + (level?.deckIds?.length || 0), 0);
     openConfirmModal({
         title: 'Move Series to Trash',
         message: `Are you sure you want to move the series "${series.name}" and all of its ${deckCount} deck(s) to the trash?`,
@@ -178,7 +180,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                     <Icon name="list" className="mr-2"/> {isOrganizeMode ? 'Done Organizing' : 'Organize'}
                 </Button>
             </div>
-            <div className="text-text-muted mt-1 prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: series.description }} />
+            <TruncatedText html={series.description} className="text-text-muted prose dark:prose-invert max-w-none" />
           </div>
         )}
       </div>
@@ -201,7 +203,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                   Study Due Items ({totalDueCount})
                 </Button>
                 {aiFeaturesEnabled && hasEmptyDecks && (
-                    <Button variant="secondary" size="lg" onClick={() => onGenerateQuestionsForEmptyDecksInSeries(series.id)} disabled={isGenerating} className="font-semibold w-full sm:w-auto">
+                    <Button variant="secondary" size="lg" onClick={() => handleGenerateQuestionsForEmptyDecksInSeries(series.id)} disabled={isGenerating} className="font-semibold w-full sm:w-auto">
                         {aiGenerationStatus.currentTask?.seriesId === series.id ? <Spinner size="sm"/> : <Icon name="zap" className="w-5 h-5 mr-2" />}
                         Generate All Questions
                     </Button>
@@ -210,17 +212,17 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
        </div>
 
       <div className="space-y-6">
-        {series.levels.map((level, levelIndex) => {
+        {(series.levels || []).map((level, levelIndex) => {
             let deckCounter = 0;
             for(let i=0; i<levelIndex; i++) {
-                deckCounter += series.levels[i].deckIds.length;
+                deckCounter += (series.levels[i]?.deckIds?.length || 0);
             }
 
             return (
               <div key={levelIndex} className="bg-surface rounded-lg shadow-md border border-border p-6">
                 <h3 className="text-xl font-bold text-text mb-4">{level.title}</h3>
                 <div className="space-y-4">
-                    {level.deckIds.map((deckId, indexInLevel) => {
+                    {(level.deckIds || []).map((deckId, indexInLevel) => {
                         const deck = seriesDecks.get(deckId);
                         const absoluteIndex = deckCounter + indexInLevel;
                         const isCompleted = completedDeckIds.has(deckId);
@@ -234,14 +236,14 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
 
                         return (
                             <div key={deckId} className={`p-4 rounded-lg flex items-center justify-between transition-opacity ${isLocked ? 'opacity-50 bg-background' : 'bg-background'}`}>
-                                <div className="flex items-center min-w-0">
-                                    <div className={`mr-4 flex-shrink-0 ${isLocked ? 'text-text-muted' : isCompleted ? 'text-green-500' : 'text-primary'}`}>
+                                <div className="flex items-start min-w-0">
+                                    <div className={`mr-4 flex-shrink-0 mt-1 ${isLocked ? 'text-text-muted' : isCompleted ? 'text-green-500' : 'text-primary'}`}>
                                         {isLocked ? <Icon name="lock" /> : isCompleted ? <Icon name="check-circle" /> : <Icon name="unlock" />}
                                     </div>
                                     <div className="min-w-0">
                                         <Link
                                             href={`/decks/${deck.id}?seriesId=${series.id}`}
-                                            className={`font-bold truncate ${isLocked ? 'text-text-muted cursor-not-allowed' : 'text-text hover:underline hover:text-primary'}`}
+                                            className={`font-bold break-words ${isLocked ? 'text-text-muted cursor-not-allowed' : 'text-text hover:underline hover:text-primary'}`}
                                             onClick={(e: React.MouseEvent) => {
                                                 if (isLocked) {
                                                     e.preventDefault();
@@ -259,7 +261,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                                         />
                                         <p className="text-xs text-text-muted mt-1 flex items-center">
                                             <Icon name={deck.type === DeckType.Learning ? "book-open" : "help-circle"} className="inline-block w-3.5 h-3.5 mr-1.5" />
-                                            {deck.questions.length} questions
+                                            {(deck.questions || []).length} questions
                                             {!isLocked && <span className="mx-1.5">&bull;</span>}
                                             {!isLocked && `${dueCount} due`}
                                         </p>
@@ -273,7 +275,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                                     ) : (
                                         <>
                                             {canGenerateAI && (
-                                                <Button variant="ghost" size="sm" onClick={() => onGenerateQuestionsForDeck(deck as QuizDeck)} disabled={isGenerating}>
+                                                <Button variant="ghost" size="sm" onClick={() => handleGenerateQuestionsForDeck(deck as QuizDeck)} disabled={isGenerating}>
                                                     <Icon name="zap" className="w-4 h-4 mr-1" /> Generate
                                                 </Button>
                                             )}

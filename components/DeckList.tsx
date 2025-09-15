@@ -1,6 +1,7 @@
 
 
 import React, { useMemo, useState } from 'react';
+// FIX: Corrected import path for types
 import { Deck, Folder, LearningDeck, QuizDeck } from '../types';
 import DeckListItem from './DeckListItem';
 import FolderView from './FolderView';
@@ -107,8 +108,9 @@ const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, o
                         onUpdateDeck={onUpdateDeck}
                         onDeleteDeck={onDeleteDeck}
                         openConfirmModal={openConfirmModal}
-                        onGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
-                        onGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
+                        // FIX: Renamed props to match the DeckListItem component's expected prop names.
+                        handleGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
+                        handleGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
                     />
                 ))}
                 </div>

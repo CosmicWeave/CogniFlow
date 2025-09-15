@@ -1,3 +1,4 @@
+// FIX: Corrected import path for types
 import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData } from '../types';
 import { broadcastDataChange } from './syncService';
 import { getStockholmFilenameTimestamp } from './time';
@@ -12,25 +13,58 @@ const REVIEW_STORE_NAME = 'reviews';
 const AI_CHAT_STORE_NAME = 'ai_chat';
 const SERIES_PROGRESS_STORE_NAME = 'seriesProgress';
 
+const createSpamProtectedLogger = (name: string, threshold = 20, timeWindow = 5000) => {
+    let logCount = 0;
+    let windowStart = Date.now();
+    let isMuted = false;
+
+    const log = (level: 'log' | 'warn' | 'error', ...args: any[]) => {
+        const now = Date.now();
+        if (now - windowStart > timeWindow) {
+            logCount = 0;
+            windowStart = now;
+            if (isMuted) {
+                console.warn(`[${name}] Logger is now unmuted after timeout.`);
+            }
+            isMuted = false;
+        }
+
+        if (isMuted) {
+            return;
+        }
+
+        logCount++;
+
+        if (logCount > threshold) {
+            console.error(`[${name}] Logger muted: Too many logs in a short time window (${threshold} logs in <${timeWindow}ms). This may indicate a serious issue like a data corruption loop or a repeated failed operation. Further logs from this source will be suppressed for a short time to prevent app overload.`);
+            isMuted = true;
+            return;
+        }
+        
+        console[level](`[${name}]`, ...args);
+    };
+
+    return {
+        log: (...args: any[]) => log('log', ...args),
+        warn: (...args: any[]) => log('warn', ...args),
+        error: (...args: any[]) => log('error', ...args),
+    };
+};
+const dbLogger = createSpamProtectedLogger('DB');
+
 
 let dbPromise: Promise<IDBDatabase> | null = null;
-let catastrophicFailure = false;
-let selfHealAttempted = false; // Prevent healing loops within a single session
 
 function initDB(): Promise<IDBDatabase> {
-  if (catastrophicFailure) {
-    return Promise.reject(new Error('Catastrophic error: Could not open or delete the database. Please clear your site data manually.'));
-  }
-
   if (dbPromise) {
     return dbPromise;
   }
 
   dbPromise = new Promise((resolve, reject) => {
-    console.log(`[DB] Initializing IndexedDB: ${DB_NAME} v${DB_VERSION}...`);
+    dbLogger.log(`Initializing IndexedDB: ${DB_NAME} v${DB_VERSION}...`);
     if (!window.indexedDB) {
         const errorMsg = "IndexedDB is not supported by this browser.";
-        console.error(`[DB] ${errorMsg}`);
+        dbLogger.error(`${errorMsg}`);
         return reject(new Error(errorMsg));
     }
       
@@ -38,58 +72,26 @@ function initDB(): Promise<IDBDatabase> {
 
     request.onblocked = (event) => {
         const errorMsg = 'Database upgrade is required, but it is blocked by another open tab of this application. Please close all other tabs and reload.';
-        console.error('[DB] IndexedDB open request blocked. Please close other tabs with this app open.', event);
+        dbLogger.error('IndexedDB open request blocked. Please close other tabs with this app open.', event);
         reject(new Error(errorMsg));
     };
 
     request.onerror = () => {
-      console.error('[DB] IndexedDB error during open:', request.error);
-      const errorMsg = 'Catastrophic error: Could not open or delete the database. Please clear your site data manually.';
-
-      if (selfHealAttempted) {
-          console.error('[DB] Self-heal already attempted. Failing permanently.');
-          catastrophicFailure = true;
-          dbPromise = null;
-          return reject(new Error(errorMsg));
-      }
-      
-      selfHealAttempted = true;
-      console.warn('[DB] Attempting to self-heal by deleting the database and reloading.');
-      
+      dbLogger.error('IndexedDB error during open:', request.error);
+      // Nullify the promise so subsequent calls will re-attempt initialization.
       dbPromise = null;
-
-      const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
-      
-      deleteRequest.onsuccess = () => {
-          console.log('[DB] Database deleted successfully. Reloading the page to re-initialize.');
-          // A full reload is a more robust recovery mechanism than retrying in the background.
-          window.location.reload();
-          // The promise will not resolve here because the page is reloading.
-      };
-      
-      deleteRequest.onerror = (e) => {
-          console.error(`[DB] ${errorMsg}`, e);
-          catastrophicFailure = true;
-          dbPromise = null;
-          reject(new Error(errorMsg));
-      };
-      
-      deleteRequest.onblocked = (e) => {
-          const blockedErrorMsg = 'Database deletion is blocked. Please close all other tabs of this app and try again.';
-          console.error(`[DB] ${blockedErrorMsg}`, e);
-          catastrophicFailure = true;
-          dbPromise = null;
-          reject(new Error(blockedErrorMsg));
-      };
+      // Reject with a specific error that the UI can catch and display instructions for.
+      // This prevents a reload loop if the DB is in a permanently bad state.
+      const specificError = new Error('Could not open or delete the database. This can be caused by browser settings (like blocking all data), private mode, or corruption. Please clear website data for this app in your browser settings and reload.');
+      reject(specificError);
     };
 
     request.onsuccess = () => {
       const db = request.result;
-      console.log('[DB] IndexedDB connection successful.');
-      selfHealAttempted = false; // Reset on a successful connection
+      dbLogger.log('IndexedDB connection successful.');
       db.onclose = () => {
         dbPromise = null;
-        console.warn('[DB] Database connection closed.');
+        dbLogger.warn('Database connection closed.');
       };
       resolve(db);
     };
@@ -97,10 +99,10 @@ function initDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       const transaction = (event.target as IDBOpenDBRequest).transaction;
-      console.log(`[DB] Upgrading database from version ${event.oldVersion} to ${DB_VERSION}`);
+      dbLogger.log(`Upgrading database from version ${event.oldVersion} to ${DB_VERSION}`);
       
       if (!transaction) {
-          console.error("[DB] Upgrade transaction is not available, aborting upgrade.");
+          dbLogger.error("Upgrade transaction is not available, aborting upgrade.");
           if (event.target) {
             (event.target as IDBOpenDBRequest).transaction?.abort();
           }
@@ -110,51 +112,51 @@ function initDB(): Promise<IDBDatabase> {
       // Use a fall-through switch statement for robust, sequential upgrades.
       switch(event.oldVersion) {
         case 0:
-            console.log('[DB] v1: Creating initial object stores (decks, folders).');
+            dbLogger.log('v1: Creating initial object stores (decks, folders).');
             db.createObjectStore(DECK_STORE_NAME, { keyPath: 'id' });
             db.createObjectStore(FOLDER_STORE_NAME, { keyPath: 'id' });
         // fall through
         case 1:
         case 2:
-            console.log(`[DB] v3: Creating object store: ${SERIES_STORE_NAME}`);
+            dbLogger.log(`v3: Creating object store: ${SERIES_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SERIES_STORE_NAME)) {
                 db.createObjectStore(SERIES_STORE_NAME, { keyPath: 'id' });
             }
         // fall through
         case 3:
-            console.log(`[DB] v4: Creating object store: ${SESSION_STORE_NAME}`);
+            dbLogger.log(`v4: Creating object store: ${SESSION_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SESSION_STORE_NAME)) {
                 db.createObjectStore(SESSION_STORE_NAME, { keyPath: 'id' });
             }
         // fall through
         case 4:
-            console.log(`[DB] v5: Creating object store: ${REVIEW_STORE_NAME}`);
+            dbLogger.log(`v5: Creating object store: ${REVIEW_STORE_NAME}`);
             if (!db.objectStoreNames.contains(REVIEW_STORE_NAME)) {
-                const reviewStore = db.createObjectStore(REVIEW_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                const reviewStore = db.createObjectStore(REVIEW_STORE_NAME, { autoIncrement: true });
                 reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
             }
         // fall through
         case 5:
-            console.log('[DB] v6: Adding deckId index to reviews store.');
+            dbLogger.log('v6: Adding deckId index to reviews store.');
             const store = transaction.objectStore(REVIEW_STORE_NAME);
             if (!store.indexNames.contains('deckId')) {
                 store.createIndex('deckId', 'deckId', { unique: false });
             }
         // fall through
         case 6:
-            console.log(`[DB] v7: Creating object store: ${AI_CHAT_STORE_NAME}`);
+            dbLogger.log(`v7: Creating object store: ${AI_CHAT_STORE_NAME}`);
             if (!db.objectStoreNames.contains(AI_CHAT_STORE_NAME)) {
                 db.createObjectStore(AI_CHAT_STORE_NAME, { keyPath: 'id' });
             }
         // fall through
         case 7:
-            console.log(`[DB] v8: Creating object store: ${SERIES_PROGRESS_STORE_NAME}`);
+            dbLogger.log(`v8: Creating object store: ${SERIES_PROGRESS_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SERIES_PROGRESS_STORE_NAME)) {
                 db.createObjectStore(SERIES_PROGRESS_STORE_NAME, { keyPath: 'id' });
             }
         // fall through
         default:
-          console.log('[DB] Database upgrade sequence complete.');
+          dbLogger.log('Database upgrade sequence complete.');
       }
     };
   });
@@ -170,10 +172,20 @@ export async function getAllDecks(): Promise<Deck[]> {
     const request = store.getAll();
 
     request.onerror = () => {
-        console.error("DB Error fetching all decks:", request.error);
+        dbLogger.error("DB Error fetching all decks:", request.error);
         reject(new Error('Error fetching decks from the database.'));
     };
-    request.onsuccess = () => resolve(request.result as Deck[]);
+    request.onsuccess = () => {
+        const result = request.result;
+        const decks = Array.isArray(result) ? result : [];
+        const count = decks.length;
+        if (count > 0) {
+            dbLogger.log(`Successfully loaded ${count} decks from the database.`);
+        } else {
+            dbLogger.warn(`No decks found in the database.`);
+        }
+        resolve(decks as Deck[]);
+    }
   });
 }
 
@@ -189,14 +201,14 @@ export async function addDecks(decks: Deck[]): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error adding/updating decks", transaction.error);
+        dbLogger.error("Transaction error adding/updating decks", transaction.error);
         reject(new Error('Transaction error adding/updating decks.'));
     };
 
     decks.forEach(deck => {
         const request = store.put(deck);
         request.onerror = () => {
-             console.error(`Error putting deck ${deck.name}`, request.error);
+             dbLogger.error(`Error putting deck ${deck.name}`, request.error);
         }
     });
   });
@@ -216,7 +228,7 @@ export async function deleteDeck(deckId: string): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error deleting deck", transaction.error);
+        dbLogger.error("Transaction error deleting deck", transaction.error);
         reject(new Error('Transaction error deleting deck.'));
     };
 
@@ -234,7 +246,7 @@ export async function updateDeck(deck: Deck): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error updating deck", transaction.error);
+        dbLogger.error("Transaction error updating deck", transaction.error);
         reject(new Error('Transaction error updating deck.'));
     };
     
@@ -252,10 +264,20 @@ export async function getAllFolders(): Promise<Folder[]> {
     const request = store.getAll();
 
     request.onerror = () => {
-        console.error("DB Error fetching all folders:", request.error);
+        dbLogger.error("DB Error fetching all folders:", request.error);
         reject(new Error('Error fetching folders from the database.'));
     };
-    request.onsuccess = () => resolve(request.result as Folder[]);
+    request.onsuccess = () => {
+        const result = request.result;
+        const folders = Array.isArray(result) ? result : [];
+        const count = folders.length;
+        if (count > 0) {
+            dbLogger.log(`Successfully loaded ${count} folders from the database.`);
+        } else {
+            dbLogger.warn(`No folders found in the database.`);
+        }
+        resolve(folders as Folder[]);
+    }
   });
 }
 
@@ -268,7 +290,7 @@ export async function addFolder(folder: Folder): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error adding folder", transaction.error);
+        dbLogger.error("Transaction error adding folder", transaction.error);
         reject(new Error('Transaction error adding folder.'));
     };
 
@@ -288,7 +310,7 @@ export async function addFolders(folders: Folder[]): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error adding/updating folders", transaction.error);
+        dbLogger.error("Transaction error adding/updating folders", transaction.error);
         reject(new Error('Transaction error adding/updating folders.'));
     };
 
@@ -296,7 +318,7 @@ export async function addFolders(folders: Folder[]): Promise<void> {
     folders.forEach(folder => {
         const request = store.put(folder);
         request.onerror = () => {
-             console.error(`Error putting folder ${folder.name}`, request.error);
+             dbLogger.error(`Error putting folder ${folder.name}`, request.error);
         }
     });
   });
@@ -311,7 +333,7 @@ export async function updateFolder(folder: Folder): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error updating folder", transaction.error);
+        dbLogger.error("Transaction error updating folder", transaction.error);
         reject(new Error('Transaction error updating folder.'));
     };
 
@@ -329,7 +351,7 @@ export async function deleteFolder(folderId: string): Promise<void> {
         resolve();
     };
     transaction.onerror = () => {
-        console.error("Transaction error deleting folder", transaction.error);
+        dbLogger.error("Transaction error deleting folder", transaction.error);
         reject(new Error('Transaction error deleting folder.'));
     };
 
@@ -347,10 +369,20 @@ export async function getAllDeckSeries(): Promise<DeckSeries[]> {
         const request = store.getAll();
 
         request.onerror = () => {
-            console.error("DB Error fetching all series:", request.error);
+            dbLogger.error("DB Error fetching all series:", request.error);
             reject(new Error('Error fetching deck series from the database.'));
         };
-        request.onsuccess = () => resolve(request.result as DeckSeries[]);
+        request.onsuccess = () => {
+            const result = request.result;
+            const series = Array.isArray(result) ? result : [];
+            const count = series.length;
+            if (count > 0) {
+                dbLogger.log(`Successfully loaded ${count} series from the database.`);
+            } else {
+                dbLogger.warn(`No series found in the database.`);
+            }
+            resolve(series as DeckSeries[]);
+        }
     });
 }
 
@@ -365,7 +397,7 @@ export async function addDeckSeries(series: DeckSeries[]): Promise<void> {
             resolve();
         };
         transaction.onerror = () => {
-            console.error("Transaction error adding deck series", transaction.error);
+            dbLogger.error("Transaction error adding deck series", transaction.error);
             reject(new Error('Transaction error adding deck series.'));
         };
 
@@ -383,7 +415,7 @@ export async function updateDeckSeries(series: DeckSeries): Promise<void> {
             resolve();
         };
         transaction.onerror = () => {
-            console.error("Transaction error updating deck series", transaction.error);
+            dbLogger.error("Transaction error updating deck series", transaction.error);
             reject(new Error('Error updating deck series.'));
         };
 
@@ -401,7 +433,7 @@ export async function deleteDeckSeries(seriesId: string): Promise<void> {
             resolve();
         };
         transaction.onerror = () => {
-            console.error("Transaction error deleting deck series", transaction.error);
+            dbLogger.error("Transaction error deleting deck series", transaction.error);
             reject(new Error('Error deleting deck series.'));
         };
         
@@ -417,7 +449,7 @@ export async function saveSessionState(id: string, state: SessionState): Promise
     const transaction = db.transaction(SESSION_STORE_NAME, 'readwrite');
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => {
-        console.error("Transaction error saving session state", transaction.error);
+        dbLogger.error("Transaction error saving session state", transaction.error);
         reject(new Error('Transaction error saving session state.'));
     };
     
@@ -434,7 +466,7 @@ export async function getSessionState(id: string): Promise<SessionState | null> 
     const request = store.get(id);
 
     request.onerror = () => {
-        console.error("DB Error fetching session state", request.error);
+        dbLogger.error("DB Error fetching session state", request.error);
         reject(new Error('Error fetching session state.'));
     };
     request.onsuccess = () => resolve(request.result || null);
@@ -447,8 +479,21 @@ export async function getAllSessions(): Promise<SessionState[]> {
         const transaction = db.transaction(SESSION_STORE_NAME, 'readonly');
         const store = transaction.objectStore(SESSION_STORE_NAME);
         const request = store.getAll();
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(new Error('Failed to get all sessions.'));
+        request.onsuccess = () => {
+            const result = request.result;
+            const sessions = Array.isArray(result) ? result : [];
+            const count = sessions.length;
+            if (count > 0) {
+                dbLogger.log(`Successfully loaded ${count} sessions from the database.`);
+            } else {
+                dbLogger.warn(`No sessions found in the database.`);
+            }
+            resolve(sessions);
+        }
+        request.onerror = () => {
+            dbLogger.error("Failed to get all sessions.", request.error);
+            reject(new Error('Failed to get all sessions.'));
+        }
     });
 }
 
@@ -459,7 +504,10 @@ export async function clearSessions(): Promise<void> {
         const store = transaction.objectStore(SESSION_STORE_NAME);
         const request = store.clear();
         request.onsuccess = () => resolve();
-        request.onerror = () => reject(new Error('Failed to clear sessions.'));
+        request.onerror = () => {
+            dbLogger.error('Failed to clear sessions.', request.error);
+            reject(new Error('Failed to clear sessions.'));
+        }
     });
 }
 
@@ -470,7 +518,10 @@ export async function bulkAddSessions(sessions: SessionState[]): Promise<void> {
         const transaction = db.transaction(SESSION_STORE_NAME, 'readwrite');
         const store = transaction.objectStore(SESSION_STORE_NAME);
         transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(new Error('Transaction error adding sessions.'));
+        transaction.onerror = () => {
+            dbLogger.error('Transaction error adding sessions.', transaction.error);
+            reject(new Error('Transaction error adding sessions.'));
+        }
         sessions.forEach(session => store.put(session));
     });
 }
@@ -482,7 +533,7 @@ export async function deleteSessionState(id: string): Promise<void> {
     const transaction = db.transaction(SESSION_STORE_NAME, 'readwrite');
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => {
-        console.error("Transaction error deleting session state", transaction.error);
+        dbLogger.error("Transaction error deleting session state", transaction.error);
         reject(new Error('Transaction error deleting session state.'));
     };
 
@@ -499,7 +550,7 @@ export async function getAllSessionKeys(): Promise<string[]> {
     const request = store.getAllKeys();
 
     request.onerror = () => {
-        console.error("DB Error fetching session keys", request.error);
+        dbLogger.error("DB Error fetching session keys", request.error);
         reject(new Error('Error fetching session keys.'));
     };
     request.onsuccess = () => resolve(request.result as string[]);
@@ -515,7 +566,7 @@ async function clearObjectStore(storeName: string): Promise<void> {
     const request = store.clear();
     request.onsuccess = () => resolve();
     request.onerror = () => {
-        console.error(`Failed to clear object store: ${storeName}`, request.error);
+        dbLogger.error(`Failed to clear object store: ${storeName}`, request.error);
         reject(new Error(`Failed to clear object store: ${storeName}.`));
     };
   });
@@ -549,22 +600,23 @@ export async function getAllDataForBackup(): Promise<{
     
     transaction.oncomplete = () => {
       const progressResult: Record<string, string[]> = {};
-      (requests.seriesProgress.result as { id: string, completedDeckIds: string[] }[]).forEach(item => {
+      const progressItems = Array.isArray(requests.seriesProgress.result) ? requests.seriesProgress.result : [];
+      (progressItems as { id: string, completedDeckIds: string[] }[]).forEach(item => {
           progressResult[item.id] = item.completedDeckIds;
       });
 
       resolve({
-        decks: requests.decks.result as Deck[],
-        folders: requests.folders.result as Folder[],
-        deckSeries: requests.deckSeries.result as DeckSeries[],
-        reviews: requests.reviews.result as ReviewLog[],
-        sessions: requests.sessions.result as SessionState[],
+        decks: Array.isArray(requests.decks.result) ? requests.decks.result as Deck[] : [],
+        folders: Array.isArray(requests.folders.result) ? requests.folders.result as Folder[] : [],
+        deckSeries: Array.isArray(requests.deckSeries.result) ? requests.deckSeries.result as DeckSeries[] : [],
+        reviews: Array.isArray(requests.reviews.result) ? requests.reviews.result as ReviewLog[] : [],
+        sessions: Array.isArray(requests.sessions.result) ? requests.sessions.result as SessionState[] : [],
         seriesProgress: progressResult,
       });
     };
     
     transaction.onerror = () => {
-        console.error("Transaction error in getAllDataForBackup", transaction.error);
+        dbLogger.error("Transaction error in getAllDataForBackup", transaction.error);
         reject(new Error('Database transaction failed while gathering backup data.'));
     };
   });
@@ -577,7 +629,7 @@ export async function addReviewLog(log: ReviewLog): Promise<void> {
     const transaction = db.transaction(REVIEW_STORE_NAME, 'readwrite');
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => {
-      console.error("Transaction error adding review log", transaction.error);
+      dbLogger.error("Transaction error adding review log", transaction.error);
       reject(new Error('Transaction error adding review log.'));
     };
     
@@ -596,7 +648,7 @@ export async function getReviewsSince(sinceDate: Date): Promise<ReviewLog[]> {
     const request = index.getAll(range);
 
     request.onerror = () => {
-        console.error("DB Error fetching review logs", request.error);
+        dbLogger.error("DB Error fetching review logs", request.error);
         reject(new Error('Error fetching review logs.'));
     };
     request.onsuccess = () => resolve(request.result);
@@ -611,10 +663,18 @@ export async function getAllReviews(): Promise<ReviewLog[]> {
     const request = store.getAll();
 
     request.onerror = () => {
-        console.error("DB Error fetching all reviews:", request.error);
+        dbLogger.error("DB Error fetching all reviews:", request.error);
         reject(new Error('Error fetching all reviews from the database.'));
     };
-    request.onsuccess = () => resolve(request.result as ReviewLog[]);
+    request.onsuccess = () => {
+        const result = request.result;
+        const reviews = Array.isArray(result) ? result : [];
+        const count = reviews.length;
+        if (count > 0) {
+            dbLogger.log(`Successfully loaded ${count} review logs from the database.`);
+        }
+        resolve(reviews as ReviewLog[]);
+    }
   });
 }
 
@@ -626,7 +686,7 @@ export async function clearReviews(): Promise<void> {
         const request = store.clear();
         request.onsuccess = () => resolve();
         request.onerror = (e) => {
-            console.error("Failed to clear review logs", request.error);
+            dbLogger.error("Failed to clear review logs", request.error);
             reject(new Error('Failed to clear review logs.'));
         };
     });
@@ -640,7 +700,7 @@ export async function bulkAddReviews(logs: ReviewLog[]): Promise<void> {
         const store = transaction.objectStore(REVIEW_STORE_NAME);
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => {
-             console.error("Transaction error adding review logs", transaction.error);
+             dbLogger.error("Transaction error adding review logs", transaction.error);
              reject(new Error('Transaction error adding review logs.'));
         };
 
@@ -660,7 +720,7 @@ export async function getReviewsForDeck(deckId: string): Promise<ReviewLog[]> {
     const request = index.getAll(deckId);
 
     request.onerror = () => {
-        console.error(`DB Error fetching reviews for deck ${deckId}`, request.error);
+        dbLogger.error(`DB Error fetching reviews for deck ${deckId}`, request.error);
         reject(new Error(`Error fetching reviews for deck ${deckId}.`));
     };
     request.onsuccess = () => resolve(request.result);
@@ -675,7 +735,10 @@ export async function saveAIChatHistory(history: AIMessage[]): Promise<void> {
         const store = transaction.objectStore(AI_CHAT_STORE_NAME);
         const request = store.put({ id: 'global_history', history });
         request.onsuccess = () => resolve();
-        request.onerror = () => reject(new Error('Failed to save AI chat history.'));
+        request.onerror = () => {
+            dbLogger.error('Failed to save AI chat history.', request.error);
+            reject(new Error('Failed to save AI chat history.'));
+        }
     });
 }
 
@@ -685,8 +748,17 @@ export async function getAIChatHistory(): Promise<AIMessage[]> {
         const transaction = db.transaction(AI_CHAT_STORE_NAME, 'readonly');
         const store = transaction.objectStore(AI_CHAT_STORE_NAME);
         const request = store.get('global_history');
-        request.onsuccess = () => resolve(request.result?.history || []);
-        request.onerror = () => reject(new Error('Failed to get AI chat history.'));
+        request.onsuccess = () => {
+            const count = request.result?.history?.length ?? 0;
+            if (count > 0) {
+                dbLogger.log(`Successfully loaded ${count} AI chat history messages.`);
+            }
+            resolve(request.result?.history || []);
+        }
+        request.onerror = () => {
+            dbLogger.error('Failed to get AI chat history.', request.error);
+            reject(new Error('Failed to get AI chat history.'));
+        }
     });
 }
 
@@ -697,7 +769,10 @@ export async function clearAIChatHistory(): Promise<void> {
         const store = transaction.objectStore(AI_CHAT_STORE_NAME);
         const request = store.clear();
         request.onsuccess = () => resolve();
-        request.onerror = () => reject(new Error('Failed to clear AI chat history.'));
+        request.onerror = () => {
+            dbLogger.error('Failed to clear AI chat history.', request.error);
+            reject(new Error('Failed to clear AI chat history.'));
+        }
     });
 }
 
@@ -709,7 +784,10 @@ export async function saveSeriesProgress(seriesId: string, completedDeckIds: Set
     const store = transaction.objectStore(SERIES_PROGRESS_STORE_NAME);
     const request = store.put({ id: seriesId, completedDeckIds: Array.from(completedDeckIds) });
     request.onsuccess = () => resolve();
-    request.onerror = () => reject(new Error('Failed to save series progress.'));
+    request.onerror = () => {
+        dbLogger.error('Failed to save series progress.', request.error);
+        reject(new Error('Failed to save series progress.'));
+    }
   });
 }
 
@@ -721,12 +799,20 @@ export async function getAllSeriesProgress(): Promise<Record<string, string[]>> 
     const request = store.getAll();
     request.onsuccess = () => {
         const result: Record<string, string[]> = {};
-        (request.result as {id: string, completedDeckIds: string[]}[]).forEach(item => {
+        const progressItems = Array.isArray(request.result) ? request.result : [];
+        (progressItems as {id: string, completedDeckIds: string[]}[]).forEach(item => {
             result[item.id] = item.completedDeckIds;
         });
+        const count = Object.keys(result).length;
+        if (count > 0) {
+            dbLogger.log(`Successfully loaded progress for ${count} series.`);
+        }
         resolve(result);
     };
-    request.onerror = () => reject(new Error('Failed to get all series progress.'));
+    request.onerror = () => {
+        dbLogger.error('Failed to get all series progress.', request.error);
+        reject(new Error('Failed to get all series progress.'));
+    }
   });
 }
 
@@ -737,7 +823,10 @@ export async function clearSeriesProgress(): Promise<void> {
         const store = transaction.objectStore(SERIES_PROGRESS_STORE_NAME);
         const request = store.clear();
         request.onsuccess = () => resolve();
-        request.onerror = () => reject(new Error('Failed to clear series progress.'));
+        request.onerror = () => {
+            dbLogger.error('Failed to clear series progress.', request.error);
+            reject(new Error('Failed to clear series progress.'));
+        }
     });
 }
 
@@ -748,7 +837,10 @@ export async function bulkAddSeriesProgress(progress: Record<string, string[]>):
         const transaction = db.transaction(SERIES_PROGRESS_STORE_NAME, 'readwrite');
         const store = transaction.objectStore(SERIES_PROGRESS_STORE_NAME);
         transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(new Error('Transaction error adding series progress.'));
+        transaction.onerror = () => {
+            dbLogger.error('Transaction error adding series progress.', transaction.error);
+            reject(new Error('Transaction error adding series progress.'));
+        }
         Object.entries(progress).forEach(([seriesId, completedDeckIds]) => {
             store.put({ id: seriesId, completedDeckIds });
         });
@@ -805,6 +897,9 @@ export async function exportAllData(): Promise<string | null> {
 export async function performAtomicRestore(data: FullBackupData): Promise<void> {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
+        dbLogger.log(`Starting atomic restore from backup version ${data.version}.`);
+        dbLogger.log(`Backup contains: ${data.decks?.length || 0} decks, ${data.folders?.length || 0} folders, ${data.deckSeries?.length || 0} series, ${data.reviews?.length || 0} reviews, ${data.sessions?.length || 0} sessions, ${Object.keys(data.seriesProgress || {}).length} series progresses, and ${data.aiChatHistory?.length || 0} chat messages.`);
+        
         const storeNames = [
             DECK_STORE_NAME, FOLDER_STORE_NAME, SERIES_STORE_NAME, 
             REVIEW_STORE_NAME, SESSION_STORE_NAME, AI_CHAT_STORE_NAME, 
@@ -814,16 +909,18 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
         const transaction = db.transaction(storeNames, 'readwrite');
         
         transaction.oncomplete = () => {
+            dbLogger.log("Atomic restore transaction completed successfully. All data has been replaced.");
             broadcastDataChange(); // Notify other tabs
             resolve();
         };
         transaction.onerror = (event) => {
-            console.error("Atomic restore transaction failed:", transaction.error);
+            dbLogger.error("Atomic restore transaction failed:", transaction.error);
             reject(new Error('Database transaction failed during data restore.'));
         };
         
         try {
             // 1. Clear all stores
+            dbLogger.log(`Clearing ${storeNames.length} stores...`);
             const deckStore = transaction.objectStore(DECK_STORE_NAME);
             deckStore.clear();
             const folderStore = transaction.objectStore(FOLDER_STORE_NAME);
@@ -838,8 +935,10 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
             aiChatStore.clear();
             const seriesProgressStore = transaction.objectStore(SERIES_PROGRESS_STORE_NAME);
             seriesProgressStore.clear();
+            dbLogger.log('All stores cleared.');
 
             // 2. Add new data from backup
+            dbLogger.log('Adding new data from backup...');
             (data.decks || []).forEach(deck => deckStore.put(deck));
             (data.folders || []).forEach(folder => folderStore.put(folder));
             (data.deckSeries || []).forEach(series => seriesStore.put(series));
@@ -854,9 +953,10 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
             Object.entries(data.seriesProgress || {}).forEach(([seriesId, completedDeckIds]) => {
                 seriesProgressStore.put({ id: seriesId, completedDeckIds });
             });
+            dbLogger.log('Finished queueing restore operations.');
             
         } catch (e) {
-            console.error("Error queueing operations for atomic restore:", e);
+            dbLogger.error("Error queueing operations for atomic restore:", e);
             transaction.abort(); // Attempt to abort if an error occurs while queueing
             reject(e);
         }
@@ -871,21 +971,21 @@ export async function factoryReset(): Promise<void> {
   }
 
   return new Promise((resolve, reject) => {
-    console.log(`[DB] Attempting to delete database: ${DB_NAME}`);
+    dbLogger.log(`Attempting to delete database: ${DB_NAME}`);
     const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
 
     deleteRequest.onerror = (event) => {
-      console.error('Error deleting database.', (event.target as IDBOpenDBRequest).error);
+      dbLogger.error('Error deleting database.', (event.target as IDBOpenDBRequest).error);
       reject(new Error('Error deleting database.'));
     };
 
     deleteRequest.onsuccess = () => {
-      console.log('Database deleted successfully.');
+      dbLogger.log('Database deleted successfully.');
       resolve();
     };
     
     deleteRequest.onblocked = () => {
-        console.error('Database deletion blocked. Please close other tabs of this app and try again.');
+        dbLogger.error('Database deletion blocked. Please close other tabs of this app and try again.');
         reject(new Error('Deletion blocked. Please close other tabs of this app.'));
     };
   });

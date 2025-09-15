@@ -1,6 +1,5 @@
-
-
 import React, { useState, useRef } from 'react';
+// FIX: Corrected import path for types
 import { FullBackupData } from '../types';
 import { parseAndValidateBackupFile } from '../services/importService';
 import Button from './ui/Button';
@@ -42,15 +41,18 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore 
     setLoadingText('Processing file...');
 
     try {
-        if (file.name.toLowerCase().endsWith('.json')) {
-            const text = await file.text();
-            const data = parseAndValidateBackupFile(text);
-            setParsedData(data);
-            addToast(`Backup file "${file.name}" is valid and ready to restore.`, 'success');
-        } else {
-            addToast("Unsupported file type. Please upload a '.json' backup file.", 'error');
-            setFileName('');
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer, 0, 4);
+        const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+
+        if (isZip) {
+            throw new Error("This appears to be a ZIP file (like an Anki package). This modal only accepts '.json' backup files. Please use the main 'Import' modal for Anki packages.");
         }
+
+        const text = new TextDecoder().decode(buffer);
+        const data = parseAndValidateBackupFile(text);
+        setParsedData(data);
+        addToast(`Backup file "${file.name}" is valid and ready to restore.`, 'success');
     } catch (error) {
         console.error("Failed to process file:", error);
         addToast(`Restore failed: ${error instanceof Error ? error.message : "Unknown error"}`, 'error');

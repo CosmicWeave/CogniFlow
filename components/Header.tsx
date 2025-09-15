@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import { useRouter } from '../contexts/RouterContext';
 import { Deck } from '../types';
@@ -11,9 +9,10 @@ interface HeaderProps {
     onOpenMenu: () => void;
     onOpenCommandPalette: () => void;
     activeDeck: Deck | null;
+    isVisible: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activeDeck }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activeDeck, isVisible }) => {
     const { path, navigate } = useRouter();
 
     let headerContent;
@@ -43,7 +42,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activ
     }
 
     return (
-        <header className="bg-surface/80 backdrop-blur-sm sticky top-0 z-20 border-b border-border">
+        <header className={`bg-surface/80 backdrop-blur-sm fixed top-0 left-0 right-0 z-20 border-b border-border transition-transform duration-300 ease-in-out ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
             <nav className="container mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
                 <div className="flex items-center flex-1 min-w-0">{headerContent}</div>
                 <div className="flex items-center space-x-1">

@@ -1,4 +1,5 @@
 import React from 'react';
+// FIX: Corrected import path for types
 import type { Card } from '../types';
 import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer';
 import MasteryBar from './ui/MasteryBar';

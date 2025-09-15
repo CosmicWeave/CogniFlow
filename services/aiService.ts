@@ -1,199 +1,7 @@
-import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
-import { ImportedQuizDeck, SeriesLevel, ImportedQuestion, DeckSeries, QuizDeck, AIGeneratedDeck, AIGeneratedLevel, AIGenerationParams, DeckType, InfoCard, Question, LearningDeck, Deck, Folder, AIAction, AIActionType } from "../types";
-
-// --- Schemas (Centralized) ---
-
-const scaffoldSchema = {
-    type: Type.OBJECT,
-    properties: {
-        seriesName: { type: Type.STRING, description: "A creative and descriptive name for the entire learning series." },
-        seriesDescription: { type: Type.STRING, description: "A brief, engaging summary of what the series covers. Can include basic HTML (<b>, <i>)." },
-        levels: {
-            type: Type.ARRAY,
-            description: "An array of 2 to 10 learning levels, progressing in difficulty.",
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    title: { type: Type.STRING, description: "The title for this level (e.g., 'Level 1: Fundamentals')." },
-                    decks: {
-                        type: Type.ARRAY,
-                        description: "An array of 1 to 6 quiz decks for this level.",
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                name: { type: Type.STRING, description: "The name of the quiz deck, including its level number (e.g., 'Level 1.1: Core Concepts')." },
-                                description: { type: Type.STRING, description: "A brief summary of this specific deck's content. Can include basic HTML (<b>, <i>)." },
-                                questions: {
-                                    type: Type.ARRAY,
-                                    description: "This MUST be an empty array: []. The questions will be generated later.",
-                                    maxItems: 0,
-                                    items: {
-                                        type: Type.OBJECT,
-                                        properties: {
-                                            question: { type: Type.STRING }
-                                        }
-                                    }
-                                },
-                                suggestedQuestionCount: {
-                                    type: Type.NUMBER,
-                                    description: "A suggested number of questions (e.g., 10, 15, 20) for this deck to ensure comprehensive topic coverage."
-                                }
-                            },
-                            required: ['name', 'description', 'questions', 'suggestedQuestionCount']
-                        }
-                    }
-                },
-                required: ['title', 'decks']
-            }
-        }
-    },
-    required: ['seriesName', 'seriesDescription', 'levels']
-};
-
-const questionsSchema = {
-    type: Type.OBJECT,
-    properties: {
-        questions: {
-            type: Type.ARRAY,
-            description: "An array of high-quality multiple-choice questions for the deck.",
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    questionText: { type: Type.STRING, description: "The question text. Can include HTML for formatting (e.g., <b>, <i>, <ruby>)." },
-                    detailedExplanation: { type: Type.STRING, description: "A thorough explanation of the correct answer, providing context and educational value. Can include HTML for rich formatting." },
-                    correctAnswerId: { type: Type.STRING },
-                    options: {
-                        type: Type.ARRAY,
-                        description: "An array of 3 to 4 answer options.",
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                id: { type: Type.STRING, description: "A unique identifier for the option (e.g., 'opt1')." },
-                                text: { type: Type.STRING, description: "The answer option text. Can include HTML for formatting." },
-                            },
-                            required: ['id', 'text']
-                        }
-                    }
-                },
-                required: ['questionText', 'detailedExplanation', 'correctAnswerId', 'options']
-            }
-        }
-    },
-    required: ['questions']
-};
-
-const deckSchema = {
-    type: Type.OBJECT,
-    properties: {
-        name: { type: Type.STRING, description: "A creative and descriptive name for the quiz deck." },
-        description: { type: Type.STRING, description: "A brief, engaging summary of what the deck covers. Can include basic HTML (<b>, <i>)." },
-        questions: questionsSchema.properties.questions
-    },
-    required: ['name', 'description', 'questions']
-};
-
-const levelsSchema = {
-    type: Type.ARRAY,
-    description: "An array of 1 to 2 new, unique learning levels that logically follow the existing ones.",
-    items: scaffoldSchema.properties.levels.items
-};
-
-const decksSchema = {
-    type: Type.ARRAY,
-    description: "An array of 1 to 2 new, unique quiz decks for this level.",
-    items: scaffoldSchema.properties.levels.items.properties.decks.items
-};
-
-const learningDeckContentSchema = {
-    type: Type.OBJECT,
-    properties: {
-        name: { type: Type.STRING, description: "A creative and descriptive name for the learning deck." },
-        description: { type: Type.STRING, description: "A brief, engaging summary of what the deck covers. Can include basic HTML (<b>, <i>)." },
-        learningContent: {
-            type: Type.ARRAY,
-            description: "An array of learning blocks. Each block must contain one informational card and 3-15 questions related to it.",
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    infoCardContent: {
-                        type: Type.STRING,
-                        description: "The informational content for this block. Can be a paragraph or a few. Should be rich with HTML formatting for clarity (<b>, <i>, <ul>, <li>)."
-                    },
-                    questions: {
-                        type: Type.ARRAY,
-                        description: "An array of 3-15 questions related to the info card.",
-                        items: questionsSchema.properties.questions.items
-                    }
-                },
-                required: ['infoCardContent', 'questions']
-            }
-        }
-    },
-    required: ['name', 'description', 'learningContent']
-};
-
-const learningBlockSchema = {
-    type: Type.OBJECT,
-    properties: {
-        learningContent: learningDeckContentSchema.properties.learningContent
-    },
-    required: ['learningContent']
-};
-
-const actionSchema = {
-    type: Type.ARRAY,
-    description: "An array of one or more actions the user wants to perform. If the user is just chatting, return an array with a single NO_ACTION.",
-    items: {
-        type: Type.OBJECT,
-        properties: {
-            action: {
-                type: Type.STRING,
-                enum: Object.values(AIActionType),
-                description: "The specific action the user wants to perform. Use NO_ACTION for conversational replies."
-            },
-            payload: {
-                type: Type.OBJECT,
-                description: "The data needed to perform the action. Include only necessary fields.",
-                properties: {
-                    deckId: { type: Type.STRING, description: "The ID of the target deck." },
-                    folderId: { type: Type.STRING, description: "The ID of the target folder. Use null to move a deck out of a folder." },
-                    name: { type: Type.STRING, description: "The name for a new deck or folder." },
-                    newName: { type: Type.STRING, description: "The new name for a deck or folder being renamed." },
-                    seriesId: { type: Type.STRING, description: "The ID of the target series for expansion." },
-                    levelIndex: { type: Type.NUMBER, description: "The 0-based index of the level within the series to add decks to." },
-                    count: { type: Type.NUMBER, description: "The number of questions to generate for a deck." },
-                }
-            },
-            confirmationMessage: {
-                type: Type.STRING,
-                description: "A friendly message to the user asking them to confirm the action. For a NO_ACTION, this should be the AI's conversational reply."
-            }
-        },
-        required: ['action', 'payload', 'confirmationMessage']
-    }
-};
-
-// --- Utilities ---
-
-export type AIGeneratedSeriesScaffold = {
-    seriesName: string;
-    seriesDescription: string;
-    levels: Array<{
-        title: string;
-        decks: Array<Omit<ImportedQuizDeck, 'questions'> & { questions: [], suggestedQuestionCount: number }>;
-    }>;
-};
-
-export type AIGeneratedQuestions = {
-    questions: ImportedQuestion[];
-};
-
-class AbortError extends Error {
-    constructor(message = 'AI generation was aborted.') {
-        super(message);
-        this.name = 'AbortError';
-    }
-}
+// services/aiService.ts
+import { GoogleGenAI, Type } from "@google/genai";
+import { AIGenerationParams, ImportedQuestion, LearningDeck, QuizDeck, DeckSeries, AIGeneratedLevel, AIGeneratedDeck, Question, InfoCard, DeckType } from "../types";
+import { createQuestionsFromImport } from './importService';
 
 const getAiClient = (): GoogleGenAI => {
   const apiKey = process.env.API_KEY;
@@ -203,657 +11,261 @@ const getAiClient = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey });
 };
 
-// --- Prompt Builders ---
+// --- Schemas ---
 
-const buildContextFromParams = (params: AIGenerationParams): string => {
-    const {
-        topic, level, comprehensiveness, customInstructions,
-        learningGoal, learningStyle, focusTopics, excludeTopics, language
-    } = params;
-
-    const languageText = language ? `**Language:** All content must be in ${language}.` : '';
-    const levelText = level ? `**Target Audience Level:** ${level}` : '';
-    const comprehensivenessText = comprehensiveness ? `**Comprehensiveness:** ${comprehensiveness}` : '';
-    const goalText = learningGoal ? `**User's Learning Goal:** ${learningGoal}` : '';
-    const styleText = learningStyle ? `**Preferred Learning Style:** ${learningStyle}` : '';
-    const focusText = focusTopics ? `**Specific Topics to Focus On:** ${focusTopics}` : '';
-    const excludeText = excludeTopics ? `**Topics to Exclude:** ${excludeTopics}` : '';
-    const instructionsText = customInstructions ? `**Additional Instructions:** ${customInstructions}` : '';
-
-    return [
-        `**Main Topic:** ${topic}`,
-        languageText,
-        levelText,
-        comprehensivenessText,
-        goalText,
-        styleText,
-        focusText,
-        excludeText,
-        instructionsText
-    ].filter(Boolean).join('\n');
-};
-
-// --- Service Functions ---
-
-export const generateSeriesScaffoldWithAI = async (params: AIGenerationParams, signal: AbortSignal): Promise<AIGeneratedSeriesScaffold> => {
-    const ai = getAiClient();
-    const generationContext = buildContextFromParams(params);
-
-    const prompt = `
-        Please act as an expert instructional designer. Your task is to generate a JSON object that acts as a scaffold for a learning path based on the user's request.
-
-        **User Request:**
-        ${generationContext}
-        
-        **Instructions:**
-        1.  Create a progressive learning path with 2-10 distinct levels.
-        2.  Each level should contain 1-6 decks. Decide the optimal number of decks to properly cover the material for that level.
-        3.  For each deck, provide a \`suggestedQuestionCount\`. Aim for approximately 15-25 questions, but suggest a higher or lower number if it's better for the topic.
-        4.  Deck and Series descriptions can use basic HTML like <b> and <i> for formatting.
-        5.  **Content Style & Quality:** Descriptions and titles must be engaging and spark curiosity. Avoid a dry, academic, textbook-like tone. Frame topics in a way that highlights their real-world relevance or interesting aspects. All factual claims must be accurate and from reliable sources.
-        6.  **Crucially, for every deck object, include a "questions" key with an empty array: "questions": []**
-        7.  All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
-        8.  The entire output must conform to the provided JSON schema. Do not output any text or markdown before or after the JSON object.
-    `;
-
-    try {
-        if (signal.aborted) throw new AbortError();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: scaffoldSchema,
-            },
-        });
-        
-        if (signal.aborted) throw new AbortError();
-        const jsonText = response.text.trim();
-        const parsedData = JSON.parse(jsonText) as AIGeneratedSeriesScaffold;
-
-        if (!parsedData.seriesName || !Array.isArray(parsedData.levels)) {
-            throw new Error("AI response is missing required series data.");
-        }
-        
-        return parsedData;
-
-    } catch (error) {
-        if (error instanceof AbortError) throw error;
-        console.error("Error generating series scaffold with AI:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings. Please try a different topic.");
-        }
-        throw error;
-    }
-};
-
-export const generateDeckWithAI = async (params: AIGenerationParams, signal: AbortSignal): Promise<ImportedQuizDeck> => {
-    const ai = getAiClient();
-    const generationContext = buildContextFromParams(params);
-    const questionCount = {
-        "Quick Overview": "10-15",
-        "Standard": "15-30",
-        "Comprehensive": "30-50",
-        "Exhaustive": "50-75"
-    }[params.comprehensiveness || 'Standard'] || '15-30';
-
-
-    const prompt = `
-        You are an expert content creator. Generate a single, complete quiz deck in JSON format based on the user's request.
-
-        **User Request:**
-        ${generationContext}
-
-        **Instructions & Quality Requirements:**
-        1.  **Generate ${questionCount} high-quality questions.**
-        2.  **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
-        3.  **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
-        4.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. This is especially important for language learning.
-        5.  **In-Depth Explanations:** The \`detailedExplanation\` is crucial. It must thoroughly explain the correct answer.
-        6.  **Plausible Distractors:** Incorrect options should be plausible but clearly wrong.
-        7.  **Metric System:** Prefer the metric system for all units.
-        8.  The entire output must be a single JSON object conforming to the provided schema.
-    `;
-
-    try {
-        if (signal.aborted) throw new AbortError();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: deckSchema,
-            },
-        });
-        
-        if (signal.aborted) throw new AbortError();
-        const jsonText = response.text.trim();
-        const parsedData = JSON.parse(jsonText) as ImportedQuizDeck;
-
-        if (!parsedData.name || !Array.isArray(parsedData.questions)) {
-            throw new Error("AI response is missing required deck data.");
-        }
-        
-        return parsedData;
-
-    } catch (error) {
-        if (error instanceof AbortError) throw error;
-        console.error("Error generating deck with AI:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings. Please try a different topic.");
-        }
-        throw error;
-    }
-};
-
-export const generateLearningDeckWithAI = async (params: AIGenerationParams, signal: AbortSignal): Promise<any> => {
-    const ai = getAiClient();
-    const generationContext = buildContextFromParams(params);
-    const blockCount = {
-        "Quick Overview": "3-5",
-        "Standard": "5-8",
-        "Comprehensive": "8-12",
-        "Exhaustive": "12-15"
-    }[params.comprehensiveness || 'Standard'] || '5-8';
-
-    const prompt = `
-        You are an expert instructional designer. Generate a complete "Learning Deck" in JSON format. A learning deck teaches a topic progressively with informational cards followed by questions.
-
-        **User Request:**
-        ${generationContext}
-
-        **Instructions & Quality Requirements:**
-        1.  **Structure:** Create ${blockCount} learning blocks. Each block must consist of:
-            a. A single \`infoCardContent\` field with well-written, informative text (using HTML for formatting).
-            b. An array of 3-5 high-quality \`questions\` that are directly based on the information in the \`infoCardContent\`.
-        2.  **Progressive Learning:** The blocks should be ordered logically to guide the user from basic concepts to more complex ones.
-        3.  **Engaging & Curiosity-Driven:** The \`infoCardContent\` must be written in an engaging, interesting style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable. All factual information must be accurate and from reliable, verifiable sources.
-        4.  **Question Quality:** Questions must test understanding of the info card. Explanations must be thorough. Incorrect options must be plausible.
-        5.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` extensively for rich text formatting.
-        6.  **Metric System:** Prefer the metric system for all units.
-        7.  The entire output must be a single JSON object conforming to the provided schema.
-    `;
-
-    try {
-        if (signal.aborted) throw new AbortError();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: learningDeckContentSchema,
-            },
-        });
-        
-        if (signal.aborted) throw new AbortError();
-        const jsonText = response.text.trim();
-        const parsedData = JSON.parse(jsonText);
-
-        if (!parsedData.name || !Array.isArray(parsedData.learningContent)) {
-            throw new Error("AI response is missing required learning deck data.");
-        }
-        
-        return parsedData;
-
-    } catch (error) {
-        if (error instanceof AbortError) throw error;
-        console.error("Error generating learning deck with AI:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings. Please try a different topic.");
-        }
-        throw error;
-    }
-};
-
-export const generateMoreLevelsForSeries = async (
-    series: DeckSeries,
-    allDecksInStore: QuizDeck[],
-    signal: AbortSignal
-): Promise<{ newLevels: AIGeneratedLevel[], history: any[] }> => {
-    const ai = getAiClient();
-    const existingLevelsText = series.levels.map((level, index) => {
-        const deckNames = level.deckIds.map(id => `- ${allDecksInStore.find(d => d.id === id)?.name}`).join('\n  ');
-        return `Level ${index + 1}: ${level.title}\nDecks:\n  ${deckNames}`;
-    }).join('\n\n');
-
-    const prompt = `
-        You are an expert instructional designer continuing to build a learning path.
-        Here is the existing series structure:
-        Series Name: ${series.name}
-        Series Description: ${series.description}
-        
-        Existing Levels:
-        ${existingLevelsText}
-
-        Your task is to generate 1-2 NEW levels that logically follow the existing ones. Do not repeat topics.
-        The new levels should continue the progression of difficulty and knowledge.
-        For each new level, suggest 1-3 new decks with names, descriptions, and a suggested question count. Ensure the new deck names and descriptions are engaging and spark curiosity. Descriptions can include basic HTML (<b>, <i>).
-        All generated content should prefer the metric system (e.g., meters, kilograms, Celsius).
-        The entire output must conform to the provided JSON schema, containing only an array of the new levels.
-    `;
-    
-    const chat: Chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        history: series.aiChatHistory || [],
-    });
-
-    try {
-        if (signal.aborted) throw new AbortError();
-        const response: GenerateContentResponse = await chat.sendMessage({
-          message: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: levelsSchema,
-          }
-        });
-        if (signal.aborted) throw new AbortError();
-        const jsonText = response.text.trim();
-        const newLevels = JSON.parse(jsonText) as AIGeneratedLevel[];
-        const history = await chat.getHistory();
-        return { newLevels, history };
-    } catch (error) {
-        if (error instanceof AbortError) throw error;
-        console.error("Error generating more levels with AI:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings.");
-        }
-        throw error;
-    }
-};
-
-export const generateMoreDecksForLevel = async (
-    series: DeckSeries,
-    levelIndex: number,
-    allDecksInStore: QuizDeck[],
-    signal: AbortSignal
-): Promise<{ newDecks: AIGeneratedDeck[], history: any[] }> => {
-    const ai = getAiClient();
-    const level = series.levels[levelIndex];
-    if (!level) throw new Error("Invalid level index.");
-
-    const existingDecksText = level.deckIds.map(id => `- ${allDecksInStore.find(d => d.id === id)?.name}`).join('\n');
-
-    const prompt = `
-        You are an expert instructional designer. I need you to expand a specific level within an existing learning series.
-
-        Series Topic: ${series.name}
-        Level to expand: "${level.title}"
-
-        This level currently contains the following decks:
-        ${existingDecksText || '(No decks yet)'}
-
-        Please generate 1-2 NEW, unique decks that fit logically within this level and do not repeat the topics already covered.
-        For each new deck, provide a name, description, and a suggested question count. Ensure the new names and descriptions are engaging. Descriptions can include basic HTML (<b>, <i>).
-        All generated content should prefer the metric system (e.g., meters, kilograms, Celsius).
-        The entire output must conform to the provided JSON schema, containing only an array of the new decks.
-    `;
-    
-    const chat: Chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        history: series.aiChatHistory || [],
-    });
-
-    try {
-        if (signal.aborted) throw new AbortError();
-        const response: GenerateContentResponse = await chat.sendMessage({
-          message: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: decksSchema,
-          }
-        });
-        if (signal.aborted) throw new AbortError();
-        const jsonText = response.text.trim();
-        const newDecks = JSON.parse(jsonText) as AIGeneratedDeck[];
-        const history = await chat.getHistory();
-        return { newDecks, history };
-    } catch (error) {
-        if (error instanceof AbortError) throw error;
-        console.error("Error generating more decks with AI:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings.");
-        }
-        throw error;
-    }
-};
-
-type ProgressCallback = (deckId: string, questions: ImportedQuestion[]) => void;
-
-export const generateSeriesQuestionsInBatches = async (
-    series: DeckSeries,
-    decksToPopulate: QuizDeck[],
-    onProgress: ProgressCallback,
-    signal: AbortSignal
-): Promise<any[]> => {
-    
-    const ai = getAiClient();
-    const BATCH_SIZE = 20;
-
-    const chat: Chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        history: series.aiChatHistory || [],
-    });
-
-    if (!series.aiChatHistory || series.aiChatHistory.length === 0) {
-        const generationContext = series.aiGenerationParams 
-            ? buildContextFromParams(series.aiGenerationParams)
-            : `You are an expert instructional designer creating a learning series on the topic: "${series.name}".`;
-
-        const decksListText = decksToPopulate.map(d => `- ${d.name}: ${d.description}`).join('\n');
-        const initialPrompt = `
-            ${generationContext}
-            I will ask you to generate questions for the following decks, one by one. Maintain context and avoid creating duplicate questions across the entire series.
-            
-            **Content Style & Quality:**
-            - **Engaging & Curiosity-Driven:** Frame questions and explanations in an interesting way that sparks curiosity. Use surprising facts, real-world scenarios, or historical context to make the material more memorable and engaging. Avoid a dry, academic, textbook-like tone.
-            - **Factual Accuracy:** All factual information must be accurate and from reliable, verifiable sources.
-            - **HTML Formatting:** Use tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. For example, use <ruby>漢字<rt>かんじ</rt></ruby> for Japanese Kanji. This is highly encouraged for language-learning content.
-            - **Metric System:** All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
-
-            The decks we will populate are:
-            ${decksListText}
-            
-            For each request, you must respond with a JSON object containing a "questions" array.
-        `;
-        if (signal.aborted) throw new AbortError();
-        await chat.sendMessage({ message: initialPrompt });
-    }
-
-    for (const deck of decksToPopulate) {
-        if (signal.aborted) throw new AbortError();
-        const totalQuestionsNeeded = deck.suggestedQuestionCount || 15;
-        let allGeneratedQuestions: ImportedQuestion[] = [];
-
-        const numBatches = Math.ceil(totalQuestionsNeeded / BATCH_SIZE);
-
-        for (let i = 0; i < numBatches; i++) {
-            if (signal.aborted) throw new AbortError();
-            const questionsInThisBatch = Math.min(BATCH_SIZE, totalQuestionsNeeded - allGeneratedQuestions.length);
-            if (questionsInThisBatch <= 0) break;
-
-            const batchPrompt = `
-                Now, generate exactly ${questionsInThisBatch} unique, high-quality questions for the deck: "${deck.name}".
-                Description: "${deck.description}".
-                Ensure these are different from any questions you have generated previously in this conversation and align with the series context.
-                Remember to prefer the metric system and use HTML formatting where appropriate.
-            `;
-            
-            try {
-                const response: GenerateContentResponse = await chat.sendMessage({
-                  message: batchPrompt,
-                  config: {
-                    responseMimeType: "application/json",
-                    responseSchema: questionsSchema,
-                  }
-                });
-                if (signal.aborted) throw new AbortError();
-                const jsonText = response.text.trim();
-                const parsedData = JSON.parse(jsonText) as AIGeneratedQuestions;
-                
-                if (!Array.isArray(parsedData.questions)) {
-                    console.error(`AI response for deck "${deck.name}" did not contain a valid 'questions' array. Response:`, jsonText);
-                    throw new Error(`The AI returned an invalid data structure for deck "${deck.name}".`);
-                }
-                allGeneratedQuestions.push(...parsedData.questions);
-                
-            } catch (error) {
-                if (error instanceof AbortError) throw error;
-                console.error(`Error generating questions for deck "${deck.name}", batch ${i+1}:`, error);
-                if (error instanceof Error && error.message.includes('SAFETY')) {
-                    throw new Error(`Request for "${deck.name}" was blocked. Please try a different topic.`);
-                }
-                throw new Error(`AI error for deck "${deck.name}". Process stopped.`);
+const questionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        questionType: { type: Type.STRING, enum: ['multipleChoice'] },
+        questionText: { type: Type.STRING },
+        tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+        detailedExplanation: { type: Type.STRING },
+        options: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    id: { type: Type.STRING },
+                    text: { type: Type.STRING },
+                    explanation: { type: Type.STRING, description: "A brief explanation for why this specific option is right or wrong." },
+                },
+                required: ['id', 'text', 'explanation']
             }
-        }
-        
-        onProgress(deck.id, allGeneratedQuestions);
-    }
-    
-    return await chat.getHistory();
+        },
+        correctAnswerId: { type: Type.STRING }
+    },
+    required: ['questionType', 'questionText', 'detailedExplanation', 'options', 'correctAnswerId']
 };
 
-export const generateSeriesLearningContentInBatches = async (
-    series: DeckSeries,
-    decksToPopulate: LearningDeck[],
-    onProgress: (deckId: string, content: any) => void,
-    signal: AbortSignal
-): Promise<any[]> => {
-    
+export const questionGenerationSchema = {
+    type: Type.OBJECT,
+    properties: {
+        questions: {
+            type: Type.ARRAY,
+            items: questionSchema
+        }
+    },
+    required: ['questions']
+};
+
+export const seriesScaffoldGenerationSchema = {
+    type: Type.OBJECT,
+    properties: {
+      seriesName: { type: Type.STRING },
+      seriesDescription: { type: Type.STRING },
+      levels: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            decks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  suggestedQuestionCount: { type: Type.NUMBER },
+                },
+                required: ['name', 'description', 'suggestedQuestionCount'],
+              },
+            },
+          },
+          required: ['title', 'decks'],
+        },
+      },
+    },
+    required: ['seriesName', 'seriesDescription', 'levels'],
+};
+
+const learningBlockSchema = {
+    type: Type.OBJECT,
+    properties: {
+        infoCardContent: { type: Type.STRING, description: "The HTML content for the info card, explaining a concept." },
+        questions: { type: Type.ARRAY, items: questionSchema, description: "A list of questions that test the knowledge presented in the info card." }
+    },
+    required: ['infoCardContent', 'questions']
+};
+
+// --- System Prompts ---
+
+const getSystemPrompt = (task: string, params: AIGenerationParams & { useStrictSources?: boolean }): string => `
+You are an expert instructional designer generating content for a spaced repetition learning app called CogniFlow.
+Your task is to: ${task}
+
+**Topic:** ${params.topic}
+${params.level ? `**Designed for Level:** ${params.level}` : ''}
+${params.learningGoal ? `**Learning Goal:** ${params.learningGoal}` : ''}
+${params.learningStyle ? `**Learning Style:** ${params.learningStyle}` : ''}
+${params.focusTopics ? `**Focus On:** ${params.focusTopics}` : ''}
+${params.excludeTopics ? `**Exclude:** ${params.excludeTopics}` : ''}
+${params.customInstructions ? `**Additional Instructions:** ${params.customInstructions}` : ''}
+${params.language ? `**Output Language:** ${params.language}` : ''}
+${(params as any).useStrictSources ? '\n**CRITICAL: You MUST base your response strictly and exclusively on the content of the provided files. Do not use any external knowledge.**' : ''}
+
+**CRITICAL CONTENT QUALITY REQUIREMENTS:**
+-   **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic tone. Use surprising facts or real-world scenarios.
+-   **Factual Accuracy:** All information must be factually correct.
+-   **In-Depth Questions:** Questions should cover the topic comprehensively.
+-   **Unpredictable Answer Length:** The correct answer's text length must be varied.
+-   **Option Explanations:** Every option, correct or incorrect, MUST have a brief \`explanation\` field.
+-   **Clarity:** Questions must be unambiguous. When using an acronym, provide the full term in parentheses upon its first use (e.g., 'CPU (Central Processing Unit)').
+-   **HTML Formatting:** Use basic HTML for formatting (e.g., <b>, <i>, <code>).
+
+The final output MUST be ONLY a single, raw JSON object conforming to the provided schema. Do not include any surrounding text or markdown.
+`;
+
+// --- API Functions ---
+
+export async function generateSeriesScaffoldWithAI(params: AIGenerationParams): Promise<{ seriesName: string, seriesDescription: string, levels: AIGeneratedLevel[] }> {
+    console.log('[aiService] Called generateSeriesScaffoldWithAI with params:', params);
     const ai = getAiClient();
+    const systemPrompt = getSystemPrompt("Generate a JSON object for a learning series scaffold. A scaffold contains the series name, description, and levels with deck names and descriptions, but no questions.", params);
+    
+    console.log('[aiService] Sending prompt to Gemini for series scaffold...');
+    const prompt = "Please generate the series scaffold based on my requirements.";
+    const { sourceParts } = params;
+    const contents = sourceParts && sourceParts.length > 0
+        ? { parts: [{ text: prompt }, ...sourceParts] }
+        : prompt;
 
-    const chat: Chat = ai.chats.create({
+    const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        history: series.aiChatHistory || [],
+        contents,
+        config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            responseSchema: seriesScaffoldGenerationSchema
+        }
     });
+    
+    const result = JSON.parse(response.text);
+    console.log('[aiService] Received and parsed series scaffold from Gemini.');
+    return result;
+}
 
-    if (!series.aiChatHistory || series.aiChatHistory.length === 0) {
-        const generationContext = series.aiGenerationParams 
-            ? buildContextFromParams(series.aiGenerationParams)
-            : `You are an expert instructional designer creating a learning series on the topic: "${series.name}".`;
-        
-        const decksListText = decksToPopulate.map(d => `- ${d.name}: ${d.description}`).join('\n');
-        const initialPrompt = `
-            ${generationContext}
-            I will ask you to generate learning content (informational cards and related questions) for the following decks, one by one. Maintain context and ensure a logical progression of topics across the entire series.
-            
-            **Content Style & Quality:**
-            - **Engaging & Curiosity-Driven:** The informational content should be written in an engaging, narrative style that sparks curiosity. Questions should test understanding in a practical or thought-provoking way. Avoid a simple, dry recitation of facts. All factual information must be accurate and from reliable, verifiable sources.
-            - **HTML Formatting:** Use tags like \`<b>\`, \`<i>\`, \`<ul>\`, \`<li>\`, and \`<ruby>\` for rich text formatting.
-            - **Metric System:** All generated content must prefer the metric system (e.g., meters, kilograms, Celsius).
+export async function generateSeriesQuestionsInBatches(
+    seriesId: string,
+    onProgress: (progress: { deckId: string; questions: ImportedQuestion[] }) => void
+): Promise<void> {
+    const { useStore } = await import('../store/store');
+    const { decks, deckSeries } = useStore.getState();
+    const series = deckSeries.find(s => s.id === seriesId);
+    if (!series) throw new Error("Series not found for batch generation.");
 
-            The decks we will populate are:
-            ${decksListText}
-            
-            For each request, you must respond with a JSON object containing a "learningContent" array.
-        `;
-        if (signal.aborted) throw new AbortError();
-        await chat.sendMessage({ message: initialPrompt });
-    }
+    console.log(`[aiService] Starting batch question generation for series "${series.name}"`);
+    const seriesDeckIds = new Set((series.levels || []).flatMap(l => l.deckIds || []));
+    const emptyDecks = decks.filter(d => seriesDeckIds.has(d.id) && d.type === DeckType.Quiz && (d.questions?.length || 0) === 0) as QuizDeck[];
 
-    for (const deck of decksToPopulate) {
-        if (signal.aborted) throw new AbortError();
-        const blockCount = {
-            "Quick Overview": "3-5",
-            "Standard": "5-8",
-            "Comprehensive": "8-12",
-            "Exhaustive": "12-15"
-        }[deck.aiGenerationParams?.comprehensiveness || 'Standard'] || '5-8';
-
-        const prompt = `
-            Now, generate the learning content for the deck: "${deck.name}".
-            Description: "${deck.description}".
-            Create ${blockCount} learning blocks. Each block should have an 'infoCardContent' and an array of 3-5 'questions' directly related to it.
-            Ensure the content is unique and fits logically within the series.
-        `;
-        
+    for (const deck of emptyDecks) {
         try {
-            const response: GenerateContentResponse = await chat.sendMessage({
-              message: prompt,
-              config: {
-                responseMimeType: "application/json",
-                responseSchema: learningBlockSchema,
-              }
-            });
-            if (signal.aborted) throw new AbortError();
-            const jsonText = response.text.trim();
-            const parsedData = JSON.parse(jsonText);
-            
-            if (!parsedData.learningContent || !Array.isArray(parsedData.learningContent)) {
-                 console.error(`AI response for learning deck "${deck.name}" did not contain a valid 'learningContent' array. Response:`, jsonText);
-                 throw new Error(`The AI returned an invalid data structure for learning deck "${deck.name}".`);
-            }
-            onProgress(deck.id, parsedData.learningContent);
-            
+            const count = deck.suggestedQuestionCount || 10;
+            console.log(`[aiService] Generating ${count} questions for deck "${deck.name}"...`);
+            const response = await generateQuestionsForDeck(deck, count);
+            console.log(`[aiService] Received ${response.questions.length} questions for deck "${deck.name}".`);
+            onProgress({ deckId: deck.id, questions: response.questions });
         } catch (error) {
-            if (error instanceof AbortError) throw error;
-            console.error(`Error generating content for learning deck "${deck.name}":`, error);
-            if (error instanceof Error && error.message.includes('SAFETY')) {
-                throw new Error(`Request for "${deck.name}" was blocked. Please try a different topic.`);
-            }
-            throw new Error(`AI error for deck "${deck.name}". Process stopped.`);
+            console.error(`[aiService] Failed to generate questions for deck "${deck.name}":`, error);
+            // Continue to the next deck even if one fails
         }
     }
-    
-    return await chat.getHistory();
-};
+    console.log(`[aiService] Finished batch question generation for series "${series.name}"`);
+}
 
-export const generateQuestionsForDeck = async (
-    deck: QuizDeck,
-    count: number,
-    seriesContext: { series: DeckSeries; allDecks: QuizDeck[] } | undefined,
-    signal: AbortSignal
-): Promise<AIGeneratedQuestions> => {
+export async function generateSeriesLearningContentInBatches(
+    seriesId: string,
+    onProgress: (progress: { deckId: string; newInfoCards: InfoCard[], newQuestions: Question[] }) => void
+): Promise<void> {
+     const { useStore } = await import('../store/store');
+    const { decks, deckSeries } = useStore.getState();
+    const series = deckSeries.find(s => s.id === seriesId);
+    if (!series) throw new Error("Series not found for batch generation.");
+    
+    console.log(`[aiService] Starting batch learning content generation for series "${series.name}"`);
+    const seriesDeckIds = new Set((series.levels || []).flatMap(l => l.deckIds || []));
+    const emptyDecks = decks.filter(d => seriesDeckIds.has(d.id) && d.type === DeckType.Learning && (d.infoCards?.length || 0) === 0) as LearningDeck[];
+    
+    for (const deck of emptyDecks) {
+        try {
+            const { newInfoCards, newQuestions } = await generateContentForLearningDeck(deck, deck.aiGenerationParams || { topic: deck.name });
+            onProgress({ deckId: deck.id, newInfoCards, newQuestions });
+        } catch (error) {
+             console.error(`[aiService] Failed to generate content for learning deck "${deck.name}":`, error);
+        }
+    }
+     console.log(`[aiService] Finished batch learning content generation for series "${series.name}"`);
+}
+
+export async function generateQuestionsForDeck(deck: QuizDeck, count: number): Promise<{ questions: ImportedQuestion[] }> {
+    console.log(`[aiService] Generating ${count} questions for deck "${deck.name}"`);
     const ai = getAiClient();
+    const systemPrompt = getSystemPrompt(`Generate ${count} new, unique questions for an existing quiz deck.`, { topic: deck.name, customInstructions: deck.description, ...deck.aiGenerationParams });
+    const { sourceParts } = deck.aiGenerationParams || {};
 
-    let existingQuestionsContext = "This deck is currently empty.";
-    if (deck.questions && deck.questions.length > 0) {
-        existingQuestionsContext = `This deck already contains the following questions. DO NOT create questions on these specific topics:\n` +
-            deck.questions.map(q => `- ${q.questionText}`).slice(0, 50).join('\n');
+    const prompt = `The deck already contains these questions (do not repeat them): \n${(deck.questions || []).map(q => `- ${q.questionText}`).join('\n')}`;
+    const contents = sourceParts && sourceParts.length > 0
+        ? { parts: [{ text: prompt }, ...sourceParts] }
+        : prompt;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents,
+        config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            responseSchema: questionGenerationSchema
+        }
+    });
+
+    const result = JSON.parse(response.text);
+    if (!result || !Array.isArray(result.questions)) {
+        console.warn('[aiService] AI response for questions was missing or not an array. Returning empty array.', result);
+        return { questions: [] };
     }
+    console.log(`[aiService] Received and parsed ${result.questions.length} questions.`);
+    return result;
+}
+
+export async function generateContentForLearningDeck(deck: LearningDeck, params: AIGenerationParams): Promise<{ newInfoCards: InfoCard[], newQuestions: Question[] }> {
+    console.log(`[aiService] Generating content for learning deck "${deck.name}"...`);
+    const systemPrompt = getSystemPrompt("Generate a set of learning blocks for a learning deck. Each block should have an info card and related questions.", params);
+    const { sourceParts } = params;
     
-    const baseContext = deck.aiGenerationParams ? buildContextFromParams(deck.aiGenerationParams) : `**Main Topic:** ${deck.name}`;
+    const prompt = `Generate approximately ${deck.suggestedQuestionCount || 10} questions in total, distributed across a few learning blocks.`;
+    const contents = sourceParts && sourceParts.length > 0
+        ? { parts: [{ text: prompt }, ...sourceParts] }
+        : prompt;
 
-    let generationContext = `You are an expert instructional designer. Your task is to generate a JSON object containing high-quality, unique questions for a flashcard deck.\n\n**Deck Context:**\n${baseContext}`;
+    const response = await getAiClient().models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents,
+        config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            responseSchema: { type: Type.ARRAY, items: learningBlockSchema }
+        }
+    });
+    const learningBlocks = JSON.parse(response.text) as { infoCardContent: string; questions: ImportedQuestion[] }[];
     
-    if (seriesContext?.series) {
-        if (seriesContext.series.aiGenerationParams) {
-             generationContext += '\n\n**Overall Series Context:**\n' + buildContextFromParams(seriesContext.series.aiGenerationParams);
-        }
-        const otherDecks = seriesContext.allDecks.filter(d => d.id !== deck.id);
-        if (otherDecks.length > 0) {
-            generationContext += `
-                \nThis deck is part of a larger series called "${seriesContext.series.name}".
-                Be aware of the other decks in this series to avoid repetition:
-                ${otherDecks.map(d => `- ${d.name}: ${d.description}`).join('\n')}
-            `;
-        }
+    if (!Array.isArray(learningBlocks)) {
+        console.warn('[aiService] AI response for learning blocks was not an array. Returning empty.', learningBlocks);
+        return { newInfoCards: [], newQuestions: [] };
     }
+
+    console.log(`[aiService] Received ${learningBlocks.length} learning blocks for deck "${deck.name}".`);
     
-    const prompt = `
-        ${generationContext}
+    const newInfoCards: InfoCard[] = [];
+    const newQuestions: Question[] = [];
 
-        **Number of New Questions to Generate:** ${count}
-        
-        **Existing Questions in this Deck:**
-        ${existingQuestionsContext}
-        
-        **Instructions & Quality Requirements:**
-        1.  **Generate UNIQUE Content:** Create **${count} NEW and UNIQUE** questions that are not duplicates of the "Existing Questions" listed above.
-        2.  **Engaging & Curiosity-Driven:** All content must be written in an engaging style that sparks curiosity. Avoid a dry, academic, textbook-like tone. Use surprising facts, real-world scenarios, or narrative elements to make the material more memorable.
-        3.  **Factual Accuracy:** All information must be factually correct and come from reliable, verifiable sources.
-        4.  **HTML Formatting:** Use HTML tags like \`<b>\`, \`<i>\`, and \`<ruby>\` for rich text formatting. For example, use <ruby>漢字<rt>かんじ</rt></ruby> for Japanese Kanji.
-        5.  **In-Depth Explanations:** The \`detailedExplanation\` is crucial and must be thorough.
-        6.  **Plausible Distractors:** Incorrect options should be plausible but clearly wrong.
-        7.  **Metric System:** Prefer the metric system for all units.
-        8.  The entire output must be a single JSON object conforming to the provided schema.
-    `;
+    learningBlocks.forEach(block => {
+        if (!block || !block.infoCardContent) return; // Skip malformed blocks
+        const infoCardId = crypto.randomUUID();
+        const questionsForBlock = createQuestionsFromImport(block.questions || []).map(q => ({...q, infoCardIds: [infoCardId]}));
+        const newInfoCard: InfoCard = { id: infoCardId, content: block.infoCardContent, unlocksQuestionIds: questionsForBlock.map(q => q.id) };
+        newInfoCards.push(newInfoCard);
+        newQuestions.push(...questionsForBlock);
+    });
 
-    try {
-        if (signal.aborted) throw new AbortError();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: questionsSchema,
-            },
-        });
-        
-        if (signal.aborted) throw new AbortError();
-        const jsonText = response.text.trim();
-        const parsedData = JSON.parse(jsonText) as AIGeneratedQuestions;
-
-        if (!Array.isArray(parsedData.questions)) {
-            throw new Error("AI response did not contain a valid 'questions' array.");
-        }
-        
-        return parsedData;
-
-    } catch (error) {
-        if (error instanceof AbortError) throw error;
-        console.error("Error generating deck questions with AI:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings. Please try a different topic.");
-        }
-        throw error;
-    }
-};
-
-export const getAIResponse = async (
-    prompt: string,
-    context: {
-        decks: Deck[];
-        folders: Folder[];
-        series: DeckSeries[];
-    }
-): Promise<AIAction[]> => {
-    const ai = getAiClient();
-
-    const decksContext = context.decks.map(d => `- Deck: "${d.name}" (id: ${d.id}, folderId: ${d.folderId || 'none'})`).join('\n');
-    const foldersContext = context.folders.map(f => `- Folder: "${f.name}" (id: ${f.id})`).join('\n');
-    const seriesContext = context.series.map(s => {
-        const levelInfo = s.levels.map((l, i) => `  - Level ${i}: ${l.title} (${l.deckIds.length} decks)`).join('\n');
-        return `- Series: "${s.name}" (id: ${s.id})\n${levelInfo}`;
-    }).join('\n');
-
-    const systemInstruction = `
-        You are an AI assistant for the 'CogniFlow' flashcard app. Your goal is to help users manage their decks and folders by interpreting their natural language requests.
-
-        You MUST respond with a JSON object that is an array of actions, conforming to the provided schema.
-
-        **Your Capabilities:**
-        - Create, rename, move, and delete decks.
-        - Create, rename, and delete folders.
-        - Analyze and expand learning series by adding new levels or decks.
-        - Generate new, unique questions for a specific quiz deck, with support for HTML formatting (e.g., \`<b>\`, \`<i>\`, \`<ruby>\`).
-
-        **Instructions:**
-        1.  Analyze the user's request.
-        2.  Analyze the provided application state to find the relevant IDs for decks and folders mentioned by name.
-        3.  If the user's request is ambiguous (e.g., "delete the history deck" when multiple exist), ask for clarification by using the 'NO_ACTION' type and formulating a question in the 'confirmationMessage'.
-        4.  If the user is just chatting or asking a question you can't perform an action for, use the 'NO_ACTION' type and provide a helpful response in the 'confirmationMessage'.
-        5.  For any action that modifies data, construct a clear and concise 'confirmationMessage' that will be presented as a button for the user to approve. Example: "Delete 'Ancient Rome' Deck?" or "Create 'Languages' Folder?".
-        6.  For MOVE_DECK_TO_FOLDER, if the user wants to move a deck out of a folder, the 'folderId' in the payload should be \`null\`.
-        7.  For EXPAND_SERIES_ADD_DECKS, you must identify the correct series by name to get its ID, and determine the correct 0-based 'levelIndex' from the user's request (e.g., "add a deck to the first level" means levelIndex: 0).
-        8.  For GENERATE_QUESTIONS_FOR_DECK, identify the target deck by name to get its ID. If the user specifies a number (e.g., "add 10 questions"), include it in the 'count' payload property. The generated content should leverage HTML formatting where appropriate for clarity (e.g., using <b> for emphasis or <ruby> for annotations in language decks).
-
-        **Current Application State:**
-        
-        **Folders:**
-        ${foldersContext || 'No folders exist.'}
-        
-        **Decks:**
-        ${decksContext || 'No decks exist.'}
-
-        **Series:**
-        ${seriesContext || 'No series exist.'}
-    `;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                systemInstruction: systemInstruction,
-                responseMimeType: "application/json",
-                responseSchema: actionSchema,
-            },
-        });
-
-        const jsonText = response.text.trim();
-        const parsedActions = JSON.parse(jsonText) as AIAction[];
-        
-        if (!Array.isArray(parsedActions)) {
-            throw new Error("AI response was not a valid array of actions.");
-        }
-        
-        return parsedActions;
-
-    } catch (error) {
-        console.error("Error getting AI response:", error);
-        if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings. Please try a different request.");
-        }
-        throw new Error("Sorry, I had trouble understanding that. Could you try rephrasing?");
-    }
-};
+    return { newInfoCards, newQuestions };
+}

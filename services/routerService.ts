@@ -1,3 +1,7 @@
+/*
+// This file is part of an unused routing system and can be safely deleted.
+// The active router is implemented in `AppRouter.tsx` using `contexts/RouterContext.tsx`.
+
 // services/routerService.ts
 import { RouteConfig } from '../routes';
 
@@ -38,3 +42,4 @@ export function matchRoute(routes: RouteConfig[], pathname: string): PathMatch |
 
   return null;
 }
+*/

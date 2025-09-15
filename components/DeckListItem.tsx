@@ -1,3 +1,5 @@
+
+
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -21,32 +23,32 @@ interface DeckListItemProps {
   onUpdateDeck: (deck: Deck, options?: { toastMessage?: string }) => void;
   onDeleteDeck: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
-  onGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
-  onGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
+  handleGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
+  handleGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
 }
 
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+    const items = (deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
                   deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                  (deck as FlashcardDeck).cards;
+                  (deck as FlashcardDeck).cards) || [];
     if (!Array.isArray(items)) {
         return 0;
     }
     return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };
 
-const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal, onGenerateQuestionsForDeck, onGenerateContentForLearningDeck }) => {
+const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck }) => {
     const { navigate } = useRouter();
     const { aiGenerationStatus } = useStore();
     const { aiFeaturesEnabled } = useSettings();
     
     const dueCount = getDueItemsCount(deck);
     const canResume = sessionsToResume.has(deck.id);
-    const items = deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+    const items = (deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
                   deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                  (deck as FlashcardDeck).cards;
+                  (deck as FlashcardDeck).cards) || [];
 
     const itemCount = items?.length || 0;
     
@@ -66,7 +68,8 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
     const isTaskRunningForThisDeck = useMemo(() => {
         const { currentTask, queue } = aiGenerationStatus;
         if (currentTask?.deckId === deck.id) return true;
-        return queue.some(task => task.deckId === deck.id);
+        // FIX: Added a guard to ensure `queue` is defined before calling `.some()` to prevent potential errors.
+        return queue && queue.some(task => task.deckId === deck.id);
     }, [aiGenerationStatus, deck.id]);
 
     const isActionableEmptyDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && itemCount === 0;
@@ -118,10 +121,10 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
 
     const handleGenerate = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (deck.type === DeckType.Quiz && onGenerateQuestionsForDeck) {
-            onGenerateQuestionsForDeck(deck as QuizDeck);
-        } else if (deck.type === DeckType.Learning && onGenerateContentForLearningDeck) {
-            onGenerateContentForLearningDeck(deck as LearningDeck);
+        if (deck.type === DeckType.Quiz && handleGenerateQuestionsForDeck) {
+            handleGenerateQuestionsForDeck(deck as QuizDeck);
+        } else if (deck.type === DeckType.Learning && handleGenerateContentForLearningDeck) {
+            handleGenerateContentForLearningDeck(deck as LearningDeck);
         }
     };
     

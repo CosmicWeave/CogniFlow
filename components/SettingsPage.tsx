@@ -6,6 +6,7 @@ import { useSettings } from '../hooks/useSettings';
 import { useTheme } from '../contexts/ThemeContext';
 import ThemeToggle from './ui/ThemeToggle';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/Accordion';
+import { useToast } from '../hooks/useToast';
 
 interface SettingsPageProps {
   onExport: () => void;
@@ -61,6 +62,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const settings = useSettings();
   const { themeId, setThemeById } = useTheme();
   const [hasRevertBackup, setHasRevertBackup] = useState(false);
+  const { addToast } = useToast();
   
   useEffect(() => {
     if (localStorage.getItem('cogniflow-pre-fetch-backup')) {
@@ -228,6 +230,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <Button variant="secondary" onClick={onClearCdnCache}><Icon name="download" className="mr-2"/> Clear CDN Cache</Button>
              </div>
           </AccordionContent>
+        </AccordionItem>
+        
+        <AccordionItem value="developer-tools" className="border border-border rounded-lg overflow-hidden">
+            <AccordionTrigger>
+                <h2 className="text-2xl font-semibold text-text">Developer Tools</h2>
+            </AccordionTrigger>
+            <AccordionContent className="bg-surface p-6 flex flex-wrap gap-4 justify-center">
+                <Button 
+                variant="secondary" 
+                onClick={() => {
+                    if (typeof (window as any).runBackupServiceTests === 'function') {
+                        addToast('Running backup service tests... Check the console for results.', 'info');
+                        (window as any).runBackupServiceTests();
+                    } else {
+                        addToast('Test runner function not found.', 'error');
+                    }
+                }}
+                >
+                <Icon name="terminal" className="mr-2"/> Run API Tests
+                </Button>
+            </AccordionContent>
         </AccordionItem>
       </Accordion>
 

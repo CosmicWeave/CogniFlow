@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 
 // This component is designed to render a string of HTML that may contain <script> tags.
@@ -33,8 +35,12 @@ const DangerousHtmlRenderer: React.FC<DangerousHtmlRendererProps> = ({ html, cla
         newScript.setAttribute(attr.name, attr.value);
       });
       
-      // Copy the inline script content.
-      newScript.text = oldScript.text;
+      // FIX: Wrap inline script content in a try-catch block to prevent errors in card scripts from crashing the app.
+      if (oldScript.text && !oldScript.src) {
+        newScript.text = `try { ${oldScript.text} } catch (e) { console.error('Error in custom card script:', e); }`;
+      } else {
+        newScript.text = oldScript.text;
+      }
       
       // Append the new script to the document body to execute it.
       document.body.appendChild(newScript);
@@ -44,7 +50,11 @@ const DangerousHtmlRenderer: React.FC<DangerousHtmlRendererProps> = ({ html, cla
     // Return a cleanup function that will be called when the component unmounts or re-renders.
     // This removes the dynamically added scripts to prevent memory leaks and unexpected behavior.
     return () => {
-      newScripts.forEach(s => document.body.removeChild(s));
+      newScripts.forEach(s => {
+        if (document.body.contains(s)) {
+          document.body.removeChild(s);
+        }
+      });
     };
   }, [html, id]); // Re-run the effect if the HTML content or the unique ID changes.
 

@@ -1,7 +1,6 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-// FIX: Add LearningDeck and InfoCard to imports
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
 import Button from './ui/Button';
 import Link from './ui/Link';
@@ -22,10 +21,10 @@ import Spinner from './ui/Spinner';
 import MasteryOverTimeGraph from './ui/MasteryOverTimeGraph';
 import { useSettings } from '../hooks/useSettings';
 import { useToast } from '../hooks/useToast';
-// FIX: Add LearningItemListEditor and related modal imports
 import LearningItemListEditor from './LearningItemListEditor';
 import LearningBlockDetailModal from './LearningBlockDetailModal';
 import { LearningBlockData } from './EditLearningBlockModal';
+import TruncatedText from './ui/TruncatedText';
 
 interface DeckDetailsPageProps {
   deck: Deck;
@@ -34,9 +33,8 @@ interface DeckDetailsPageProps {
   onDeleteDeck: (deckId: string) => void;
   onUpdateLastOpened: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
-  onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
-  // FIX: Added missing props for Learning Decks and AI features
-  onGenerateContentForLearningDeck: (deck: LearningDeck) => void;
+  handleGenerateQuestionsForDeck: (deck: QuizDeck) => void;
+  handleGenerateContentForLearningDeck: (deck: LearningDeck) => void;
   onCancelAIGeneration: () => void;
   onSaveLearningBlock: (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => Promise<void>;
   onDeleteLearningBlock: (deckId: string, infoCardId: string) => Promise<void>;
@@ -45,10 +43,9 @@ interface DeckDetailsPageProps {
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    // FIX: Handle LearningDeck
-    const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
+    const items = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
                   deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                  (deck as QuizDeck).questions;
+                  (deck as QuizDeck).questions) || [];
     if (!Array.isArray(items)) {
         return 0;
     }
@@ -80,13 +77,12 @@ const calculateProgressStats = (items: Reviewable[]) => {
 
 type Tab = 'overview' | 'items' | 'stats';
 
-const StatisticsTabContent: React.FC<{ deck: Deck }> = ({ deck }) => {
+const StatisticsTabContent = ({ deck }: { deck: Deck }) => {
     const [reviewHistory, setReviewHistory] = useState<ReviewLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    // FIX: Handle LearningDeck
-    const allItems = deck.type === DeckType.Flashcard ? deck.cards : 
+    const allItems = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
                      deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                     (deck as QuizDeck).questions;
+                     (deck as QuizDeck).questions) || [];
 
     useEffect(() => {
         const fetchReviews = async () => {
@@ -171,8 +167,7 @@ const StatisticsTabContent: React.FC<{ deck: Deck }> = ({ deck }) => {
     );
 };
 
-// FIX: Changed to named export
-export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, onGenerateQuestionsForDeck, onGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock }) => {
+const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
@@ -186,9 +181,9 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
   const { aiFeaturesEnabled } = useSettings();
   const { folders, aiGenerationStatus } = useStore();
   
-  const allItems = deck.type === DeckType.Flashcard ? deck.cards : 
+  const allItems = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
                    deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                   (deck as QuizDeck).questions;
+                   (deck as QuizDeck).questions) || [];
 
   useEffect(() => {
       onUpdateLastOpened(deck.id);
@@ -215,11 +210,11 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
   const handleBulkAddItems = (items: ImportedCard[] | ImportedQuestion[]) => {
     if (deck.type === DeckType.Flashcard && items.every(item => 'front' in item)) {
         const newCards = createCardsFromImport(items as ImportedCard[]);
-        const updatedCards = [...deck.cards, ...newCards];
+        const updatedCards = [...(deck.cards || []), ...newCards];
         onUpdateDeck({ ...deck, cards: updatedCards });
     } else if ((deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && items.every(item => 'questionText' in item)) {
         const newQuestions = createQuestionsFromImport(items as ImportedQuestion[]);
-        const currentQuestions = (deck as QuizDeck | LearningDeck).questions;
+        const currentQuestions = (deck as QuizDeck | LearningDeck).questions || [];
         const updatedQuestions = [...currentQuestions, ...newQuestions];
         onUpdateDeck({ ...deck, questions: updatedQuestions });
     }
@@ -238,7 +233,6 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
     setIsBlockDetailModalOpen(true);
   };
 
-  // FIX: Use currentTask !== null to determine if generating, and check currentTask's deckId.
   const isGeneratingThisDeck = aiGenerationStatus.currentTask?.deckId === deck.id;
   const activeItems = allItems.filter(item => !item.suspended);
   const suspendedCount = allItems.length - activeItems.length;
@@ -363,7 +357,7 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
                 <Button variant="ghost" onClick={() => setIsEditing(true)}><Icon name="edit" className="mr-2"/> Edit</Button>
                 <Button variant="ghost" onClick={() => onUpdateDeck({ ...deck, archived: true })}><Icon name="archive" className="mr-2"/> Archive</Button>
             </div>
-            {deck.description && <p className="text-text-muted mt-1 mb-4 prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: deck.description }} />}
+            {deck.description && <TruncatedText html={deck.description} className="text-text-muted prose dark:prose-invert max-w-none" />}
           </div>
         )}
       </div>
@@ -383,7 +377,7 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
                         <div>
                             <h4 className="text-sm font-semibold text-text mb-2">Deck Statistics</h4>
                             <div className="space-y-1">
-                                {deck.type === DeckType.Learning && <p className="text-sm text-text-muted">Info Cards: <strong className="text-text">{(deck as LearningDeck).infoCards.length}</strong></p>}
+                                {deck.type === DeckType.Learning && <p className="text-sm text-text-muted">Info Cards: <strong className="text-text">{(deck as LearningDeck).infoCards?.length || 0}</strong></p>}
                                 <p className="text-sm text-text-muted">Active {deck.type === DeckType.Learning ? 'Questions' : 'Items'}: <strong className="text-text">{activeItems.length}</strong></p>
                                 <p className="text-sm text-text-muted">Items Due Today: <strong className={dueCount > 0 ? 'text-primary' : 'text-text'}>{dueCount}</strong></p>
                                 {suspendedCount > 0 && <p className="text-sm text-yellow-600 dark:text-yellow-400">Suspended Items: <strong>{suspendedCount}</strong></p>}
@@ -421,9 +415,9 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
                             className="font-semibold w-full sm:w-auto"
                             onClick={() => {
                                 if (deck.type === DeckType.Quiz) {
-                                    onGenerateQuestionsForDeck(deck as QuizDeck);
+                                    handleGenerateQuestionsForDeck(deck as QuizDeck);
                                 } else if (deck.type === DeckType.Learning) {
-                                    onGenerateContentForLearningDeck(deck as LearningDeck);
+                                    handleGenerateContentForLearningDeck(deck as LearningDeck);
                                 }
                             }}
                         >
@@ -455,14 +449,14 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
         {activeTab === 'items' && (
             <div className="bg-surface rounded-lg shadow-md border border-border animate-fade-in">
              {deck.type === DeckType.Flashcard ? (
-                <CardListEditor cards={deck.cards} onCardsChange={(newCards) => onUpdateDeck({ ...deck, cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...deck, cards: [...deck.cards, {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
+                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...deck, cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...deck, cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
              ) : deck.type === DeckType.Quiz ? (
                 <QuestionListEditor
-                    questions={(deck as QuizDeck).questions}
+                    questions={(deck as QuizDeck).questions || []}
                     onQuestionsChange={(newQuestions) => onUpdateDeck({ ...deck, questions: newQuestions }, { silent: true })}
-                    onAddQuestion={(d) => onUpdateDeck({ ...deck, questions: [...(deck as QuizDeck).questions, {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })}
+                    onAddQuestion={(d) => onUpdateDeck({ ...deck, questions: [...((deck as QuizDeck).questions || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })}
                     onBulkAdd={() => setIsBulkAddModalOpen(true)}
-                    onGenerateAI={() => onGenerateQuestionsForDeck(deck as QuizDeck)}
+                    onGenerateAI={() => handleGenerateQuestionsForDeck(deck as QuizDeck)}
                     isGeneratingAI={isGeneratingThisDeck}
                 />
              ) : deck.type === DeckType.Learning ? (
@@ -498,3 +492,5 @@ export const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessions
     </div>
   );
 };
+
+export default DeckDetailsPage;

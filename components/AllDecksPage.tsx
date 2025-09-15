@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo } from 'react';
 import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck, Card, Question, LearningDeck } from '../types';
 import DeckList from './DeckList';
@@ -10,7 +12,7 @@ import { stripHtml } from '../services/utils';
 const getDueItemsCount = (deck: Deck): number => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const items = deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards;
+    const items = (deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards) || [];
     if (!Array.isArray(items)) {
         return 0;
     }
@@ -36,8 +38,8 @@ interface AllDecksPageProps {
   onImportDecks: () => void;
   onCreateSampleDeck: () => void;
   handleSaveFolder: (folderData: { id: string; name: string; }) => void;
-  onGenerateQuestionsForDeck: (deck: QuizDeck) => void;
-  onGenerateContentForLearningDeck: (deck: LearningDeck) => void;
+  handleGenerateQuestionsForDeck: (deck: QuizDeck) => void;
+  handleGenerateContentForLearningDeck: (deck: LearningDeck) => void;
   onCancelAIGeneration: () => void;
 }
 
@@ -79,7 +81,7 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
             }
 
             // Score for content matches, capped to prevent very large decks from always winning
-            const items = deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck.type === DeckType.Learning ? (deck as LearningDeck).questions : (deck as QuizDeck).questions);
+            const items = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck.type === DeckType.Learning ? (deck as LearningDeck).questions : (deck as QuizDeck).questions)) || [];
             let contentMatchCount = 0;
             if (items) {
                 for (const item of items) {
@@ -89,7 +91,7 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
                         itemText = stripHtml(`${card.front} ${card.back}`).toLowerCase();
                     } else {
                         const question = item as Question;
-                        const optionsText = question.options.map(o => o.text).join(' ');
+                        const optionsText = (question.options || []).map(o => o.text).join(' ');
                         itemText = stripHtml(`${question.questionText} ${optionsText} ${question.detailedExplanation}`).toLowerCase();
                     }
                     if (searchTokens.some(token => itemText.includes(token))) {
@@ -190,8 +192,8 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
                     onDeleteDeck={props.onDeleteDeck}
                     openConfirmModal={props.openConfirmModal}
                     onSaveFolder={props.handleSaveFolder}
-                    onGenerateQuestionsForDeck={props.onGenerateQuestionsForDeck}
-                    onGenerateContentForLearningDeck={props.onGenerateContentForLearningDeck}
+                    onGenerateQuestionsForDeck={props.handleGenerateQuestionsForDeck}
+                    onGenerateContentForLearningDeck={props.handleGenerateContentForLearningDeck}
                 />
             )}
         </div>

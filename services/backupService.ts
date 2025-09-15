@@ -1,4 +1,4 @@
-
+// services/backupService.ts
 import * as db from './db';
 import { parseAndValidateBackupFile } from './importService';
 import { Deck, Folder, DeckSeries, ReviewLog, SessionState, FullBackupData, AIMessage } from '../types';
@@ -6,6 +6,11 @@ import { getStockholmFilenameTimestamp } from './time';
 
 // FIX: Create a mutable copy of the db module's functions to allow mocking in tests.
 const db_internal = { ...db };
+
+// Create a mutable dependencies object for mocking in tests
+const dependencies = {
+    fetch: window.fetch.bind(window)
+};
 
 const BASE_URL = 'https://www.greenyogafestival.org/backup-api/api/v1';
 const APP_ID = 'cogniflow-data';
@@ -54,25 +59,53 @@ async function request(endpoint: string, options: RequestInit = {}): Promise<Res
     };
     
     console.log(`[BackupService] Requesting: ${options.method || 'GET'} ${url}`, { headers: Object.fromEntries(headers.entries()) });
+    
+    // --- Retry Logic ---
+    const MAX_RETRIES = 3;
+    const INITIAL_DELAY = 1000; // 1 second
 
-    const response = await fetch(url, finalOptions);
-    console.log(`[BackupService] Response from ${options.method || 'GET'} ${url}: ${response.status}`);
-
-    if (!response.ok && ![304, 404].includes(response.status)) {
-        let errorData;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            errorData = await response.json();
-        } catch (e) {
-            errorData = { error: `HTTP error! status: ${response.status}` };
-        }
-        console.error("[BackupService] API request failed:", errorData);
-        const errorMessage = errorData?.error || errorData?.message || `Request failed with status ${response.status}`;
-        const error = new Error(errorMessage) as any;
-        error.status = response.status;
-        throw error;
-    }
+            const response = await dependencies.fetch(url, finalOptions);
+            console.log(`[BackupService] Response from ${options.method || 'GET'} ${url}: ${response.status}`);
 
-    return response;
+            if (!response.ok && ![304, 404].includes(response.status)) {
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    errorData = { error: `HTTP error! status: ${response.status}` };
+                }
+                console.error("[BackupService] API request failed:", errorData);
+                const errorMessage = errorData?.error || errorData?.message || `Request failed with status ${response.status}`;
+                const error = new Error(errorMessage) as any;
+                error.status = response.status;
+                throw error;
+            }
+
+            return response; // Success, exit the loop
+        } catch (error) {
+            // Only retry on network-like errors
+            if (error instanceof TypeError && error.message.toLowerCase().includes('failed to fetch')) {
+                if (attempt < MAX_RETRIES) {
+                    const delay = INITIAL_DELAY * Math.pow(2, attempt - 1); // Exponential backoff
+                    console.warn(`[BackupService] Attempt ${attempt} failed. Retrying in ${delay}ms...`, error);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue; // Go to the next attempt
+                } else {
+                    // Last attempt failed, throw the helpful error
+                    console.error("[BackupService] All network attempts failed. This may be a network or CORS issue.", error);
+                    const helpfulError = new Error("Network error: Could not connect to the backup server. Please check your internet connection and any browser extensions (like ad-blockers) that may be interfering.");
+                    (helpfulError as any).isNetworkError = true;
+                    throw helpfulError;
+                }
+            }
+            // Re-throw other errors immediately
+            throw error;
+        }
+    }
+    // This part should be unreachable, but as a fallback:
+    throw new Error("An unexpected error occurred in the request function.");
 }
 
 export async function syncDataToServer(dataToSync?: ServerSyncData, force = false): Promise<{ timestamp: string, etag: string }> {
@@ -109,12 +142,11 @@ export async function syncDataToServer(dataToSync?: ServerSyncData, force = fals
     
     console.log(`[BackupService] PUT ${SYNC_FILENAME}`, { headers, body: `(JSON body of size ${body.length})` });
     
-    const rawResponse = await fetch(`${BASE_URL}/apps/${APP_ID}/backups/${SYNC_FILENAME}`, {
+    const rawResponse = await request(`apps/${APP_ID}/backups/${SYNC_FILENAME}`, {
         method: 'PUT',
-        headers: { ...headers, 'X-API-Key': getApiKey() },
+        headers,
         body
     });
-    console.log(`[BackupService] syncDataToServer response status: ${rawResponse.status}`);
 
     if (!rawResponse.ok) {
         let errorData;
@@ -134,7 +166,7 @@ export async function syncDataToServer(dataToSync?: ServerSyncData, force = fals
     return { timestamp: responseData.modified, etag: newEtag || '' };
 }
 
-export async function syncDataFromServer(): Promise<ServerSyncData> {
+export async function syncDataFromServer(): Promise<FullBackupData> {
     console.log('[BackupService] Starting syncDataFromServer...');
     const response = await request(`apps/${APP_ID}/backups/${SYNC_FILENAME}`);
     if(response.status === 404) {
@@ -145,7 +177,8 @@ export async function syncDataFromServer(): Promise<ServerSyncData> {
         setLastSyncEtag(etag);
     }
     const jsonString = await response.text();
-    const parsedData = parseAndValidateBackupFile(jsonString) as ServerSyncData;
+    // The parse function already returns FullBackupData, so we just return its result directly.
+    const parsedData = parseAndValidateBackupFile(jsonString);
     console.log('[BackupService] syncDataFromServer successful.');
     return parsedData;
 }
@@ -193,12 +226,11 @@ export async function syncAIChatHistoryToServer(): Promise<void> {
         headers['If-Match'] = etag;
     }
     
-    const rawResponse = await fetch(`${BASE_URL}/apps/${APP_ID}/backups/${AI_CHAT_FILENAME}`, {
+    const rawResponse = await request(`apps/${APP_ID}/backups/${AI_CHAT_FILENAME}`, {
         method: 'PUT',
-        headers: { ...headers, 'X-API-Key': getApiKey() },
+        headers,
         body
     });
-    console.log(`[BackupService] syncAIChatHistoryToServer response status: ${rawResponse.status}`);
 
     if (!rawResponse.ok) {
         let errorData;
@@ -311,7 +343,7 @@ export async function deleteServerBackup(filename: string): Promise<void> {
 export async function runBackupServiceTests() {
   console.log('%c--- Running Backup Service Unit Tests ---', 'color: blue; font-weight: bold;');
 
-  const originalFetch = window.fetch;
+  const originalFetch = dependencies.fetch;
   const originalGetItem = localStorage.getItem;
   const originalSetItem = localStorage.setItem;
   const originalGetAllDataForBackup = db_internal.getAllDataForBackup;
@@ -329,6 +361,7 @@ export async function runBackupServiceTests() {
       // Reset mocks before each test
       currentEtag = 'initial-etag';
       mockStorage['cogniflow-lastSyncEtag'] = currentEtag;
+      mockStorage['cogniflow-aiChat-lastSyncEtag'] = currentEtag;
       await testFn();
       console.log(`%c✔ PASS: ${name}`, 'color: green;');
       passedCount++;
@@ -363,7 +396,7 @@ export async function runBackupServiceTests() {
     }
   };
 
-  const mockDbData = { decks: [{id: 'd1', name: 'Deck 1'}], folders: [], deckSeries: [], reviews: [], sessions: [], seriesProgress: {} };
+  const mockDbData = { decks: [{id: 'd1', name: 'Deck 1', type: 'flashcard', cards:[]}], folders: [], deckSeries: [], reviews: [], sessions: [], seriesProgress: {} };
   const mockAiHistory: AIMessage[] = [{id: 'm1', role: 'user', text: 'hello'}];
   
   localStorage.getItem = (key: string) => mockStorage[key] || null;
@@ -372,7 +405,7 @@ export async function runBackupServiceTests() {
   db_internal.getAIChatHistory = async () => Promise.resolve(mockAiHistory);
 
   await test('syncDataToServer should succeed and update ETag', async () => {
-    window.fetch = async (url, options) => {
+    dependencies.fetch = async (url, options) => {
       const headers = new Headers(options?.headers);
       assert(headers.get('If-Match') === 'initial-etag', 'If-Match header should be sent');
       return new Response(JSON.stringify({ modified: '2023-01-01T12:00:00Z' }), { status: 200, headers: { ETag: 'new-etag' } });
@@ -383,7 +416,7 @@ export async function runBackupServiceTests() {
   });
   
   await test('syncDataToServer should use force option to ignore ETag', async () => {
-    window.fetch = async (url, options) => {
+    dependencies.fetch = async (url, options) => {
       const headers = new Headers(options?.headers);
       assert(!headers.has('If-Match'), 'If-Match header should NOT be sent when force=true');
       return new Response(JSON.stringify({ modified: '2023-01-01T12:00:00Z' }), { status: 201, headers: { ETag: 'forced-etag' } });
@@ -393,25 +426,52 @@ export async function runBackupServiceTests() {
   });
 
   await test('syncDataToServer should handle 412 Precondition Failed', async () => {
-    window.fetch = async () => new Response(JSON.stringify({ error: 'ETag mismatch' }), { status: 412 });
+    dependencies.fetch = async () => new Response(JSON.stringify({ error: 'ETag mismatch' }), { status: 412 });
     await assertThrows(() => syncDataToServer(), 'ETag mismatch', 'Should throw on 412 error');
   });
   
   await test('syncDataFromServer should succeed and parse data', async () => {
     const serverData = { ...mockDbData, version: 6 };
-    window.fetch = async () => new Response(JSON.stringify(serverData), { status: 200, headers: { ETag: 'server-etag' } });
+    dependencies.fetch = async () => new Response(JSON.stringify(serverData), { status: 200, headers: { ETag: 'server-etag' } });
     const data = await syncDataFromServer();
     assertEqual(data.decks, mockDbData.decks, 'Parsed decks should match mock data');
     assertEqual(getLastSyncEtag(), 'server-etag', 'Should update ETag on successful fetch');
   });
+
+  await test('syncDataFromServer should handle malformed JSON', async () => {
+    dependencies.fetch = async () => new Response('{"decks": [', { status: 200 });
+    await assertThrows(() => syncDataFromServer(), 'The JSON ends unexpectedly', 'Should throw a descriptive error for malformed JSON');
+  });
+
+  await test('syncDataFromServer should handle backups with null items in arrays', async () => {
+    const corruptedData = { 
+        version: 6,
+        decks: [
+            { id: 'd1', name: 'Deck 1', type: 'flashcard', cards: [{id: 'c1', front: 'f', back: 'b', dueDate: '2025-01-01', interval: 1, easeFactor: 2.5}, null, {id: 'c2', front: 'f2', back: 'b2', dueDate: '2025-01-01', interval: 1, easeFactor: 2.5}] },
+            null
+        ],
+        folders: [{id: 'f1', name: 'Folder 1'}, null],
+        deckSeries: []
+    };
+    dependencies.fetch = async () => new Response(JSON.stringify(corruptedData), { status: 200 });
+    const data = await syncDataFromServer();
+    assertEqual(data.decks.length, 1, 'Should filter out null decks');
+    const firstDeck = data.decks[0];
+    if (firstDeck && firstDeck.type === 'flashcard') {
+      assertEqual(firstDeck.cards.length, 2, 'Should filter out null cards');
+    } else {
+      throw new Error('Assertion failed: Expected a FlashcardDeck or no deck at all.');
+    }
+    assertEqual(data.folders.length, 1, 'Should filter out null folders');
+  });
   
   await test('syncDataFromServer should handle 404 Not Found', async () => {
-    window.fetch = async () => new Response(null, { status: 404 });
+    dependencies.fetch = async () => new Response(null, { status: 404 });
     await assertThrows(() => syncDataFromServer(), 'No sync file found on the server', 'Should throw a specific message on 404');
   });
   
   await test('getSyncDataMetadata should send If-None-Match header', async () => {
-    window.fetch = async (url, options) => {
+    dependencies.fetch = async (url, options) => {
       const headers = new Headers(options?.headers);
       assert(headers.get('If-None-Match') === 'initial-etag', 'If-None-Match header should be sent');
       return new Response(JSON.stringify({ filename: 'test.json' }), { status: 200 });
@@ -420,14 +480,25 @@ export async function runBackupServiceTests() {
   });
 
   await test('getSyncDataMetadata should handle 304 Not Modified', async () => {
-    window.fetch = async () => new Response(null, { status: 304 });
+    dependencies.fetch = async () => new Response(null, { status: 304 });
     const { metadata, isNotModified } = await getSyncDataMetadata();
     assert(isNotModified, 'isNotModified should be true on 304');
     assertEqual(metadata, null, 'Metadata should be null on 304');
   });
   
+  await test('syncAIChatHistoryFromServer should throw on 404', async () => {
+    const errorResponse = new Response(null, { status: 404 });
+    dependencies.fetch = async () => errorResponse;
+    try {
+        await syncAIChatHistoryFromServer();
+        throw new Error("Function did not throw");
+    } catch (e) {
+        assertEqual(e, errorResponse, "Should throw the raw response object on 404");
+    }
+  });
+
   await test('createServerBackup should send multipart/form-data', async () => {
-    window.fetch = async (url, options) => {
+    dependencies.fetch = async (url, options) => {
       assert(options?.body instanceof FormData, 'Body should be FormData');
       const formData = options.body as FormData;
       const file = formData.get('file') as File;
@@ -438,6 +509,30 @@ export async function runBackupServiceTests() {
     assert(response.message === 'Backup successful', 'Success message should be returned');
   });
 
+  await test('restoreFromServerBackup should send POST request', async () => {
+    const filename = 'backup-test.json';
+    let methodUsed: string | undefined = '';
+    dependencies.fetch = async (url, options) => {
+        assert(url.toString().endsWith(`/restore`), 'URL should end with /restore');
+        methodUsed = options?.method;
+        return new Response(JSON.stringify({ message: 'Restore initiated' }), { status: 200 });
+    };
+    await restoreFromServerBackup(filename);
+    assertEqual(methodUsed, 'POST', 'Should use POST method');
+  });
+
+  await test('deleteServerBackup should send DELETE request', async () => {
+    const filename = 'backup-to-delete.json';
+    let methodUsed: string | undefined = '';
+    dependencies.fetch = async (url, options) => {
+        assert(url.toString().includes(filename), 'URL should contain the filename');
+        methodUsed = options?.method;
+        return new Response(null, { status: 204 });
+    };
+    await deleteServerBackup(filename);
+    assertEqual(methodUsed, 'DELETE', 'Should use DELETE method');
+  });
+
   console.log(`\n%c--- Test Summary ---`, 'color: blue; font-weight: bold;');
   console.log(`Total tests: ${testCount}`);
   console.log(`%cPassed: ${passedCount}`, 'color: green;');
@@ -446,7 +541,7 @@ export async function runBackupServiceTests() {
   }
 
   // Restore original functions
-  window.fetch = originalFetch;
+  dependencies.fetch = originalFetch;
   localStorage.getItem = originalGetItem;
   localStorage.setItem = originalSetItem;
   db_internal.getAllDataForBackup = originalGetAllDataForBackup;

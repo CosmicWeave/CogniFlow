@@ -5,7 +5,7 @@ import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
 import * as db from '../services/db';
 import { useStore } from '../store/store';
-import { getAIResponse } from '../services/aiService';
+import { getAIResponse } from '../services/aiChatService';
 
 
 interface AIChatModalProps {

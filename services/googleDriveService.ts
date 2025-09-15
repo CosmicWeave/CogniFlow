@@ -65,6 +65,12 @@ export const initGoogleDriveService = () => {
         const handleGapiLoaded = () => {
             gapi.load('client', async () => {
                 try {
+                    if (!API_KEY || !CLIENT_ID) {
+                        console.warn("Google Drive API Key or Client ID is not configured. Drive features will be disabled.");
+                        gapiInited = true;
+                        finalInitCheck();
+                        return;
+                    }
                     await gapi.client.init({
                         apiKey: API_KEY,
                         discoveryDocs: [DISCOVERY_DOC],
@@ -80,6 +86,12 @@ export const initGoogleDriveService = () => {
 
         const handleGisLoaded = () => {
             try {
+                if (!CLIENT_ID) {
+                    console.warn("Google Drive Client ID is not configured. Drive features will be disabled.");
+                    gisInited = true;
+                    finalInitCheck();
+                    return;
+                }
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID,
                     scope: SCOPES,

@@ -37,9 +37,9 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
   };
 
   const learningBlocks = useMemo(() => {
-    return deck.infoCards.map(infoCard => ({
+    return (deck.infoCards || []).map(infoCard => ({
       infoCard,
-      questions: deck.questions.filter(q => q.infoCardIds?.includes(infoCard.id))
+      questions: (deck.questions || []).filter(q => q.infoCardIds?.includes(infoCard.id))
     }));
   }, [deck.infoCards, deck.questions]);
 

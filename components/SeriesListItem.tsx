@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -24,13 +25,13 @@ interface SeriesListItemProps {
 
 const SeriesListItem: React.FC<SeriesListItemProps> = ({ series, completedCount, dueCount, onStartSeriesStudy, masteryLevel, nextUpDeckId, onGenerateAllQuestions }) => {
     const { aiGenerationStatus, decks } = useStore();
-    const totalCount = series.levels.reduce((sum, level) => sum + level.deckIds.length, 0);
+    const totalCount = (series.levels || []).reduce((sum, level) => sum + (level?.deckIds?.length || 0), 0);
     const isCompleted = completedCount >= totalCount && totalCount > 0;
 
     const isGeneratingThisSeries = aiGenerationStatus.currentTask?.seriesId === series.id;
 
     const hasEmptyDecks = useMemo(() => {
-        const seriesDeckIds = new Set(series.levels.flatMap(l => l.deckIds));
+        const seriesDeckIds = new Set((series.levels || []).flatMap(l => l?.deckIds || []));
         const seriesDecks = decks.filter(d => seriesDeckIds.has(d.id));
         return seriesDecks.some(d => (d.type === DeckType.Quiz || d.type === DeckType.Learning) && (d.questions?.length || 0) === 0);
     }, [series.levels, decks]);
