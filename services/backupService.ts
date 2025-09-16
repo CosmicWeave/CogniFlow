@@ -39,9 +39,6 @@ export interface CreateBackupResponse {
     filename: string;
 }
 
-export type ServerSyncData = Omit<FullBackupData, 'aiChatHistory'>;
-
-
 async function request(endpoint: string, options: RequestInit = {}): Promise<Response> {
     const url = `${BASE_URL}/${endpoint}`;
     const apiKey = getApiKey();
@@ -108,14 +105,15 @@ async function request(endpoint: string, options: RequestInit = {}): Promise<Res
     throw new Error("An unexpected error occurred in the request function.");
 }
 
-export async function syncDataToServer(dataToSync?: ServerSyncData, force = false): Promise<{ timestamp: string, etag: string }> {
+export async function syncDataToServer(dataToSync?: FullBackupData, force = false): Promise<{ timestamp: string, etag: string }> {
     console.log('[BackupService] Starting syncDataToServer...');
-    let backupData: ServerSyncData;
+    let backupData: FullBackupData;
 
     if (dataToSync) {
         backupData = dataToSync;
     } else {
         const { decks, folders, deckSeries, reviews, sessions, seriesProgress } = await db_internal.getAllDataForBackup();
+        const aiChatHistory = await db_internal.getAIChatHistory();
         const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
         const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
         backupData = {
@@ -127,6 +125,7 @@ export async function syncDataToServer(dataToSync?: ServerSyncData, force = fals
             sessions,
             seriesProgress,
             aiOptions,
+            aiChatHistory,
         };
     }
     

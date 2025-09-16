@@ -1,4 +1,5 @@
 
+
 import React, { useCallback, useMemo, useRef, useEffect } from 'react';
 // FIX: Imported 'DeckSeries' to resolve 'Cannot find name' error.
 import { GoogleDriveFile, QuizDeck, FullBackupData, Deck, DeckType, FlashcardDeck, SeriesLevel, LearningDeck, AIMessage, DeckSeries } from '../types';
@@ -87,7 +88,7 @@ export const useDataManagement = (props: UseDataManagementProps) => {
     const aiHandlers = useAIHandlers({ deckAndFolderHandlers, seriesHandlers });
     
     // --- THE MAIN SYNC HANDLER ---
-    const handleSync = useCallback(async (options: { isManual?: boolean, dataToSync?: backupService.ServerSyncData, force?: boolean } = {}) => {
+    const handleSync = useCallback(async (options: { isManual?: boolean, dataToSync?: FullBackupData, force?: boolean } = {}) => {
         const { isManual = false, dataToSync, force = false } = options;
         
         console.log(`[Sync] Triggered sync. Online: ${isOnline}, Manual: ${isManual}, Force: ${force}.`);

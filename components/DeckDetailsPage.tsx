@@ -185,6 +185,17 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                    deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
                    (deck as QuizDeck).questions) || [];
 
+  const relevantTask = useMemo(() => {
+    const { currentTask, queue } = aiGenerationStatus;
+    if (currentTask?.deckId === deck.id) {
+        return currentTask;
+    }
+    const deckQueue = Array.isArray(queue) ? queue : [];
+    return deckQueue.find(task => task.deckId === deck.id);
+  }, [aiGenerationStatus, deck.id]);
+
+  const isGeneratingThisDeck = !!relevantTask;
+
   useEffect(() => {
       onUpdateLastOpened(deck.id);
   }, [deck.id, onUpdateLastOpened]);
@@ -233,7 +244,6 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     setIsBlockDetailModalOpen(true);
   };
 
-  const isGeneratingThisDeck = aiGenerationStatus.currentTask?.deckId === deck.id;
   const activeItems = allItems.filter(item => !item.suspended);
   const suspendedCount = allItems.length - activeItems.length;
   const progressStats = calculateProgressStats(activeItems);
@@ -404,9 +414,9 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                 <div className="border-t border-border pt-6 flex flex-wrap items-center justify-center gap-4">
                   {isEmptyActionableDeck && aiFeaturesEnabled ? (
                     isGeneratingThisDeck ? (
-                        <div className="flex items-center justify-center w-full sm:w-auto text-lg py-3 px-6 font-semibold">
+                        <div className="flex items-center justify-center w-full sm:w-auto text-lg py-3 px-6 font-semibold bg-background rounded-md">
                             <Spinner size="sm" />
-                            <span className="ml-3 text-text-muted">Generating...</span>
+                            <span className="ml-3 text-text-muted">{relevantTask.statusText || 'Generating...'}</span>
                         </div>
                     ) : (
                         <Button 

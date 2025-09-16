@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DeckSeries, QuizDeck, Question, DeckType, ImportedQuestion, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -40,7 +41,7 @@ const getDueItemsCount = (deck?: QuizDeck | LearningDeck): number => {
 };
 
 const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, sessionsToResume, onUpdateSeries, onDeleteSeries, onAddDeckToSeries, onUpdateDeck, onStartSeriesStudy, onUpdateLastOpened, openConfirmModal, onAiAddLevelsToSeries, onAiAddDecksToLevel, handleGenerateQuestionsForEmptyDecksInSeries, handleGenerateQuestionsForDeck }) => {
-  const { decks: allDecks, seriesProgress, aiGenerationStatus, dispatch } = useStore();
+  const { decks: allDecks, seriesProgress, aiGenerationStatus } = useStore();
   const { navigate, path } = useRouter();
   const { addToast } = useToast();
   const { aiFeaturesEnabled } = useSettings();
@@ -52,6 +53,18 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
   
   const [isAddingLevels, setIsAddingLevels] = useState(false);
   const [isAddingDecksToLevel, setIsAddingDecksToLevel] = useState<number | null>(null);
+
+  const relevantTask = useMemo(() => {
+      const { currentTask, queue } = aiGenerationStatus;
+      if (currentTask?.seriesId === series.id) {
+          return currentTask;
+      }
+      const seriesQueue = Array.isArray(queue) ? queue : [];
+      return seriesQueue.find(task => task.seriesId === series.id);
+  }, [aiGenerationStatus, series.id]);
+
+  const isGeneratingThisSeries = !!relevantTask;
+  const isAnyTaskRunning = aiGenerationStatus.currentTask !== null || (aiGenerationStatus.queue?.length || 0) > 0;
 
   useEffect(() => {
     const params = new URLSearchParams(path.split('?')[1]);
@@ -150,7 +163,6 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
   };
   
   const hasEmptyDecks = useMemo(() => Array.from(seriesDecks.values()).some(d => (d.questions?.length || 0) === 0), [seriesDecks]);
-  const isGenerating = aiGenerationStatus.currentTask !== null || aiGenerationStatus.queue.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
@@ -198,15 +210,24 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                <MasteryBar level={averageMastery} />
             </div>
             <div className="border-t border-border pt-4 flex flex-wrap items-center justify-center gap-4">
-                <Button variant="primary" size="lg" onClick={() => onStartSeriesStudy(series.id)} disabled={totalDueCount === 0} className="font-semibold w-full sm:w-auto">
-                  <Icon name="zap" className="w-5 h-5 mr-2" />
-                  Study Due Items ({totalDueCount})
-                </Button>
-                {aiFeaturesEnabled && hasEmptyDecks && (
-                    <Button variant="secondary" size="lg" onClick={() => handleGenerateQuestionsForEmptyDecksInSeries(series.id)} disabled={isGenerating} className="font-semibold w-full sm:w-auto">
-                        {aiGenerationStatus.currentTask?.seriesId === series.id ? <Spinner size="sm"/> : <Icon name="zap" className="w-5 h-5 mr-2" />}
-                        Generate All Questions
-                    </Button>
+                {isGeneratingThisSeries ? (
+                    <div className="flex items-center justify-center w-full sm:w-auto text-lg py-3 px-6 font-semibold bg-background rounded-md">
+                        <Spinner size="sm"/>
+                        <span className="ml-3 text-text-muted">{relevantTask.statusText || 'Generating...'}</span>
+                    </div>
+                ) : (
+                    <>
+                        <Button variant="primary" size="lg" onClick={() => onStartSeriesStudy(series.id)} disabled={totalDueCount === 0} className="font-semibold w-full sm:w-auto">
+                          <Icon name="zap" className="w-5 h-5 mr-2" />
+                          Study Due Items ({totalDueCount})
+                        </Button>
+                        {aiFeaturesEnabled && hasEmptyDecks && (
+                            <Button variant="secondary" size="lg" onClick={() => handleGenerateQuestionsForEmptyDecksInSeries(series.id)} disabled={isAnyTaskRunning} className="font-semibold w-full sm:w-auto">
+                                <Icon name="zap" className="w-5 h-5 mr-2" />
+                                Generate All Questions
+                            </Button>
+                        )}
+                    </>
                 )}
             </div>
        </div>
@@ -231,7 +252,15 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
 
                         if (!deck) return <div key={deckId} className="text-red-500">Deck with ID {deckId} not found.</div>;
                         
-                        const isGeneratingThisDeck = aiGenerationStatus.currentTask?.deckId === deck.id;
+                        const deckTask = useMemo(() => {
+                            const { currentTask, queue } = aiGenerationStatus;
+                            if (currentTask?.deckId === deck.id) {
+                                return currentTask;
+                            }
+                            const seriesQueue = Array.isArray(queue) ? queue : [];
+                            return seriesQueue.find(task => task.deckId === deck.id);
+                        }, [aiGenerationStatus, deck.id]);
+                        const isGeneratingThisDeck = !!deckTask;
                         const canGenerateAI = aiFeaturesEnabled && isOrganizeMode && (deck.questions?.length || 0) === 0 && deck.type === DeckType.Quiz;
 
                         return (
@@ -267,15 +296,16 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                                         </p>
                                     </div>
                                 </div>
-                                <div className="flex-shrink-0 ml-4 flex items-center gap-2">
+                                <div className="flex-shrink-0 ml-4 flex items-center gap-2" style={{ minWidth: '6rem' }}>
                                     {isGeneratingThisDeck ? (
-                                        <div className="flex items-center justify-center p-2 h-auto min-w-[6rem]">
+                                        <div className="flex items-center justify-center p-2 h-auto w-full">
                                             <Spinner size="sm"/>
+                                            <span className="ml-2 text-xs text-text-muted truncate" title={deckTask.statusText}>{deckTask.statusText}</span>
                                         </div>
                                     ) : (
                                         <>
                                             {canGenerateAI && (
-                                                <Button variant="ghost" size="sm" onClick={() => handleGenerateQuestionsForDeck(deck as QuizDeck)} disabled={isGenerating}>
+                                                <Button variant="ghost" size="sm" onClick={() => handleGenerateQuestionsForDeck(deck as QuizDeck)} disabled={isAnyTaskRunning}>
                                                     <Icon name="zap" className="w-4 h-4 mr-1" /> Generate
                                                 </Button>
                                             )}
@@ -295,7 +325,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
                             variant="ghost"
                             size="sm"
                             onClick={() => handleAddDecksToLevel(levelIndex)}
-                            disabled={isAddingDecksToLevel === levelIndex || isAddingLevels || isGenerating}
+                            disabled={isAddingDecksToLevel === levelIndex || isAddingLevels || isAnyTaskRunning}
                         >
                             {isAddingDecksToLevel === levelIndex ? <Spinner size="sm" /> : <Icon name="zap" className="w-4 h-4 mr-2" />}
                             Add Decks with AI
@@ -310,7 +340,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = ({ series, session
               <Button
                 variant="secondary"
                 onClick={handleAddLevels}
-                disabled={isAddingLevels || isAddingDecksToLevel !== null || isGenerating}
+                disabled={isAddingLevels || isAddingDecksToLevel !== null || isAnyTaskRunning}
               >
                 {isAddingLevels ? <Spinner size="sm" /> : <Icon name="zap" className="w-5 h-5 mr-2" />}
                 Add Levels with AI

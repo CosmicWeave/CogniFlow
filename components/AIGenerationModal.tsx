@@ -94,10 +94,6 @@ const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (aiGenerationStatus.currentTask || (aiGenerationStatus.queue?.length || 0) > 5) {
-      addToast("The AI queue is full. Please wait for some tasks to complete.", "info");
-      return;
-    }
     if (!generationType) return;
     if (!topic.trim()) {
       addToast("Please enter a topic.", "error");

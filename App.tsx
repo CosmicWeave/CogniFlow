@@ -317,7 +317,7 @@ const App: React.FC = () => {
         <Sidebar isOpen={isMenuOpen} onClose={closeMenu} onImport={() => openModal('import')} onCreateSeries={() => openModal('series', { series: 'new' })} onGenerateAI={() => openModal('aiGeneration')} onInstall={installPrompt ? handleInstall : null} />
         <div className="flex-1 flex flex-col">
           <Header onOpenMenu={openMenu} onOpenCommandPalette={() => openModal('commandPalette')} activeDeck={activeDeck} isVisible={isHeaderVisible} />
-          <main className={`main-content-area flex-1 container mx-auto px-4 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 ${isHeaderVisible ? 'pt-20 sm:pt-[5.5rem] lg:pt-24' : 'pt-4 sm:pt-6 lg:pt-8'}`}>
+          <main className="main-content-area flex-1 container mx-auto px-4 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 pt-20 sm:pt-[5.5rem] lg:pt-24">
               {serverUpdateInfo && (
                 <div className="bg-blue-100 dark:bg-blue-900/50 border-l-4 border-blue-500 text-blue-800 dark:text-blue-200 p-4 rounded-r-lg mb-6 flex items-center justify-between gap-4 shadow-md animate-fade-in" role="alert">
                   <div className="flex items-center gap-3"><Icon name="upload-cloud" className="w-6 h-6 text-blue-500" /><div><p className="font-bold">Update Available</p><p className="text-sm">Newer data found on server from {new Date(serverUpdateInfo.modified).toLocaleString()}.</p></div></div>

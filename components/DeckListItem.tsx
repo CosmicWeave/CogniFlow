@@ -65,12 +65,17 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    const isTaskRunningForThisDeck = useMemo(() => {
+    const relevantTask = useMemo(() => {
         const { currentTask, queue } = aiGenerationStatus;
-        if (currentTask?.deckId === deck.id) return true;
-        // FIX: Added a guard to ensure `queue` is defined before calling `.some()` to prevent potential errors.
-        return queue && queue.some(task => task.deckId === deck.id);
+        if (currentTask?.deckId === deck.id) {
+            return currentTask;
+        }
+        const deckQueue = Array.isArray(queue) ? queue : [];
+        return deckQueue.find(task => task.deckId === deck.id);
     }, [aiGenerationStatus, deck.id]);
+
+    const isTaskRunningForThisDeck = !!relevantTask;
+    const isAnyTaskRunning = aiGenerationStatus.currentTask !== null || (aiGenerationStatus.queue?.length || 0) > 0;
 
     const isActionableEmptyDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && itemCount === 0;
 
@@ -184,16 +189,16 @@ const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onU
                         <p className={`text-sm font-semibold ${dueCount > 0 ? 'text-primary' : 'text-text-muted'}`}>{dueCount} due</p>
                     </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-border/50 flex justify-end gap-2">
+                <div className="mt-4 pt-4 border-t border-border/50 flex justify-end items-center gap-2">
                     { isTaskRunningForThisDeck ? (
-                        <div className="flex items-center text-text-muted">
+                        <div className="flex items-center text-text-muted text-sm font-semibold animate-fade-in">
                             <Spinner size="sm" />
-                            <span className="ml-2 text-sm font-semibold">Generating...</span>
+                            <span className="ml-2 truncate max-w-[150px]" title={relevantTask.statusText}>{relevantTask.statusText}</span>
                         </div>
                     ) : (
                         <>
                         {isActionableEmptyDeck && aiFeaturesEnabled && (
-                            <Button variant="secondary" size="sm" onClick={handleGenerate}>
+                            <Button variant="secondary" size="sm" onClick={handleGenerate} disabled={isAnyTaskRunning}>
                                 <Icon name="zap" className="w-4 h-4 mr-2"/>
                                 Generate Content
                             </Button>
