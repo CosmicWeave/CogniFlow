@@ -1,12 +1,10 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
-import { InfoCard, Question, QuestionOption, ReviewRating } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import { INITIAL_EASE_FACTOR } from '../constants';
+import { InfoCard, Question, QuestionOption, ReviewRating } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
+import { INITIAL_EASE_FACTOR } from '../constants.ts';
 
 export interface LearningBlockData {
   infoCard: InfoCard;

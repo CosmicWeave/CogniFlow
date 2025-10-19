@@ -1,10 +1,10 @@
 
 
-import { API_KEY, CLIENT_ID, DISCOVERY_DOC, SCOPES } from './googleDriveConfig';
-import * as db from './db';
-import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType, FullBackupData } from '../types';
-import { getStockholmFilenameTimestamp } from './time';
-import { parseAndValidateBackupFile } from './importService';
+import { API_KEY, CLIENT_ID, DISCOVERY_DOC, SCOPES } from './googleDriveConfig.ts';
+import * as db from './db.ts';
+import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType, FullBackupData } from '../types.ts';
+import { getStockholmFilenameTimestamp } from './time.ts';
+import { parseAndValidateBackupFile } from './importService.ts';
 
 declare var gapi: any;
 declare var google: any;

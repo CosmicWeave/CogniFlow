@@ -1,27 +1,24 @@
-
-
 import React, { useMemo } from 'react';
-import { useRouter } from '../contexts/RouterContext';
-import { Deck, Folder, DeckSeries, QuizDeck, DeckType, FlashcardDeck, Card, Question, LearningDeck, AppRouterProps } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import StudySession from './StudySession';
-import { SettingsPage } from './SettingsPage';
-// FIX: Corrected import path to point to the correct file location.
-import DeckDetailsPage from './DeckDetailsPage';
-import JsonInstructionsPage from './JsonInstructionsPage';
-import SeriesOverviewPage from './SeriesOverviewPage';
-import ArchivePage from './ArchivePage';
-import TrashPage from './TrashPage';
-import DashboardPage from './DashboardPage';
-import AllDecksPage from './AllDecksPage';
-import AllSeriesPage from './AllSeriesPage';
-import ProgressPage from './ProgressPage';
-// FIX: Corrected invalid hook calls by using exported selectors from the store.
-import { useStore, useActiveSeriesList, useStandaloneDecks, useTotalDueCount } from '../store/store';
-import { useSettings } from '../hooks/useSettings';
-import { useData } from '../contexts/DataManagementContext';
-import Breadcrumbs, { BreadcrumbItem } from './ui/Breadcrumbs';
+import { useRouter } from '../contexts/RouterContext.tsx';
+import { Deck, Folder, DeckSeries, QuizDeck, DeckType, FlashcardDeck, Card, Question, LearningDeck, AppRouterProps } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import StudySession from './StudySession.tsx';
+import { SettingsPage } from './SettingsPage.tsx';
+import DeckDetailsPage from './DeckDetailsPage.tsx';
+import JsonInstructionsPage from './JsonInstructionsPage.tsx';
+import SeriesOverviewPage from './SeriesOverviewPage.tsx';
+import { ArchivePage } from './ArchivePage.tsx';
+import TrashPage from './TrashPage.tsx';
+import DashboardPage from './DashboardPage.tsx';
+import AllDecksPage from './AllDecksPage.tsx';
+import AllSeriesPage from './AllSeriesPage.tsx';
+import ProgressPage from './ProgressPage.tsx';
+import { useStore, useActiveSeriesList, useStandaloneDecks, useTotalDueCount } from '../store/store.ts';
+import { useSettings } from '../hooks/useSettings.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import Breadcrumbs, { BreadcrumbItem } from './ui/Breadcrumbs.tsx';
+import { useModal } from '../contexts/ModalContext.tsx';
 
 const AppRouter: React.FC<AppRouterProps> = (props) => {
     const { path } = useRouter();
@@ -30,6 +27,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     const dataHandlers = useData();
     const [pathname] = path.split('?');
     const { deckSeries } = useStore();
+    const { openModal } = useModal();
+    const openConfirmModal = (p: any) => openModal('confirm', p);
     
     const standaloneDecks = useStandaloneDecks();
     const activeSeriesList = useActiveSeriesList();
@@ -110,7 +109,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onRestoreSeries={dataHandlers.handleRestoreSeries}
                 onDeleteDeckPermanently={dataHandlers.handleDeleteDeckPermanently}
                 onDeleteSeriesPermanently={dataHandlers.handleDeleteSeriesPermanently}
-                openConfirmModal={dataHandlers.openConfirmModal}
+                openConfirmModal={openConfirmModal}
             />
         }
 
@@ -120,7 +119,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onUpdateSeries={dataHandlers.handleUpdateSeries}
             onDeleteDeck={dataHandlers.handleDeleteDeck}
             onDeleteSeries={dataHandlers.handleDeleteSeries}
-            openConfirmModal={dataHandlers.openConfirmModal}
+            openConfirmModal={openConfirmModal}
           />
         }
 
@@ -139,12 +138,15 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onUpdateDeck={dataHandlers.handleUpdateDeck}
                 onStartSeriesStudy={dataHandlers.handleStartSeriesStudy}
                 onUpdateLastOpened={dataHandlers.updateLastOpenedSeries}
-                openConfirmModal={dataHandlers.openConfirmModal}
+                openConfirmModal={openConfirmModal}
                 onAiAddLevelsToSeries={dataHandlers.handleAiAddLevelsToSeries}
                 onAiAddDecksToLevel={dataHandlers.handleAiAddDecksToLevel}
                 handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries}
                 handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck}
                 onCancelAIGeneration={dataHandlers.handleCancelAIGeneration}
+                onExportSeries={dataHandlers.handleExportSeries}
+                onDeleteDeck={dataHandlers.handleDeleteDeck}
+                handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck}
             />;
         }
 
@@ -198,7 +200,23 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
 
         if (pathname.startsWith('/decks/')) {
-            return activeDeck && <DeckDetailsPage key={activeDeck.id} deck={activeDeck} sessionsToResume={props.sessionsToResume} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} onUpdateLastOpened={dataHandlers.updateLastOpened} openConfirmModal={dataHandlers.openConfirmModal} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} onSaveLearningBlock={dataHandlers.handleSaveLearningBlock} onDeleteLearningBlock={dataHandlers.handleDeleteLearningBlock} />
+            return activeDeck && <DeckDetailsPage 
+                key={activeDeck.id} 
+                deck={activeDeck} 
+                sessionsToResume={props.sessionsToResume} 
+                onUpdateDeck={dataHandlers.handleUpdateDeck} 
+                onDeleteDeck={dataHandlers.handleDeleteDeck} 
+                onUpdateLastOpened={dataHandlers.updateLastOpened} 
+                openConfirmModal={openConfirmModal} 
+                handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} 
+                handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} 
+                onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} 
+                onSaveLearningBlock={dataHandlers.handleSaveLearningBlock} 
+                onDeleteLearningBlock={dataHandlers.handleDeleteLearningBlock} 
+                onExportDeck={dataHandlers.handleExportDeck} 
+                onRegenerateQuestion={dataHandlers.handleRegenerateQuestion}
+                onExpandText={dataHandlers.handleExpandText}
+            />
         }
 
         if (pathname === '/instructions/json') {
@@ -206,7 +224,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
         
         if (pathname === '/decks') {
-            return <AllDecksPage sessionsToResume={props.sessionsToResume} sortPreference={props.sortPreference} onSortChange={props.setSortPreference} onUpdateLastOpened={dataHandlers.updateLastOpened} onDeleteFolder={dataHandlers.handleDeleteFolder} draggedDeckId={props.draggedDeckId} onDragStart={props.setDraggedDeckId} onDragEnd={() => props.setDraggedDeckId(null)} onMoveDeck={dataHandlers.handleMoveDeck} openFolderIds={props.openFolderIds} onToggleFolder={props.onToggleFolder} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} openConfirmModal={dataHandlers.openConfirmModal} onNewFolder={() => dataHandlers.openModal('folder', { folder: 'new' })} onImportDecks={() => dataHandlers.openModal('import')} onCreateSampleDeck={dataHandlers.handleCreateSampleDeck} handleSaveFolder={dataHandlers.handleSaveFolder} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
+            return <AllDecksPage sessionsToResume={props.sessionsToResume} sortPreference={props.sortPreference} onSortChange={props.setSortPreference} onUpdateLastOpened={dataHandlers.updateLastOpened} onDeleteFolder={dataHandlers.handleDeleteFolder} draggedDeckId={props.draggedDeckId} onDragStart={props.setDraggedDeckId} onDragEnd={() => props.setDraggedDeckId(null)} onMoveDeck={dataHandlers.handleMoveDeck} openFolderIds={props.openFolderIds} onToggleFolder={props.onToggleFolder} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} openConfirmModal={openConfirmModal} onNewFolder={() => dataHandlers.openModal('folder', { folder: 'new' })} onImportDecks={() => dataHandlers.openModal('import')} onCreateSampleDeck={dataHandlers.handleCreateSampleDeck} handleSaveFolder={dataHandlers.handleSaveFolder} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
         }
 
         if (pathname === '/series') {
@@ -214,7 +232,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
 
         if (standaloneDecks.length > 0 || activeSeriesList.length > 0) {
-            return <DashboardPage totalDueQuestions={totalDueQuestions} onStartGeneralStudy={dataHandlers.handleStartGeneralStudy} sessionsToResume={props.sessionsToResume} onUpdateLastOpened={dataHandlers.updateLastOpened} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} openConfirmModal={dataHandlers.openConfirmModal} seriesProgress={useStore.getState().seriesProgress} onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
+            return <DashboardPage onGenerateAI={() => dataHandlers.openModal('aiGeneration')} totalDueQuestions={totalDueQuestions} onStartGeneralStudy={dataHandlers.handleStartGeneralStudy} sessionsToResume={props.sessionsToResume} onUpdateLastOpened={dataHandlers.updateLastOpened} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} openConfirmModal={openConfirmModal} seriesProgress={useStore.getState().seriesProgress} onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
         }
         
         return (

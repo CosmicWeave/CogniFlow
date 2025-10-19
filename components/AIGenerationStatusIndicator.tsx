@@ -1,7 +1,7 @@
 import React from 'react';
-import { useStore } from '../store/store';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
+import { useStore } from '../store/store.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
 
 interface AIGenerationStatusIndicatorProps {
   onOpen: () => void;

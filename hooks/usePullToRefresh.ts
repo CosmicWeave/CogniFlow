@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useSettings } from './useSettings';
 
 export const REFRESH_THRESHOLD = 120; // pixels to pull before refresh triggers

@@ -8,7 +8,7 @@ export interface BreadcrumbItem {
 }
 
 interface BreadcrumbsProps {
-  items: BreadcrumbItem[];
+  items?: BreadcrumbItem[];
 }
 
 const truncateLabel = (label: string, maxLength: number): string => {
@@ -19,7 +19,7 @@ const truncateLabel = (label: string, maxLength: number): string => {
 };
 
 const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
-  if (items.length <= 1) {
+  if (!items || items.length <= 1) {
     return null; // Don't render if there's only one or zero items (e.g., just "Home")
   }
 

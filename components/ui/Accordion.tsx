@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import Icon from './Icon';
+import Icon from './Icon.tsx';
 
 // --- Accordion Context for managing state ---
 type AccordionContextType = {

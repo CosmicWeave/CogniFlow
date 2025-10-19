@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, Reviewable, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -6,7 +5,7 @@ import Icon from './ui/Icon';
 import SeriesListItem from './SeriesListItem';
 import DeckSortControl from './ui/DeckSortControl';
 import { useStore } from '../store/store';
-import { getEffectiveMasteryLevel } from '../services/srs';
+import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs';
 import { useSettings } from '../hooks/useSettings';
 
 type SortPreference = 'recent' | 'name' | 'progress' | 'mastery';
@@ -20,16 +19,6 @@ interface AllSeriesPageProps {
   handleGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
   onCancelAIGeneration: () => void;
 }
-
-const getDueItemsCount = (deck: Deck): number => {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const items = (deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards) || [];
-    if (!Array.isArray(items)) {
-        return 0;
-    }
-    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
-};
 
 const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
   onStartSeriesStudy,

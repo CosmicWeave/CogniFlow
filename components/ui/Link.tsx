@@ -1,5 +1,5 @@
 import React from 'react';
-import { useRouter } from '../../contexts/RouterContext';
+import { useRouter } from '../../contexts/RouterContext.tsx';
 
 // By omitting 'onClick' from the standard anchor attributes and redefining it,
 // we can accept a broader event type that works for both anchor links and

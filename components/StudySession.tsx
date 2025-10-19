@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // FIX: Corrected import path for types
-import { Card, Question, ReviewRating, Deck, Reviewable, QuizDeck, LearningDeck, InfoCard, SessionState, DeckType, FlashcardDeck } from '../types';
-import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs';
-import { saveSessionState, deleteSessionState } from '../services/db';
-import Flashcard from './Flashcard';
-import QuizQuestion from './QuizQuestion';
-import Button from './ui/Button';
-import ProgressBar from './ui/ProgressBar';
-import { useSettings } from '../hooks/useSettings';
-import { useToast } from '../hooks/useToast';
-import { useStore } from '../store/store';
-import InfoCardDisplay from './InfoCardDisplay';
-import InfoModal from './InfoModal';
-import { useSessionQueue } from '../hooks/useSessionQueue';
-import SessionSummary from './SessionSummary';
-import SessionControls from './SessionControls';
+import { Card, Question, ReviewRating, Deck, Reviewable, QuizDeck, LearningDeck, InfoCard, SessionState, DeckType, FlashcardDeck } from '../types.ts';
+import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs.ts';
+import { saveSessionState, deleteSessionState } from '../services/db.ts';
+import Flashcard from './Flashcard.tsx';
+import QuizQuestion from './QuizQuestion.tsx';
+import Button from './ui/Button.tsx';
+import ProgressBar from './ui/ProgressBar.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
+import { useToast } from '../hooks/useToast.ts';
+import { useStore } from '../store/store.ts';
+import InfoCardDisplay from './InfoCardDisplay.tsx';
+import InfoModal from './InfoModal.tsx';
+import { useSessionQueue } from '../hooks/useSessionQueue.ts';
+import SessionSummary from './SessionSummary.tsx';
+import SessionControls from './SessionControls.tsx';
+import Link from './ui/Link.tsx';
 
 interface StudySessionProps {
     deck: Deck;
@@ -42,6 +43,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const { hapticsEnabled } = useSettings();
     const { addToast } = useToast();
     const { deckSeries, seriesProgress } = useStore();
+    const series = seriesId ? deckSeries.find(s => s.id === seriesId) : null;
     
     const isSpecialSession = useMemo(() => deck.id === 'general-study-deck' || ['_cram', '_flip', '_reversed'].includes(sessionKeySuffix), [deck.id, sessionKeySuffix]);
     const sessionKey = `session_deck_${deck.id}${sessionKeySuffix}`;
@@ -49,6 +51,17 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     const { sessionQueue, setSessionQueue, isSessionInitialized, initialIndex, readInfoCardIds, setReadInfoCardIds, unlockedQuestionIds, setUnlockedQuestionIds, initialItemsCompleted } = useSessionQueue(deck, sessionKey, isSpecialSession);
     
+    useEffect(() => {
+        // When the current item we are actively studying changes (i.e., not just browsing history),
+        // reset the scroll position to the top of the page. This ensures that each new card,
+        // especially short ones following long ones, is fully visible without needing to scroll up manually.
+        // We use 'instant' behavior to make it feel like a fresh view is loading, avoiding a potentially
+        // disorienting smooth scroll animation between items.
+        if (isSessionInitialized) {
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        }
+    }, [currentIndex, isSessionInitialized]);
+
     useEffect(() => {
         if (!isSessionInitialized) {
             return;
@@ -229,7 +242,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     }, [displayIndex]);
 
     const handleNavigateNext = useCallback(() => {
-        // FIX: Corrected the logic to increment the display index instead of decrementing it.
         if (displayIndex < currentIndex) setDisplayIndex(prev => prev + 1);
     }, [displayIndex, currentIndex]);
 
@@ -281,7 +293,21 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                 <ProgressBar current={itemsCompleted} total={totalSessionItems} />
             </div>
 
-            <div className="flex-grow flex items-center justify-center py-4">
+            <div className="text-center mt-4 mb-2 px-4">
+                {series && (
+                    <div className="mb-1">
+                        <span className="text-xs text-text-muted mr-1">in</span>
+                        <Link href={`/series/${series.id}`} className="text-xs font-semibold text-text-muted hover:underline break-words">
+                            {series.name}
+                        </Link>
+                    </div>
+                )}
+                <Link href={`/decks/${deck.id}${seriesId ? `?seriesId=${seriesId}` : ''}`} className="text-lg font-bold text-text hover:underline break-words">
+                    {deck.name}
+                </Link>
+            </div>
+
+            <div className="flex-grow flex items-center justify-center pb-4">
                 <div className="w-full">
                     {originalDeckName && <p className="text-center text-xs mb-2 text-text-muted uppercase tracking-wider font-semibold">{originalDeckName}</p>}
                     
@@ -323,6 +349,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                 onSuspend={handleSuspend}
                 onReadInfoCard={handleReadInfoCard}
                 onFlip={handleFlip}
+// FIX: Corrected a typo, changing the value from the undefined 'onReturnToCurrent' to the correctly named 'handleReturnToCurrent' function.
                 onReturnToCurrent={handleReturnToCurrent}
                 onNavigatePrevious={handleNavigatePrevious}
                 onNavigateNext={handleNavigateNext}

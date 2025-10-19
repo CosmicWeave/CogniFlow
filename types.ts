@@ -1,15 +1,15 @@
 // types.ts
 
-// --- SRS (Spaced Repetition System) ---
+// --- Core SRS & Reviewable Types ---
 
 export interface Reviewable {
   id: string;
-  dueDate: string;
+  dueDate: string; // ISO string
   interval: number; // in days
   easeFactor: number;
   suspended?: boolean;
   masteryLevel?: number; // 0.0 to 1.0
-  lastReviewed?: string;
+  lastReviewed?: string; // ISO string
   lapses?: number;
 }
 
@@ -20,7 +20,7 @@ export enum ReviewRating {
   Easy = 4,
 }
 
-// --- Cards & Decks ---
+// --- Deck & Content Types ---
 
 export enum DeckType {
   Flashcard = 'flashcard',
@@ -31,7 +31,7 @@ export enum DeckType {
 export interface Card extends Reviewable {
   front: string;
   back: string;
-  css?: string;
+  css?: string; // For Anki imports
 }
 
 export interface QuestionOption {
@@ -43,11 +43,12 @@ export interface QuestionOption {
 export interface Question extends Reviewable {
   questionType: 'multipleChoice';
   questionText: string;
-  options?: QuestionOption[];
+  tags?: string[];
+  options: QuestionOption[];
   correctAnswerId: string;
   detailedExplanation: string;
-  tags?: string[];
-  infoCardIds?: string[]; // For Learning Decks
+  infoCardIds?: string[]; // Link to InfoCards in a LearningDeck
+  [key: string]: any; // For dynamic custom fields from AI
 }
 
 export interface InfoCard {
@@ -56,32 +57,31 @@ export interface InfoCard {
   unlocksQuestionIds: string[];
 }
 
-interface DeckBase {
+interface BaseDeck {
   id: string;
   name: string;
   description: string;
+  type: DeckType;
   folderId?: string | null;
+  lastOpened?: string; // ISO string
   archived?: boolean;
-  deletedAt?: string | null; // Soft delete timestamp
-  lastOpened?: string;
-  locked?: boolean; // For series decks
-  suggestedQuestionCount?: number; // For AI generation
-  aiGenerationParams?: AIGenerationParams;
-  aiChatHistory?: any[]; // For series AI generation context
-  lastModified?: number;
+  deletedAt?: string | null; // ISO string for soft delete
+  locked?: boolean; // For series progression
+  lastModified?: number; // timestamp
+  suggestedQuestionCount?: number;
 }
 
-export interface FlashcardDeck extends DeckBase {
+export interface FlashcardDeck extends BaseDeck {
   type: DeckType.Flashcard;
   cards: Card[];
 }
 
-export interface QuizDeck extends DeckBase {
+export interface QuizDeck extends BaseDeck {
   type: DeckType.Quiz;
   questions: Question[];
 }
 
-export interface LearningDeck extends DeckBase {
+export interface LearningDeck extends BaseDeck {
   type: DeckType.Learning;
   infoCards: InfoCard[];
   questions: Question[];
@@ -89,7 +89,7 @@ export interface LearningDeck extends DeckBase {
 
 export type Deck = FlashcardDeck | QuizDeck | LearningDeck;
 
-// --- Folders & Series ---
+// --- Organizational Types ---
 
 export interface Folder {
   id: string;
@@ -98,7 +98,7 @@ export interface Folder {
 
 export interface SeriesLevel {
   title: string;
-  deckIds?: string[];
+  deckIds: string[];
 }
 
 export interface DeckSeries {
@@ -106,19 +106,17 @@ export interface DeckSeries {
   type: 'series';
   name: string;
   description: string;
-  levels?: SeriesLevel[];
+  levels: SeriesLevel[];
+  lastOpened?: string; // ISO string
+  createdAt: string; // ISO string
   archived?: boolean;
-  deletedAt?: string | null;
-  lastOpened?: string;
-  createdAt?: string;
-  aiGenerationParams?: AIGenerationParams;
-  aiChatHistory?: any[];
-  lastModified?: number;
+  deletedAt?: string | null; // ISO string for soft delete
+  lastModified?: number; // timestamp
 }
 
-export type SeriesProgress = Map<string, Set<string>>;
+export type SeriesProgress = Map<string, Set<string>>; // Map<seriesId, Set<completedDeckId>>
 
-// --- Import/Export & Data Structures ---
+// --- Import/Export & Backup Types ---
 
 export interface ImportedCard {
   front: string;
@@ -140,57 +138,102 @@ export interface ImportedQuizDeck {
   questions: ImportedQuestion[];
 }
 
+export interface AppSettings {
+  themeId?: string;
+  disableAnimations?: boolean;
+  hapticsEnabled?: boolean;
+  aiFeaturesEnabled?: boolean;
+  backupEnabled?: boolean;
+  backupApiKey?: string;
+  syncOnCellular?: boolean;
+}
+
 export interface FullBackupData {
-    version: number;
-    decks: Deck[];
-    folders: Folder[];
-    deckSeries: DeckSeries[];
-    reviews?: ReviewLog[];
-    sessions?: SessionState[];
-    seriesProgress?: Record<string, string[]>;
-    aiChatHistory?: AIMessage[];
-    aiOptions?: any;
-    lastModified?: number;
+  version: number;
+  decks: Deck[];
+  folders: Folder[];
+  deckSeries: DeckSeries[];
+  reviews?: ReviewLog[];
+  sessions?: SessionState[];
+  seriesProgress?: Record<string, string[]>;
+  aiChatHistory?: AIMessage[];
+  aiOptions?: any;
+  settings?: AppSettings;
 }
 
-// --- Session & Review ---
-
-export interface SessionState {
-  id: string;
-  reviewQueue: (Card | Question | InfoCard)[];
-  currentIndex: number;
-  itemsCompleted: number;
-  readInfoCardIds?: string[];
-  unlockedQuestionIds?: string[];
+export interface DeckComparison {
+    local: Deck;
+    backup: Deck;
+    diff: {
+        content: boolean;
+        dueCount: boolean;
+        mastery: boolean;
+    };
 }
+
+export interface SeriesComparison {
+    local: DeckSeries;
+    backup: DeckSeries;
+    diff: {
+        structure: boolean;
+        mastery: boolean;
+        completion: boolean;
+    };
+}
+
+export interface BackupComparison {
+    newSeries: DeckSeries[];
+    newDecks: Deck[];
+    changedSeries: SeriesComparison[];
+    changedDecks: DeckComparison[];
+    dueCounts: Map<string, number>;
+    masteryLevels: Map<string, number>;
+}
+
+// --- Session & Log Types ---
 
 export interface ReviewLog {
-  id?: number;
+  id?: number; // auto-incremented by DB
   itemId: string;
   deckId: string;
   seriesId?: string;
-  timestamp: string;
-  rating: ReviewRating | null;
+  timestamp: string; // ISO string
+  rating: ReviewRating | null; // null for suspend
   newInterval: number;
   easeFactor: number;
   masteryLevel: number;
 }
 
+export interface SessionState {
+  id: string;
+  reviewQueue: (Card | Question | InfoCard)[];
+  currentIndex: number;
+  readInfoCardIds?: string[];
+  unlockedQuestionIds?: string[];
+  itemsCompleted?: number;
+}
 
-// --- AI Related ---
+// --- Google Drive Types ---
+export interface GoogleDriveFile {
+  id: string;
+  name: string;
+  modifiedTime: string;
+}
+
+// --- AI Related Types ---
 
 export enum AIActionType {
+    NO_ACTION = 'NO_ACTION',
     CREATE_DECK = 'CREATE_DECK',
     RENAME_DECK = 'RENAME_DECK',
-    MOVE_DECK_TO_FOLDER = 'MOVE_DECK_TO_FOLDER',
     DELETE_DECK = 'DELETE_DECK',
     CREATE_FOLDER = 'CREATE_FOLDER',
     RENAME_FOLDER = 'RENAME_FOLDER',
     DELETE_FOLDER = 'DELETE_FOLDER',
+    MOVE_DECK_TO_FOLDER = 'MOVE_DECK_TO_FOLDER',
     EXPAND_SERIES_ADD_LEVELS = 'EXPAND_SERIES_ADD_LEVELS',
     EXPAND_SERIES_ADD_DECKS = 'EXPAND_SERIES_ADD_DECKS',
     GENERATE_QUESTIONS_FOR_DECK = 'GENERATE_QUESTIONS_FOR_DECK',
-    NO_ACTION = 'NO_ACTION',
 }
 
 export interface AIAction {
@@ -208,71 +251,66 @@ export interface AIAction {
 }
 
 export interface AIMessage {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  isLoading?: boolean;
-  actions?: AIAction[];
-}
-
-export interface GenerativePart {
-  inlineData: {
-    mimeType: string;
-    data: string; // base64 encoded string
-  };
+    id: string;
+    role: 'user' | 'model';
+    text: string;
+    actions?: AIAction[];
+    isLoading?: boolean;
 }
 
 export interface AIGenerationParams {
+  generationType: 'series-scaffold' | 'deck-quiz' | 'deck-learning';
   topic: string;
-  level?: string;
-  comprehensiveness?: string;
+  understandingLevel: string;
+  learningGoal: string;
+  learningStyle: string;
+  language: string;
+  tone: string;
+  comprehensiveness: string;
+  isLearningMode?: boolean;
+  // For the final generation step
+  finalTitle?: string;
+  questionCount?: number;
+  followUpAnswers?: string;
+  sourceContent?: string;
+  sourceUrl?: string;
   customInstructions?: string;
-  learningGoal?: string;
-  learningStyle?: string;
-  focusTopics?: string;
-  excludeTopics?: string;
-  language?: string;
-  sourceParts?: GenerativePart[];
-  // FIX: Added 'useStrictSources' to allow for strict source-based AI generation.
-  useStrictSources?: boolean;
+  topicsToInclude?: string;
+  topicsToExclude?: string;
+  brainstormHistory?: string;
+  // Fine-tuning parameters
+  systemInstruction?: string;
+  temperature?: number;
+  customFields?: { name: string; type: string; description: string }[];
 }
 
-export interface AIGeneratedDeck extends Omit<ImportedQuizDeck, 'questions'> {
-  questions: [];
-  suggestedQuestionCount: number;
+export interface AIGenerationAnalysis {
+  interpretation: string;
+  titleSuggestions: string[];
+  questionCountSuggestions: {
+    label: string; // e.g., "Quick Review", "Deep Dive"
+    count: number;
+  }[];
+  followUpQuestions: string[];
 }
 
-export interface AIGeneratedLevel {
-  title: string;
-  decks: AIGeneratedDeck[];
-}
 
-// --- Google Drive ---
-
-export interface GoogleDriveFile {
-  id: string;
-  name: string;
-  modifiedTime: string;
-}
-
-// --- AppRouter Props ---
-export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
-
+// --- Component Prop Types ---
 export interface AppRouterProps {
-    sessionsToResume: Set<string>;
-    sortPreference: SortPreference;
-    setSortPreference: (pref: SortPreference) => void;
-    draggedDeckId: string | null;
-    setDraggedDeckId: (id: string | null) => void;
-    openFolderIds: Set<string>;
-    onToggleFolder: (folderId: string) => void;
-    generalStudyDeck: QuizDeck | null;
-    activeDeck: Deck | null;
-    activeSeries: DeckSeries | null;
-    onSync: () => void;
-    isSyncing: boolean;
-    lastSyncStatus: string;
-    isGapiReady: boolean;
-    isGapiSignedIn: boolean;
-    gapiUser: any;
+  sessionsToResume: Set<string>;
+  sortPreference: 'lastOpened' | 'name' | 'dueCount';
+  setSortPreference: (pref: 'lastOpened' | 'name' | 'dueCount') => void;
+  draggedDeckId: string | null;
+  setDraggedDeckId: (id: string | null) => void;
+  openFolderIds: Set<string>;
+  onToggleFolder: (id: string) => void;
+  generalStudyDeck: any | null;
+  activeDeck: Deck | null;
+  activeSeries: DeckSeries | null;
+  onSync: () => void;
+  isSyncing: boolean;
+  lastSyncStatus: string;
+  isGapiReady: boolean;
+  isGapiSignedIn: boolean;
+  gapiUser: any;
 }

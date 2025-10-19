@@ -1,12 +1,11 @@
 import React, { useState, useRef } from 'react';
-// FIX: Corrected import path for types
-import { Card } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import EditCardModal from './EditCardModal';
-import ConfirmModal from './ConfirmModal';
-import MasteryBar from './ui/MasteryBar';
-import { getEffectiveMasteryLevel } from '../services/srs';
+import { Card } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import EditCardModal from './EditCardModal.tsx';
+import ConfirmModal from './ConfirmModal.tsx';
+import MasteryBar from './ui/MasteryBar.tsx';
+import { getEffectiveMasteryLevel } from '../services/srs.ts';
 
 interface CardListEditorProps {
   cards: Card[];

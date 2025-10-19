@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 
 // This component is designed to render a string of HTML that may contain <script> tags.
@@ -35,7 +33,6 @@ const DangerousHtmlRenderer: React.FC<DangerousHtmlRendererProps> = ({ html, cla
         newScript.setAttribute(attr.name, attr.value);
       });
       
-      // FIX: Wrap inline script content in a try-catch block to prevent errors in card scripts from crashing the app.
       if (oldScript.text && !oldScript.src) {
         newScript.text = `try { ${oldScript.text} } catch (e) { console.error('Error in custom card script:', e); }`;
       } else {

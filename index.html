@@ -34,44 +34,34 @@
         --color-text: 243 244 246; /* gray-100 */
         --color-text-muted: 156 163 175; /* gray-400 */
         --color-border: 55 65 81; /* gray-700 */
+        --color-primary: 96 165 250; /* blue-400 */
+        --color-primary-hover: 59 130 246; /* blue-500 */
       }
       
-      /* --- New Theme Definitions --- */
+      /* --- New Subtle Theme Definitions --- */
+      /* Light themes now only override accent colors */
       html.theme-rose {
-        --color-background: 255 241 242; --color-surface: 254 226 226;
-        --color-text: 136 25 55; --color-text-muted: 190 24 64;
-        --color-border: 253 186 195; --color-primary: 225 29 72; --color-primary-hover: 190 18 60;
+        --color-primary: 225 29 72; --color-primary-hover: 190 18 60;
       }
       html.theme-matcha {
-        --color-background: 240 253 244; --color-surface: 220 252 231;
-        --color-text: 21 94 53; --color-text-muted: 22 121 68;
-        --color-border: 187 247 208; --color-primary: 22 163 74; --color-primary-hover: 21 128 61;
+        --color-primary: 22 163 74; --color-primary-hover: 21 128 61;
       }
       html.theme-latte {
-        --color-background: 255 251 235; --color-surface: 254 243 199;
-        --color-text: 113 63 18; --color-text-muted: 146 88 28;
-        --color-border: 253 224 138; --color-primary: 217 119 6; --color-primary-hover: 180 83 9;
+        --color-primary: 217 119 6; --color-primary-hover: 180 83 9;
       }
       html.theme-sky {
-        --color-background: 240 249 255; --color-surface: 224 242 254;
-        --color-text: 7 89 133; --color-text-muted: 8 126 164;
-        --color-border: 186 230 253; --color-primary: 14 165 233; --color-primary-hover: 2 132 199;
+        --color-primary: 14 165 233; --color-primary-hover: 2 132 199;
       }
       html.theme-sunrise {
-        --color-background: 255 251 235; --color-surface: 254 243 199;
-        --color-text: 124 45 18; --color-text-muted: 154 52 18;
-        --color-border: 252 211 77; --color-primary: 249 115 22; --color-primary-hover: 234 88 12;
+        --color-primary: 249 115 22; --color-primary-hover: 234 88 12;
       }
       html.theme-lavender {
-        --color-background: 245 243 255; --color-surface: 237 233 254;
-        --color-text: 76 29 149; --color-text-muted: 91 33 182;
-        --color-border: 221 214 254; --color-primary: 124 58 237; --color-primary-hover: 109 40 217;
+        --color-primary: 124 58 237; --color-primary-hover: 109 40 217;
       }
       html.theme-terracotta {
-        --color-background: 250 243 232; --color-surface: 245 233 218;
-        --color-text: 93 64 55; --color-text-muted: 141 110 99;
-        --color-border: 215 204 200; --color-primary: 226 114 91; --color-primary-hover: 209 93 70;
+        --color-primary: 226 114 91; --color-primary-hover: 209 93 70;
       }
+      /* Alabaster is already very subtle and mostly affects grays, so we keep it as is. */
       html.theme-alabaster {
         --color-background: 252 252 252;
         --color-surface: 255 255 255;
@@ -83,16 +73,16 @@
         --color-on-primary: 255 255 255;
       }
 
-      /* New Dark Themes */
+      /* Dark themes now only override accent colors */
       html.theme-espresso.dark {
-        --color-background: 33 23 19; --color-surface: 58 45 39;
-        --color-text: 224 213 208; --color-text-muted: 168 152 146;
-        --color-border: 84 66 59; --color-primary: 196 154 108; --color-primary-hover: 211 176 135; --color-on-primary: 33 23 19;
+        --color-primary: 196 154 108;
+        --color-primary-hover: 211 176 135;
+        --color-on-primary: 33 23 19;
       }
       html.theme-midnight.dark {
-        --color-background: 12 13 17; --color-surface: 26 27 38;
-        --color-text: 200 201 215; --color-text-muted: 143 145 165;
-        --color-border: 45 47 61; --color-primary: 133 137 230; --color-primary-hover: 160 163 239; --color-on-primary: 12 13 17;
+        --color-primary: 133 137 230;
+        --color-primary-hover: 160 163 239;
+        --color-on-primary: 12 13 17;
       }
     </style>
 

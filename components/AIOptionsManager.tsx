@@ -1,132 +1,152 @@
-
 import React, { useState } from 'react';
-import { useAIOptions, AIOptionCategories } from '../hooks/useAIOptions';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
+import { useAIOptions, AIOptionCategories, AIPersona } from '../hooks/useAIOptions.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+// FIX: Imported useToast to make the addToast function available.
+import { useToast } from '../hooks/useToast.ts';
 
 interface AIOptionsManagerProps {
   onBack: () => void;
 }
 
-const OptionEditor: React.FC<{
+const StringListEditor: React.FC<{
     title: string;
     category: AIOptionCategories;
-    options: string[];
-    addOption: (category: AIOptionCategories, value: string) => void;
-    updateOption: (category: AIOptionCategories, index: number, newValue: string) => void;
-    deleteOption: (category: AIOptionCategories, index: number) => void;
-}> = ({ title, category, options, addOption, updateOption, deleteOption }) => {
-    const [newOption, setNewOption] = useState('');
-    const [editingIndex, setEditingIndex] = useState<number | null>(null);
-    const [editingValue, setEditingValue] = useState('');
+}> = ({ title, category }) => {
+    const { options, updateCategory } = useAIOptions();
+    const [items, setItems] = useState<string[]>(options[category] as string[]);
+    const [newItem, setNewItem] = useState('');
 
-    const handleAdd = () => {
-        addOption(category, newOption);
-        setNewOption('');
-    };
-
-    const handleStartEdit = (index: number, value: string) => {
-        setEditingIndex(index);
-        setEditingValue(value);
-    };
-
-    const handleSaveEdit = () => {
-        if (editingIndex !== null) {
-            updateOption(category, editingIndex, editingValue);
+    const handleAddItem = () => {
+        if(newItem.trim()) {
+            const newItems = [...items, newItem.trim()];
+            setItems(newItems);
+            updateCategory(category, newItems);
+            setNewItem('');
         }
-        setEditingIndex(null);
-        setEditingValue('');
+    };
+    
+    const handleRemoveItem = (index: number) => {
+        const newItems = items.filter((_, i) => i !== index);
+        setItems(newItems);
+        updateCategory(category, newItems);
     };
 
     return (
-        <div className="space-y-3 p-4 bg-background rounded-lg border border-border">
-            <h4 className="font-semibold text-text">{title}</h4>
+        <div className="p-4 bg-background border border-border rounded-lg">
+            <h4 className="font-semibold text-text mb-2">{title}</h4>
             <ul className="space-y-2">
-                {options.map((option, index) => (
-                    <li key={index} className="flex items-center gap-2 p-2 bg-surface rounded-md">
-                        {editingIndex === index ? (
-                            <input
-                                type="text"
-                                value={editingValue}
-                                onChange={(e) => setEditingValue(e.target.value)}
-                                onBlur={handleSaveEdit}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit()}
-                                className="flex-grow p-1 bg-background border border-primary rounded-md focus:outline-none"
-                                autoFocus
-                            />
-                        ) : (
-                            <span className="flex-grow text-text-muted">{option}</span>
-                        )}
-
-                        {editingIndex === index ? (
-                            <Button size="sm" variant="ghost" onClick={handleSaveEdit}><Icon name="check-circle" className="w-4 h-4 text-green-500" /></Button>
-                        ) : (
-                            <>
-                                <Button size="sm" variant="ghost" onClick={() => handleStartEdit(index, option)}><Icon name="edit" className="w-4 h-4" /></Button>
-                                <Button size="sm" variant="ghost" onClick={() => deleteOption(category, index)}><Icon name="trash-2" className="w-4 h-4 text-red-500" /></Button>
-                            </>
-                        )}
+                {items.map((item, index) => (
+                    <li key={index} className="flex items-center justify-between p-2 bg-surface rounded-md">
+                        <span>{item}</span>
+                        <Button variant="ghost" size="sm" className="p-1 h-auto" onClick={() => handleRemoveItem(index)}>
+                            <Icon name="trash-2" className="w-4 h-4 text-red-500" />
+                        </Button>
                     </li>
                 ))}
             </ul>
-            <div className="flex items-center gap-2 pt-2 border-t border-border">
+             <div className="flex items-center gap-2 mt-2">
                 <input
                     type="text"
-                    value={newOption}
-                    onChange={(e) => setNewOption(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                    value={newItem}
+                    onChange={(e) => setNewItem(e.target.value)}
+                    onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddItem(); }}}
                     placeholder="Add new option..."
-                    className="flex-grow p-2 bg-surface border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                    className="flex-grow p-2 bg-surface border border-border rounded-md"
                 />
-                <Button variant="secondary" onClick={handleAdd}>Add</Button>
+                <Button variant="secondary" onClick={handleAddItem}>Add</Button>
             </div>
         </div>
     );
 };
 
-const AIOptionsManager: React.FC<AIOptionsManagerProps> = ({ onBack }) => {
-    const { options, addOption, updateOption, deleteOption } = useAIOptions();
+const PersonaEditor: React.FC = () => {
+    const { options, updateCategory } = useAIOptions();
+    const [personas, setPersonas] = useState<AIPersona[]>(() => JSON.parse(JSON.stringify(options.personas)));
+    const { addToast } = useToast();
+
+    const handlePersonaChange = (index: number, field: keyof Omit<AIPersona, 'id'>, value: string) => {
+        const newPersonas = [...personas];
+        newPersonas[index] = { ...newPersonas[index], [field]: value };
+        setPersonas(newPersonas);
+    };
+
+    const handleAddPersona = () => {
+        setPersonas([...personas, { id: crypto.randomUUID(), name: '', instruction: '' }]);
+    };
+
+    const handleRemovePersona = (index: number) => {
+        if(personas[index].id === 'default') return; // Cannot remove default
+        setPersonas(personas.filter((_, i) => i !== index));
+    };
+
+    const handleSave = () => {
+        updateCategory('personas', personas.filter(p => p.name.trim() && p.instruction.trim()));
+        addToast('Personas saved!', 'success');
+    };
 
     return (
-        <div className="flex-grow overflow-y-auto p-6 space-y-6">
-            <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="p-1" onClick={onBack}>
-                    <Icon name="chevron-left" />
-                </Button>
-                <h3 className="text-xl font-bold text-text">Manage AI Options</h3>
+        <div className="space-y-4">
+            <div className="flex justify-between items-center">
+                <h4 className="font-semibold text-text">AI Personas</h4>
+                <Button variant="secondary" size="sm" onClick={handleSave}>Save Personas</Button>
             </div>
-            
-            <OptionEditor
-                title="Understanding Levels"
-                category="understandingLevels"
-                options={options.understandingLevels}
-                {...{ addOption, updateOption, deleteOption }}
-            />
-            <OptionEditor
-                title="Comprehensiveness Levels"
-                category="comprehensivenessLevels"
-                options={options.comprehensivenessLevels}
-                {...{ addOption, updateOption, deleteOption }}
-            />
-            <OptionEditor
-                title="Learning Goals"
-                category="learningGoalOptions"
-                options={options.learningGoalOptions}
-                {...{ addOption, updateOption, deleteOption }}
-            />
-            <OptionEditor
-                title="Learning Styles"
-                category="learningStyleOptions"
-                options={options.learningStyleOptions}
-                {...{ addOption, updateOption, deleteOption }}
-            />
-            <OptionEditor
-                title="Output Languages"
-                category="languageOptions"
-                options={options.languageOptions}
-                {...{ addOption, updateOption, deleteOption }}
-            />
+            {personas.map((persona, index) => (
+                <div key={persona.id} className="space-y-2 p-3 bg-background border border-border rounded-md">
+                    <input
+                        type="text"
+                        placeholder="Persona Name (e.g., Cheerful Tutor)"
+                        value={persona.name}
+                        onChange={(e) => handlePersonaChange(index, 'name', e.target.value)}
+                        className="w-full p-2 bg-surface border border-border rounded-md"
+                        disabled={persona.id === 'default'}
+                    />
+                    <textarea
+                        placeholder="System instruction for this persona..."
+                        value={persona.instruction}
+                        onChange={(e) => handlePersonaChange(index, 'instruction', e.target.value)}
+                        rows={3}
+                        className="w-full p-2 bg-surface border border-border rounded-md"
+                    />
+                    {persona.id !== 'default' && (
+                        <Button variant="ghost" size="sm" onClick={() => handleRemovePersona(index)} className="text-red-500">
+                            <Icon name="trash-2" className="w-4 h-4 mr-2" /> Remove Persona
+                        </Button>
+                    )}
+                </div>
+            ))}
+             <Button variant="ghost" size="sm" onClick={handleAddPersona}>
+                <Icon name="plus" className="w-4 h-4 mr-2" /> Add Persona
+            </Button>
         </div>
+    );
+};
+
+
+const AIOptionsManager: React.FC<AIOptionsManagerProps> = ({ onBack }) => {
+    return (
+        <>
+            <header className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                    <Button variant="ghost" onClick={onBack} className="p-1 h-auto"><Icon name="chevron-left" /></Button>
+                    <h2 className="text-xl font-bold">Manage AI Options</h2>
+                </div>
+            </header>
+            <main className="flex-grow p-6 overflow-y-auto space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <StringListEditor title="Understanding Levels" category="understandingLevels" />
+                    <StringListEditor title="Comprehensiveness Levels" category="comprehensivenessLevels" />
+                    <StringListEditor title="Learning Goals" category="learningGoalOptions" />
+                    <StringListEditor title="Learning Styles" category="learningStyleOptions" />
+                    <StringListEditor title="Languages" category="languageOptions" />
+                    <StringListEditor title="Tones" category="toneOptions" />
+                </div>
+                
+                <div className="border-t border-border pt-6">
+                    <PersonaEditor />
+                </div>
+            </main>
+        </>
     );
 };
 

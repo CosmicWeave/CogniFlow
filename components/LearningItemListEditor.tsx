@@ -1,11 +1,9 @@
-
-
 import React, { useState, useMemo, useRef } from 'react';
-import { LearningDeck, InfoCard, Question } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import EditLearningBlockModal, { LearningBlockData } from './EditLearningBlockModal';
-import { stripHtml } from '../services/utils';
+import { LearningDeck, InfoCard, Question } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import EditLearningBlockModal, { LearningBlockData } from './EditLearningBlockModal.tsx';
+import { stripHtml } from '../services/utils.ts';
 
 interface LearningItemListEditorProps {
   deck: LearningDeck;

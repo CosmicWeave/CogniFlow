@@ -1,12 +1,11 @@
 
-
 import React, { useState, useRef } from 'react';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import { parseAndValidateImportData } from '../services/importService';
-import { Deck, DeckType, QuizDeck } from '../types';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
+import { parseAndValidateImportData } from '../services/importService.ts';
+import { Deck, DeckType, QuizDeck } from '../types.ts';
 
 interface AddDeckToSeriesModalProps {
   isOpen: boolean;
@@ -55,7 +54,6 @@ const AddDeckToSeriesModal: React.FC<AddDeckToSeriesModalProps> = ({ isOpen, onC
         questions: parsed.data.questions.map(q => ({
             ...q,
             id: crypto.randomUUID(),
-            // FIX: Added missing 'questionType' property required by the Question interface.
             questionType: 'multipleChoice',
             dueDate: new Date().toISOString(),
             interval: 0,

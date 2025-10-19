@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import * as googleDriveService from '../../services/googleDriveService';
-import { useToast } from '../useToast';
+import * as googleDriveService from '../../services/googleDriveService.ts';
+import { useToast } from '../useToast.ts';
 
 export const useDriveHandlers = ({ openConfirmModal, openRestoreFromDriveModal, setDriveFiles, onRestoreData }: any) => {
   const { addToast } = useToast();

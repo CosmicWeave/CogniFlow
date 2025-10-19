@@ -1,6 +1,6 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
-import Button from './Button';
-import Icon from './Icon';
+import Button from './Button.tsx';
+import Icon from './Icon.tsx';
 
 interface TruncatedTextProps {
   html: string;

@@ -1,9 +1,10 @@
 import { useCallback, useMemo } from 'react';
-import { Deck, Folder, QuizDeck, LearningDeck, InfoCard, Question } from '../../types';
-import * as db from '../../services/db';
-import { useStore } from '../../store/store';
-import { createNatureSampleDeck } from '../../services/sampleData';
-import { useToast } from '../useToast';
+import { Deck, Folder, QuizDeck, LearningDeck, InfoCard, Question } from '../../types.ts';
+import * as db from '../../services/db.ts';
+import { useStore } from '../../store/store.ts';
+import { createNatureSampleDeck } from '../../services/sampleData.ts';
+import { useToast } from '../useToast.ts';
+import * as exportService from '../../services/exportService.ts';
 
 // This has been refactored into a proper custom hook to follow the Rules of Hooks.
 export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any) => {
@@ -184,6 +185,15 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     await handleUpdateDeck(updatedDeck, { toastMessage: 'Learning block deleted.' });
   }, [handleUpdateDeck]);
 
+  const handleExportDeck = useCallback((deck: Deck) => {
+    try {
+        exportService.exportDeck(deck);
+        addToast(`Deck "${deck.name}" exported.`, 'success');
+    } catch(e) {
+        addToast(`Failed to export deck: ${(e as Error).message}`, 'error');
+    }
+  }, [addToast]);
+
   return useMemo(() => ({
     handleAddDecks,
     handleUpdateDeck,
@@ -198,9 +208,11 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     handleCreateSampleDeck,
     handleSaveLearningBlock,
     handleDeleteLearningBlock,
+    handleExportDeck,
   }), [
     handleAddDecks, handleUpdateDeck, handleBulkUpdateDecks, handleMoveDeck, handleDeleteDeck, 
     handleRestoreDeck, handleDeleteDeckPermanently, handleSaveFolder, handleDeleteFolder, 
-    updateLastOpened, handleCreateSampleDeck, handleSaveLearningBlock, handleDeleteLearningBlock
+    updateLastOpened, handleCreateSampleDeck, handleSaveLearningBlock, handleDeleteLearningBlock,
+    handleExportDeck
   ]);
 };

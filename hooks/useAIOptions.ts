@@ -1,13 +1,26 @@
-
 import { useState, useCallback } from 'react';
 
 const AI_OPTIONS_STORAGE_KEY = 'cogniflow-ai-options';
 
+export interface AIPersona {
+  id: string;
+  name: string;
+  instruction: string;
+}
+
+export interface AICustomField {
+  id: string;
+  name: string;
+  type: string; // Corresponds to @google/genai Type enum
+  description: string;
+}
+
 // Default values
 const defaultOptions = {
-  understandingLevels: ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Expert'],
+  understandingLevels: ['Auto', 'Novice', 'Beginner', 'Intermediate', 'Advanced', 'Expert'],
   comprehensivenessLevels: ['Quick Overview', 'Standard', 'Comprehensive', 'Exhaustive'],
   learningGoalOptions: [
+    "Auto",
     "Master a subject",
     "Learn for the sake of curiosity",
     "Explore a new interest",
@@ -15,11 +28,20 @@ const defaultOptions = {
     "Understand a complex topic",
     "Practically learn the topic"
   ],
-  learningStyleOptions: ["Conceptual Understanding (Why & How)", "Factual Recall (What, Who, When)", "Practical Application & Scenarios"],
-  languageOptions: ["English", "Swedish", "Spanish", "French", "German", "Japanese", "Mandarin", "Russian"],
+  learningStyleOptions: ["Auto", "Conceptual Understanding (Why & How)", "Factual Recall (What, Who, When)", "Practical Application & Scenarios"],
+  languageOptions: ["Auto", "English", "Swedish", "Spanish", "French", "German", "Japanese", "Mandarin", "Russian"],
+  toneOptions: ["Auto", "Neutral", "Formal", "Casual", "Academic", "Enthusiastic", "Humorous"],
+  personas: [
+    { id: 'default', name: 'Default Assistant', instruction: 'You are a helpful and neutral AI assistant.' },
+    { id: 'tutor', name: 'Friendly Tutor', instruction: 'You are a friendly and encouraging tutor. You use analogies and explain complex topics in a simple, easy-to-understand way.' },
+    { id: 'professor', name: 'University Professor', instruction: 'You are an expert professor. Your tone is formal, academic, and you provide in-depth, precise information.' },
+    { id: 'author', name: 'Technical Author', instruction: 'You are a technical author. Your style is concise, precise, and fact-focused. You avoid fluff and get straight to the point.' }
+  ] as AIPersona[],
+  customFields: [] as AICustomField[],
 };
 
 export type AIOptionCategories = keyof typeof defaultOptions;
+type OptionValue = typeof defaultOptions[AIOptionCategories];
 
 const getInitialOptions = () => {
   try {
@@ -47,35 +69,13 @@ export const useAIOptions = () => {
     }
   };
 
-  const addOption = useCallback((category: AIOptionCategories, value: string) => {
-    if (!value.trim()) return;
+  const updateCategory = useCallback((category: AIOptionCategories, value: OptionValue) => {
     setOptions(prev => {
-      const newCategoryOptions = [...prev[category], value.trim()];
-      const newOptions = { ...prev, [category]: newCategoryOptions };
+      const newOptions = { ...prev, [category]: value };
       saveOptions(newOptions);
       return newOptions;
     });
   }, []);
-  
-  const updateOption = useCallback((category: AIOptionCategories, index: number, newValue: string) => {
-    if (!newValue.trim()) return;
-    setOptions(prev => {
-        const newCategoryOptions = [...prev[category]];
-        newCategoryOptions[index] = newValue.trim();
-        const newOptions = { ...prev, [category]: newCategoryOptions };
-        saveOptions(newOptions);
-        return newOptions;
-    });
-  }, []);
 
-  const deleteOption = useCallback((category: AIOptionCategories, index: number) => {
-    setOptions(prev => {
-        const newCategoryOptions = prev[category].filter((_, i) => i !== index);
-        const newOptions = { ...prev, [category]: newCategoryOptions };
-        saveOptions(newOptions);
-        return newOptions;
-    });
-  }, []);
-
-  return { options, addOption, updateOption, deleteOption };
+  return { options, updateCategory };
 };

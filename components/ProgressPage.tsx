@@ -38,8 +38,8 @@ const ProgressPage: React.FC = () => {
 
     // Calculate Streak
     let streak = 0;
-    const reviewTimestamps = reviews.map(r => new Date(r.timestamp).setHours(0,0,0,0));
-    const uniqueReviewDays = [...new Set(reviewTimestamps)];
+    const reviewTimestamps = reviews.map((r: ReviewLog) => new Date(r.timestamp).setHours(0,0,0,0));
+    const uniqueReviewDays = [...new Set<number>(reviewTimestamps)];
     uniqueReviewDays.sort((a, b) => b - a);
 
     if (uniqueReviewDays.length > 0) {

@@ -16,7 +16,8 @@ export type ModalType =
   | 'restoreFromDrive'
   | 'addDeckToSeries'
   | 'commandPalette'
-  | 'mergeConflict';
+  | 'mergeConflict'
+  | 'aiResponseFix';
 
 // Define the shape of the modal payload. It can be anything.
 export type ModalPayload = any;

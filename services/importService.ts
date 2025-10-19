@@ -1,8 +1,13 @@
+// services/importService.ts
 
 // FIX: Corrected import path for types
-import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck, FullBackupData, LearningDeck } from '../types';
-import { INITIAL_EASE_FACTOR } from '../constants';
-import { validate } from './jsonValidator';
+import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck, FullBackupData, LearningDeck } from '../types.ts';
+import { INITIAL_EASE_FACTOR } from '../constants.ts';
+import { validate } from './jsonValidator.ts';
+import { getStockholmDateString } from './time.ts';
+
+// FIX: Export the ImportedQuestion type to make it available for import in other modules.
+export type { ImportedQuestion };
 
 export const parseAndValidateBackupFile = (jsonString: string): FullBackupData => {
   const result = validate(jsonString);
@@ -42,15 +47,16 @@ export const parseAndValidateBackupFile = (jsonString: string): FullBackupData =
 
     // --- Validation and Sanitization ---
     
-    // Modern backup format (V2-V6)
+    // 1. Modern backup format (V2-V7)
     if (typeof data === 'object' && data !== null && 'version' in data) {
-      if (data.version > 6) throw new Error(`Unsupported backup version: ${data.version}`);
+      if (data.version > 7) throw new Error(`Unsupported backup version: ${data.version}`);
       
       const decks: Deck[] = (Array.isArray(data.decks) ? data.decks : [])
         .filter((d: any): d is Deck => d && typeof d === 'object' && d.id && d.name && d.type)
         .map((d: Deck) => {
             if (d.type === DeckType.Flashcard) {
-                d.cards = (d.cards || []).filter(Boolean);
+                // FIX: Cast `d` to `FlashcardDeck` to access the `cards` property.
+                (d as FlashcardDeck).cards = ((d as FlashcardDeck).cards || []).filter(Boolean);
             } else if (d.type === DeckType.Quiz || d.type === DeckType.Learning) {
                 (d as QuizDeck | LearningDeck).questions = ((d as QuizDeck | LearningDeck).questions || []).filter(Boolean).map((q: Question) => {
                     if (q) q.options = (q.options || []).filter(Boolean);
@@ -87,20 +93,30 @@ export const parseAndValidateBackupFile = (jsonString: string): FullBackupData =
           sessions: (Array.isArray(data.sessions) ? data.sessions : []).filter(Boolean),
           seriesProgress: data.seriesProgress && typeof data.seriesProgress === 'object' ? data.seriesProgress : {},
           aiChatHistory: (Array.isArray(data.aiChatHistory) ? data.aiChatHistory : []).filter(Boolean),
-          aiOptions: data.aiOptions || undefined
+          aiOptions: data.aiOptions || undefined,
+          settings: data.settings || undefined,
       };
     }
 
-    // Legacy V1 backup format
+    // 2. Legacy V1 backup format (array of full decks)
     if (Array.isArray(data)) {
-        const decks = data.filter(Boolean).map((deck: any) => {
-            if (!deck.type) deck.type = Array.isArray(deck.cards) ? DeckType.Flashcard : DeckType.Quiz;
-            if (deck.type === DeckType.Flashcard) deck.cards = (deck.cards || []).filter(Boolean);
-            else if (deck.type === DeckType.Quiz) deck.questions = (deck.questions || []).filter(Boolean);
-            return deck;
-        }).filter((d: any): d is Deck => d && d.id && d.name && d.type);
-        return { version: 1, decks, folders: [], deckSeries: [], reviews: [], sessions: [], seriesProgress: {}, aiChatHistory: [] };
+        // A legacy backup is an array of full deck objects, which must have 'id' and 'type'.
+        // This distinguishes it from a simple flashcard array import `[{front, back}]`.
+        if (data.length === 0 || (data.length > 0 && typeof data[0] === 'object' && data[0] !== null && 'id' in data[0] && 'type' in data[0])) {
+            const decks = data.filter(Boolean).map((deck: any) => {
+                if (!deck.type) deck.type = Array.isArray(deck.cards) ? DeckType.Flashcard : DeckType.Quiz;
+                if (deck.type === DeckType.Flashcard) deck.cards = (deck.cards || []).filter(Boolean);
+                else if (deck.type === DeckType.Quiz) deck.questions = (deck.questions || []).filter(Boolean);
+                return deck;
+            }).filter((d: any): d is Deck => d && d.id && d.name && d.type);
+            
+            // If we found any valid decks, or if the original file was just an empty array, it's a legacy backup.
+            if (decks.length > 0 || data.length === 0) {
+                return { version: 1, decks, folders: [], deckSeries: [], reviews: [], sessions: [], seriesProgress: {}, aiChatHistory: [] };
+            }
+        }
     }
+
 
     throw new Error("The file is not a valid CogniFlow backup file.");
 
@@ -114,7 +130,7 @@ export const parseAndValidateBackupFile = (jsonString: string): FullBackupData =
 export type ParsedResult = 
   | { type: DeckType.Flashcard, data: ImportedCard[] }
   | { type: DeckType.Quiz, data: ImportedQuizDeck }
-  | { type: 'quiz_series', data: { seriesName: string, seriesDescription: string, levels: Array<{ title: string; decks: ImportedQuizDeck[] }> } };
+  | { type: 'series', data: { seriesName: string, seriesDescription: string, levels: Array<{ title: string; decks: any[] }> } };
 
 export const parseAndValidateImportData = (jsonString: string): ParsedResult => {
   if (!jsonString.trim()) throw new Error("Pasted content is empty.");
@@ -141,12 +157,23 @@ export const parseAndValidateImportData = (jsonString: string): ParsedResult => 
               throw new Error("Each level in the series must have a 'title' (string) and a 'decks' (array).");
             }
             for (const deck of level.decks) {
-                if (typeof deck.name !== 'string' || typeof deck.description !== 'string' || !Array.isArray(deck.questions)) {
-                  throw new Error("Each deck in a level must be a valid quiz deck object with 'name', 'description', and 'questions' properties.");
+                if (typeof deck.name !== 'string' || typeof deck.description !== 'string' || !deck.type) {
+                    throw new Error(`Each deck in a series must have a 'name', 'description', and 'type' ('quiz' or 'flashcard'). Deck name: ${deck.name || 'unknown'}`);
+                }
+                if (deck.type === 'quiz') {
+                    if (!Array.isArray(deck.questions)) {
+                        throw new Error(`Quiz deck "${deck.name}" must have a 'questions' array.`);
+                    }
+                } else if (deck.type === 'flashcard') {
+                    if (!Array.isArray(deck.cards)) {
+                        throw new Error(`Flashcard deck "${deck.name}" must have a 'cards' array.`);
+                    }
+                } else {
+                    throw new Error(`Deck "${deck.name}" has an unsupported type: '${deck.type}'. Must be 'quiz' or 'flashcard'.`);
                 }
             }
       }
-      return { type: 'quiz_series', data: data };
+      return { type: 'series', data: data };
   }
 
   // Simple flashcard import
@@ -246,7 +273,8 @@ export const createQuestionsFromImport = (importedQuestions: ImportedQuestion[])
     return importedQuestions.map(importedQuestion => ({
         ...importedQuestion,
         id: crypto.randomUUID(),
-        questionType: 'multipleChoice', // FIX: Added missing 'questionType' property
+        // FIX: Added missing 'questionType' property
+        questionType: 'multipleChoice', 
         dueDate: today.toISOString(),
         interval: 0,
         easeFactor: INITIAL_EASE_FACTOR,
@@ -255,7 +283,7 @@ export const createQuestionsFromImport = (importedQuestions: ImportedQuestion[])
     }));
 };
 
-export type AnalyzedFileType = 'backup' | 'quiz_series' | 'quiz' | 'flashcard';
+export type AnalyzedFileType = 'backup' | 'series' | 'quiz' | 'flashcard';
 
 export interface AnalysisResult {
     type: AnalyzedFileType;
@@ -263,20 +291,23 @@ export interface AnalysisResult {
 }
 
 export const analyzeFileContent = (jsonString: string): AnalysisResult | null => {
-    // Try parsing as a backup file first, as it's the most encompassing format.
-    try {
-        const backupData = parseAndValidateBackupFile(jsonString);
-        return { type: 'backup', data: backupData };
-    } catch (e) {
-        // Not a backup file, try other formats.
-    }
-
-    // Try parsing as other importable data types.
+    // First, try to parse as single-item formats. These are more specific.
     try {
         const importData = parseAndValidateImportData(jsonString);
+        // This successfully identified a single-item format (series, quiz, or simple flashcard array).
         return { type: importData.type as AnalyzedFileType, data: importData.data };
     } catch (e) {
-        // Not any known valid format.
+        // Not a standard single-item import format, so we continue.
+    }
+
+    // If it's not a single-item format, it might be a full or legacy backup.
+    try {
+        const backupData = parseAndValidateBackupFile(jsonString);
+        // This will handle modern backups (with `version` key) and legacy backups (array of full decks).
+        // It will throw if it's an unrecognized format.
+        return { type: 'backup', data: backupData };
+    } catch (e) {
+        // It's not a valid backup file either.
     }
 
     return null;

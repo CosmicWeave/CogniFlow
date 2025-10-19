@@ -1,15 +1,14 @@
 import React, { useState, useCallback, useRef } from 'react';
-// FIX: Corrected import path for types
-import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel } from '../types';
-import { parseAndValidateImportData, createCardsFromImport, createQuestionsFromImport } from '../services/importService';
-import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import Spinner from './ui/Spinner';
-import Link from './ui/Link';
-import { getStockholmDateString } from '../services/time';
+import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel } from '../types.ts';
+import { parseAndValidateImportData, createCardsFromImport, createQuestionsFromImport } from '../services/importService.ts';
+import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
+import Spinner from './ui/Spinner.tsx';
+import Link from './ui/Link.tsx';
+import { getStockholmDateString } from '../services/time.ts';
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -51,7 +50,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
       const parsed = parseAndValidateImportData(content);
       if (parsed?.type === DeckType.Quiz) {
         setDeckName(parsed.data.name);
-      } else if (parsed?.type === 'quiz_series') {
+      } else if (parsed?.type === 'series') {
         setDeckName(parsed.data.seriesName); // Prefill deck name with series name
       }
     } catch (error) {
@@ -147,17 +146,33 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
       const parsed = parseAndValidateImportData(jsonContent);
       if (!parsed) return;
 
-      if (parsed.type === 'quiz_series') {
+      if (parsed.type === 'series') {
         const { seriesName, seriesDescription, levels: levelsData } = parsed.data;
-        const allNewDecks: QuizDeck[] = [];
+        const allNewDecks: Deck[] = [];
         const newLevels: SeriesLevel[] = levelsData.map(levelData => {
-            const decksForLevel: QuizDeck[] = levelData.decks.map(d => ({
-                id: crypto.randomUUID(),
-                name: d.name,
-                description: d.description,
-                type: DeckType.Quiz,
-                questions: createQuestionsFromImport(d.questions)
-            }));
+            const decksForLevel: (FlashcardDeck | QuizDeck)[] = levelData.decks.map((d: any) => {
+                if (d.type === DeckType.Quiz) {
+                    const newQuizDeck: QuizDeck = {
+                        id: crypto.randomUUID(),
+                        name: d.name,
+                        description: d.description,
+                        type: DeckType.Quiz,
+                        questions: createQuestionsFromImport(d.questions || [])
+                    };
+                    return newQuizDeck;
+                } else if (d.type === DeckType.Flashcard) {
+                    const newFlashcardDeck: FlashcardDeck = {
+                        id: crypto.randomUUID(),
+                        name: d.name,
+                        description: d.description,
+                        type: DeckType.Flashcard,
+                        cards: createCardsFromImport(d.cards || [])
+                    };
+                    return newFlashcardDeck;
+                }
+                return null;
+            }).filter((d): d is FlashcardDeck | QuizDeck => d !== null);
+            
             allNewDecks.push(...decksForLevel);
             return {
                 title: levelData.title,
@@ -186,7 +201,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onAddDecks, 
         return;
       }
       
-      let newDeck: Deck;
+      let newDeck: FlashcardDeck | QuizDeck;
       if (parsed.type === DeckType.Flashcard) {
         const cards = createCardsFromImport(parsed.data);
         newDeck = {

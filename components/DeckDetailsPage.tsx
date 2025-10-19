@@ -1,30 +1,28 @@
-
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
-import Button from './ui/Button';
-import Link from './ui/Link';
-import Icon from './ui/Icon';
-import { INITIAL_EASE_FACTOR } from '../constants';
-import CardListEditor from './CardListEditor';
-import QuestionListEditor from './QuestionListEditor';
-import BulkAddModal from './BulkAddModal';
-import { createCardsFromImport, createQuestionsFromImport } from '../services/importService';
-import StackedProgressBar from './ui/StackedProgressBar';
-import { useRouter } from '../contexts/RouterContext';
-import MasteryBar from './ui/MasteryBar';
-import { getEffectiveMasteryLevel } from '../services/srs';
-import DueDateGraph from './ui/DueDateGraph';
-import { useStore } from '../store/store';
-import * as db from '../services/db';
-import Spinner from './ui/Spinner';
-import MasteryOverTimeGraph from './ui/MasteryOverTimeGraph';
-import { useSettings } from '../hooks/useSettings';
-import { useToast } from '../hooks/useToast';
-import LearningItemListEditor from './LearningItemListEditor';
-import LearningBlockDetailModal from './LearningBlockDetailModal';
-import { LearningBlockData } from './EditLearningBlockModal';
-import TruncatedText from './ui/TruncatedText';
+import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Link from './ui/Link.tsx';
+import Icon from './ui/Icon.tsx';
+import { INITIAL_EASE_FACTOR } from '../constants.ts';
+import CardListEditor from './CardListEditor.tsx';
+import QuestionListEditor from './QuestionListEditor.tsx';
+import BulkAddModal from './BulkAddModal.tsx';
+import { createCardsFromImport, createQuestionsFromImport } from '../services/importService.ts';
+import StackedProgressBar from './ui/StackedProgressBar.tsx';
+import { useRouter } from '../contexts/RouterContext.tsx';
+import MasteryBar from './ui/MasteryBar.tsx';
+import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs.ts';
+import DueDateGraph from './ui/DueDateGraph.tsx';
+import { useStore } from '../store/store.ts';
+import * as db from '../services/db.ts';
+import Spinner from './ui/Spinner.tsx';
+import MasteryOverTimeGraph from './ui/MasteryOverTimeGraph.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
+import { useToast } from '../hooks/useToast.ts';
+import LearningItemListEditor from './LearningItemListEditor.tsx';
+import LearningBlockDetailModal from './LearningBlockDetailModal.tsx';
+import { LearningBlockData } from './EditLearningBlockModal.tsx';
+import TruncatedText from './ui/TruncatedText.tsx';
 
 interface DeckDetailsPageProps {
   deck: Deck;
@@ -38,19 +36,10 @@ interface DeckDetailsPageProps {
   onCancelAIGeneration: () => void;
   onSaveLearningBlock: (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => Promise<void>;
   onDeleteLearningBlock: (deckId: string, infoCardId: string) => Promise<void>;
+  onExportDeck: (deck: Deck) => void;
+  onRegenerateQuestion: (deck: QuizDeck | LearningDeck, question: Question) => Promise<void>;
+  onExpandText: (topic: string, originalContent: string, selectedText: string) => Promise<string | null>;
 }
-
-const getDueItemsCount = (deck: Deck): number => {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const items = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
-                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                  (deck as QuizDeck).questions) || [];
-    if (!Array.isArray(items)) {
-        return 0;
-    }
-    return items.filter(card => !card.suspended && new Date(card.dueDate) <= today).length;
-};
 
 const calculateProgressStats = (items: Reviewable[]) => {
   const stats = {
@@ -167,7 +156,7 @@ const StatisticsTabContent = ({ deck }: { deck: Deck }) => {
     );
 };
 
-const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock }) => {
+const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock, onExportDeck, onRegenerateQuestion, onExpandText }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
@@ -222,12 +211,12 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     if (deck.type === DeckType.Flashcard && items.every(item => 'front' in item)) {
         const newCards = createCardsFromImport(items as ImportedCard[]);
         const updatedCards = [...(deck.cards || []), ...newCards];
-        onUpdateDeck({ ...deck, cards: updatedCards });
+        onUpdateDeck({ ...(deck as FlashcardDeck), cards: updatedCards });
     } else if ((deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && items.every(item => 'questionText' in item)) {
         const newQuestions = createQuestionsFromImport(items as ImportedQuestion[]);
         const currentQuestions = (deck as QuizDeck | LearningDeck).questions || [];
         const updatedQuestions = [...currentQuestions, ...newQuestions];
-        onUpdateDeck({ ...deck, questions: updatedQuestions });
+        onUpdateDeck({ ...(deck as QuizDeck | LearningDeck), questions: updatedQuestions });
     }
   };
   
@@ -366,6 +355,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
             <div className="flex items-center gap-2 mb-4">
                 <Button variant="ghost" onClick={() => setIsEditing(true)}><Icon name="edit" className="mr-2"/> Edit</Button>
                 <Button variant="ghost" onClick={() => onUpdateDeck({ ...deck, archived: true })}><Icon name="archive" className="mr-2"/> Archive</Button>
+                <Button variant="ghost" onClick={() => onExportDeck(deck)}><Icon name="download" className="mr-2"/> Export</Button>
             </div>
             {deck.description && <TruncatedText html={deck.description} className="text-text-muted prose dark:prose-invert max-w-none" />}
           </div>
@@ -459,15 +449,35 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         {activeTab === 'items' && (
             <div className="bg-surface rounded-lg shadow-md border border-border animate-fade-in">
              {deck.type === DeckType.Flashcard ? (
-                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...deck, cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...deck, cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
+                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
              ) : deck.type === DeckType.Quiz ? (
                 <QuestionListEditor
+                    deck={deck as QuizDeck}
                     questions={(deck as QuizDeck).questions || []}
-                    onQuestionsChange={(newQuestions) => onUpdateDeck({ ...deck, questions: newQuestions }, { silent: true })}
-                    onAddQuestion={(d) => onUpdateDeck({ ...deck, questions: [...((deck as QuizDeck).questions || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })}
+                    onQuestionsChange={(newQuestions) => onUpdateDeck({ ...(deck as QuizDeck), questions: newQuestions }, { silent: true })}
+                    onAddQuestion={(d) => {
+                        const newQuestion: Question = {
+                            questionType: d.questionType,
+                            questionText: d.questionText,
+                            options: d.options,
+                            correctAnswerId: d.correctAnswerId,
+                            detailedExplanation: d.detailedExplanation,
+                            tags: d.tags,
+                            infoCardIds: d.infoCardIds,
+                            suspended: d.suspended,
+                            id: crypto.randomUUID(),
+                            dueDate: new Date().toISOString(),
+                            interval: 0,
+                            easeFactor: INITIAL_EASE_FACTOR,
+                            lapses: 0,
+                            masteryLevel: 0,
+                        };
+                        onUpdateDeck({ ...(deck as QuizDeck), questions: [...((deck as QuizDeck).questions || []), newQuestion] }, { silent: true });
+                    }}
                     onBulkAdd={() => setIsBulkAddModalOpen(true)}
                     onGenerateAI={() => handleGenerateQuestionsForDeck(deck as QuizDeck)}
                     isGeneratingAI={isGeneratingThisDeck}
+                    onRegenerateQuestion={onRegenerateQuestion}
                 />
              ) : deck.type === DeckType.Learning ? (
                 <LearningItemListEditor
@@ -497,6 +507,8 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
             isOpen={isBlockDetailModalOpen}
             onClose={() => setIsBlockDetailModalOpen(false)}
             block={selectedBlock}
+            deckName={deck.name}
+            onExpandText={onExpandText}
         />
       )}
     </div>

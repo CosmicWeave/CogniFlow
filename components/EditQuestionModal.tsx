@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-// FIX: Corrected import path for types
 import { Question, QuestionOption } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -166,68 +165,66 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
                                 className="flex-grow p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder={`Option ${index + 1}`}
                             />
-                            <Button type="button" variant="ghost" onClick={() => toggleExplanationEditor(option.id)} className={`p-2 h-auto ${openExplanationIds.has(option.id) || option.explanation ? 'text-primary' : 'text-text-muted'}`} aria-label={`Add explanation for option ${index+1}`}>
+                            <Button type="button" variant="ghost" onClick={() => toggleExplanationEditor(option.id)} className={`p-2 h-auto ${openExplanationIds.has(option.id) ? 'bg-primary/10 text-primary' : 'text-text-muted'}`} title="Add/Edit option explanation">
                                 <Icon name="info" className="w-4 h-4" />
                             </Button>
-                            <Button type="button" variant="ghost" onClick={() => handleRemoveOption(option.id)} className="p-2 h-auto" aria-label={`Remove option ${index+1}`}>
-                                <Icon name="trash-2" className="w-4 h-4" />
+                            <Button type="button" variant="ghost" onClick={() => handleRemoveOption(option.id)} className="p-2 h-auto text-text-muted hover:text-red-500">
+                                <Icon name="x" className="w-4 h-4" />
                             </Button>
                         </div>
                         {openExplanationIds.has(option.id) && (
                             <div className="pl-7 mt-1 animate-fade-in">
-                                <textarea
+                                <input
+                                    type="text"
                                     value={option.explanation || ''}
                                     onChange={(e) => handleOptionChange(option.id, 'explanation', e.target.value)}
-                                    rows={2}
-                                    className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-sm"
-                                    placeholder="Optional: Explain why this option is correct or incorrect..."
+                                    className="w-full p-1 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-sm"
+                                    placeholder="Brief explanation for this option..."
                                 />
                             </div>
                         )}
                       </div>
                     ))}
                 </div>
-                <Button type="button" variant="ghost" onClick={handleAddOption} className="mt-2 text-primary">
-                    <Icon name="plus" className="w-4 h-4 mr-2"/>
+                <Button type="button" variant="ghost" onClick={handleAddOption} size="sm" className="mt-2">
+                    <Icon name="plus" className="w-4 h-4 mr-2" />
                     Add Option
                 </Button>
             </div>
-            
-            <div>
-              <label htmlFor="tags-input" className="block text-sm font-medium text-text-muted mb-1">Tags (Optional)</label>
-              <div className="flex flex-wrap items-center gap-2 w-full p-2 bg-background border border-border rounded-md focus-within:ring-2 focus-within:ring-primary">
-                {tags.map((tag, index) => (
-                  <span key={index} className="flex items-center gap-1 bg-border/50 text-text-muted text-sm px-2 py-0.5 rounded-md">
-                    {tag}
-                    <button type="button" onClick={() => handleRemoveTag(tag)} className="text-text-muted hover:text-text">
-                      <Icon name="x" className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                <input
-                  id="tags-input"
-                  type="text"
-                  value={tagInput}
-                  onChange={handleTagInputChange}
-                  onKeyDown={handleTagInputKeyDown}
-                  className="flex-grow bg-transparent focus:outline-none min-w-[100px]"
-                  placeholder="Add a tag..."
-                />
-              </div>
-               <p className="text-xs text-text-muted mt-1">Separate tags with a comma or Enter. Use Backspace to delete the last tag.</p>
-            </div>
-
 
             <div>
-              <label htmlFor="detailed-explanation" className="block text-sm font-medium text-text-muted mb-1">Detailed Explanation (Optional)</label>
+              <label htmlFor="detailed-explanation" className="block text-sm font-medium text-text-muted mb-1">Detailed Explanation</label>
               <textarea
                 id="detailed-explanation"
                 value={detailedExplanation}
                 onChange={(e) => setDetailedExplanation(e.target.value)}
                 rows={4}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="Explain why the correct answer is right and others are wrong."
+                placeholder="Explain why the correct answer is right and provide more context."
               />
+            </div>
+
+            <div>
+                <label htmlFor="tags-input" className="block text-sm font-medium text-text-muted mb-1">Tags</label>
+                <div className="flex flex-wrap items-center gap-2 p-2 bg-background border border-border rounded-md">
+                    {tags.map((tag, index) => (
+                        <span key={index} className="flex items-center gap-1 bg-primary/10 text-primary text-sm px-2 py-1 rounded-md">
+                            {tag}
+                            <button type="button" onClick={() => handleRemoveTag(tag)} className="text-primary hover:text-primary-hover">
+                                <Icon name="x" className="w-3 h-3" />
+                            </button>
+                        </span>
+                    ))}
+                    <input
+                        id="tags-input"
+                        type="text"
+                        value={tagInput}
+                        onChange={handleTagInputChange}
+                        onKeyDown={handleTagInputKeyDown}
+                        className="flex-grow bg-transparent focus:outline-none"
+                        placeholder={tags.length === 0 ? "Add tags (comma or enter)..." : ""}
+                    />
+                </div>
             </div>
           </div>
 

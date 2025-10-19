@@ -1,33 +1,33 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { GoogleDriveFile } from './types';
-import * as backupService from './services/backupService';
-import { useInstallPrompt } from './hooks/useInstallPrompt';
-import OfflineIndicator from './components/ui/OfflineIndicator';
-import Sidebar from './components/Sidebar';
-import { useToast } from './hooks/useToast';
-import Spinner from './components/ui/Spinner';
-import { useRouter } from './contexts/RouterContext';
-import { useModal } from './contexts/ModalContext';
-import { onDataChange } from './services/syncService';
-import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
-import { parseAnkiPkg, parseAnkiPkgMainThread } from './services/ankiImportService';
-import { useDataManagement } from './hooks/useDataManagement';
-import { usePullToRefresh } from './hooks/usePullToRefresh';
-import Header from './components/Header';
-import AppRouter from './components/AppRouter';
-import Icon from './components/ui/Icon';
-import Button from './components/ui/Button';
-import { useStore } from './store/store';
-import { analyzeFileContent } from './services/importService';
-import { DroppedFileAnalysis } from './components/DroppedFileConfirmModal';
-import { useSettings } from './hooks/useSettings';
-import AIChatFab from './components/AIChatFab';
-import AIGenerationStatusIndicator from './components/AIGenerationStatusIndicator';
-import { useOnlineStatus } from './hooks/useOnlineStatus';
-import { DataManagementProvider } from './contexts/DataManagementContext';
-import ModalManager from './components/ModalManager';
-import * as db from './services/db';
-import { useAutoHideHeader } from './hooks/useAutoHideHeader';
+import { GoogleDriveFile } from './types.ts';
+import * as backupService from './services/backupService.ts';
+import { useInstallPrompt } from './hooks/useInstallPrompt.ts';
+import OfflineIndicator from './components/ui/OfflineIndicator.tsx';
+import Sidebar from './components/Sidebar.tsx';
+import { useToast } from './hooks/useToast.ts';
+import Spinner from './components/ui/Spinner.tsx';
+import { useRouter } from './contexts/RouterContext.tsx';
+import { useModal } from './contexts/ModalContext.tsx';
+import { onDataChange } from './services/syncService.ts';
+import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator.tsx';
+import { parseAnkiPkg, parseAnkiPkgMainThread } from './services/ankiImportService.ts';
+import { useDataManagement } from './hooks/useDataManagement.ts';
+import { usePullToRefresh } from './hooks/usePullToRefresh.ts';
+import Header from './components/Header.tsx';
+import AppRouter from './components/AppRouter.tsx';
+import Icon from './components/ui/Icon.tsx';
+import Button from './components/ui/Button.tsx';
+import { useStore } from './store/store.ts';
+import { analyzeFileContent } from './services/importService.ts';
+import { DroppedFileAnalysis } from './components/DroppedFileConfirmModal.tsx';
+import { useSettings } from './hooks/useSettings.ts';
+import AIChatFab from './components/AIChatFab.tsx';
+import AIGenerationStatusIndicator from './components/AIGenerationStatusIndicator.tsx';
+import { useOnlineStatus } from './hooks/useOnlineStatus.ts';
+import { DataManagementProvider } from './contexts/DataManagementContext.tsx';
+import ModalManager from './components/ModalManager.tsx';
+import * as db from './services/db.ts';
+import { useAutoHideHeader } from './hooks/useAutoHideHeader.ts';
 
 export type SortPreference = 'lastOpened' | 'name' | 'dueCount';
 
@@ -46,7 +46,6 @@ const App: React.FC = () => {
   const [installPrompt, handleInstall] = useInstallPrompt();
   const { addToast } = useToast();
   const { path, navigate } = useRouter();
-  // FIX: Imported 'useModal' from './contexts/ModalContext' to resolve 'Cannot find name' error.
   const { modalType, openModal } = useModal();
   const { aiFeaturesEnabled, backupEnabled, backupApiKey, syncOnCellular } = useSettings();
   const { isOnline } = useOnlineStatus();
@@ -84,7 +83,6 @@ const App: React.FC = () => {
   // AI Queue Processor
   useEffect(() => {
     const processQueue = async () => {
-        // FIX: Added more robust checks for `aiGenerationStatus` and its `queue` property to prevent errors if the state is not yet fully initialized.
         if (!aiGenerationStatus || !aiGenerationStatus.queue) {
             return;
         }
@@ -101,7 +99,11 @@ const App: React.FC = () => {
         try {
             switch (task.type) {
                 case 'generateSeriesScaffoldWithAI':
-                    await dataHandlers.onGenerateSeriesScaffold({ ...task.payload });
+                    await dataHandlers.onGenerateSeriesScaffold(task.payload);
+                    break;
+                case 'generateFullSeriesFromScaffold':
+                    // FIX: Corrected typo from onGenerateFullSeriesFromScaffold to the correct generateSeriesScaffoldWithAI handler.
+                    await dataHandlers.onGenerateSeriesScaffold(task.payload);
                     break;
                 case 'generateDeckWithAI':
                     await dataHandlers.onGenerateDeck(task.payload);
@@ -178,7 +180,8 @@ const App: React.FC = () => {
       
       if(localStorage.getItem('cogniflow-post-merge-sync')) {
         localStorage.removeItem('cogniflow-post-merge-sync');
-        handleSync({ force: true });
+        // FIX: The `handleSync` function requires an `isManual` property.
+        handleSync({ isManual: false, force: true });
       }
 
     } catch (error) {
@@ -276,31 +279,44 @@ const App: React.FC = () => {
   };
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current === 0) setIsDraggingOverWindow(false); };
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); };
+  
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault(); e.stopPropagation(); setIsDraggingOverWindow(false); dragCounter.current = 0;
     const file = e.dataTransfer.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
-      if (file.name.toLowerCase().endsWith('.apkg')) {
-        try {
-            const buffer = await file.arrayBuffer();
-            const decks = await parseAnkiPkg(buffer.slice(0)).catch(() => parseAnkiPkgMainThread(buffer));
-            if (decks.length > 0) { dataHandlers.handleAddDecks(decks); addToast(`Imported ${decks.length} deck(s).`, 'success'); }
-            else { addToast('No valid decks found.', 'info'); }
-        } catch (error) { addToast(`Error processing Anki package: ${error instanceof Error ? error.message : "Unknown"}`, 'error'); }
-      } else {
-          const analysis = analyzeFileContent(content);
-          if (analysis) {
-            openModal('droppedFile', { analysis: { ...analysis, fileName: file.name } });
-          } else {
-            addToast("Unsupported file format.", 'error');
-          }
-      }
-    };
-    reader.readAsText(file);
+
+    if (file.name.toLowerCase().endsWith('.apkg')) {
+        const reader = new FileReader();
+        reader.onload = async () => {
+            try {
+                const buffer = reader.result as ArrayBuffer;
+                const decks = await parseAnkiPkg(buffer.slice(0)).catch(() => parseAnkiPkgMainThread(buffer));
+                if (decks.length > 0) { dataHandlers.handleAddDecks(decks); addToast(`Imported ${decks.length} deck(s).`, 'success'); }
+                else { addToast('No valid decks found.', 'info'); }
+            } catch (error) { addToast(`Error processing Anki package: ${error instanceof Error ? error.message : "Unknown"}`, 'error'); }
+        };
+        reader.readAsArrayBuffer(file);
+    } else if (file.name.toLowerCase().endsWith('.json')) {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const content = event.target?.result as string;
+            const analysis = analyzeFileContent(content);
+            if (analysis) {
+                if (analysis.type === 'backup') {
+                    openModal('restore', { file });
+                } else {
+                    openModal('droppedFile', { analysis: { ...analysis, fileName: file.name } as DroppedFileAnalysis });
+                }
+            } else {
+                addToast("Unsupported JSON file format.", 'error');
+            }
+        };
+        reader.readAsText(file);
+    } else {
+        addToast("Unsupported file type. Please drop a .json or .apkg file.", 'error');
+    }
   };
+
   const isHeaderVisible = useAutoHideHeader();
 
   if (initError) return (

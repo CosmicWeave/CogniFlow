@@ -1,10 +1,8 @@
-
-
 import React, { useMemo, useState } from 'react';
-// FIX: Corrected import path for types
-import { Deck, Folder, LearningDeck, QuizDeck } from '../types';
-import DeckListItem from './DeckListItem';
-import FolderView from './FolderView';
+import { Deck, Folder, LearningDeck, QuizDeck } from '../types.ts';
+// FIX: Changed to named import to match the updated export in DeckListItem.tsx.
+import { DeckListItem } from './DeckListItem.tsx';
+import FolderView from './FolderView.tsx';
 
 interface DeckListProps {
   decks: Deck[];
@@ -108,7 +106,6 @@ const DeckList: React.FC<DeckListProps> = ({ decks, folders, sessionsToResume, o
                         onUpdateDeck={onUpdateDeck}
                         onDeleteDeck={onDeleteDeck}
                         openConfirmModal={openConfirmModal}
-                        // FIX: Renamed props to match the DeckListItem component's expected prop names.
                         handleGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
                         handleGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
                     />

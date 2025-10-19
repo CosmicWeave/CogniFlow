@@ -1,12 +1,13 @@
 
+
 import React, { useState, useRef, useMemo } from 'react';
-import { DeckType, ImportedCard, ImportedQuestion } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import { parseAndValidateItemsJSON } from '../services/importService';
-import Link from './ui/Link';
+import { DeckType, ImportedCard, ImportedQuestion } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
+import { parseAndValidateItemsJSON } from '../services/importService.ts';
+import Link from './ui/Link.tsx';
 
 interface BulkAddModalProps {
   isOpen: boolean;

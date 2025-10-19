@@ -1,6 +1,6 @@
 import React from 'react';
-import { themes, ThemeId } from '../../contexts/ThemeContext';
-import Icon from './Icon';
+import { themes, ThemeId } from '../../contexts/ThemeContext.tsx';
+import Icon from './Icon.tsx';
 
 interface ThemeToggleProps {
   selectedTheme: ThemeId;

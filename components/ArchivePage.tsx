@@ -1,10 +1,9 @@
-
 import React, { useMemo } from 'react';
-import { Deck, DeckSeries } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useStore } from '../store/store';
-import { stripHtml } from '../services/utils';
+import { Deck, DeckSeries } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useStore } from '../store/store.ts';
+import { stripHtml } from '../services/utils.ts';
 
 interface ArchivePageProps {
   onUpdateDeck: (deck: Deck) => void;
@@ -14,7 +13,8 @@ interface ArchivePageProps {
   openConfirmModal: (props: any) => void;
 }
 
-const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries, onDeleteDeck, onDeleteSeries, openConfirmModal }) => {
+// FIX: Changed to a named export to resolve module resolution issues.
+export const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries, onDeleteDeck, onDeleteSeries, openConfirmModal }) => {
   const { decks, deckSeries } = useStore();
   
   const archivedDecks = useMemo(() => decks.filter(d => d.archived && !d.deletedAt), [decks]);
@@ -125,14 +125,11 @@ const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries,
              <Icon name="archive" className="w-12 h-12 mx-auto text-text-muted/50" />
              <h3 className="mt-2 text-xl font-medium text-text">No Archived Decks</h3>
              <p className="mt-1 text-sm text-text-muted">
-               You can archive decks from their details page to hide them from view.
+               You can archive decks from their page to hide them from the main list.
              </p>
           </div>
         )}
       </section>
-
     </div>
   );
 };
-
-export default ArchivePage;

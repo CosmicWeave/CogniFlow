@@ -3,7 +3,7 @@ import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, Quiz
 
 export interface AIGenerationTask {
   id: string;
-  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck';
+  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck' | 'generateFullSeriesFromScaffold';
   payload: any;
   statusText: string;
   deckId?: string;
@@ -40,6 +40,7 @@ export type AppAction =
   | { type: 'UPDATE_DECK'; payload: Deck }
   | { type: 'BULK_UPDATE_DECKS'; payload: Deck[] }
   | { type: 'ADD_FOLDER'; payload: Folder }
+  | { type: 'ADD_FOLDERS'; payload: Folder[] }
   | { type: 'UPDATE_FOLDER'; payload: Folder }
   | { type: 'DELETE_FOLDER'; payload: string }
   | { type: 'ADD_SERIES'; payload: DeckSeries }
@@ -166,6 +167,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
     }
     case 'ADD_FOLDER':
         return { ...modifiedState, folders: [...state.folders, action.payload] };
+    case 'ADD_FOLDERS': {
+      const foldersMap = new Map(state.folders.map(f => [f.id, f]));
+      action.payload.forEach(folder => foldersMap.set(folder.id, folder));
+      return { ...modifiedState, folders: Array.from(foldersMap.values()) };
+    }
     case 'UPDATE_FOLDER':
         return { ...modifiedState, folders: state.folders.map(f => f.id === action.payload.id ? action.payload : f) };
     case 'DELETE_FOLDER':
@@ -174,16 +180,23 @@ function appReducer(state: AppState, action: AppAction): AppState {
             folders: state.folders.filter(f => f.id !== action.payload),
             decks: state.decks.map(d => d.folderId === action.payload ? { ...d, folderId: null } : d)
         };
-    case 'ADD_SERIES':
-        return { ...modifiedState, deckSeries: [...state.deckSeries, action.payload] };
+    case 'ADD_SERIES': {
+        const seriesMap = new Map(state.deckSeries.map(s => [s.id, s]));
+        seriesMap.set(action.payload.id, action.payload);
+        return { ...modifiedState, deckSeries: Array.from(seriesMap.values()) };
+    }
     case 'ADD_SERIES_WITH_DECKS': {
         const { series, decks } = action.payload;
         const decksMap = new Map(state.decks.map(d => [d.id, d]));
         decks.forEach(deck => decksMap.set(deck.id, deck));
+        
+        const seriesMap = new Map(state.deckSeries.map(s => [s.id, s]));
+        seriesMap.set(series.id, series);
+
         return {
             ...modifiedState,
             decks: Array.from(decksMap.values()),
-            deckSeries: [...state.deckSeries, series]
+            deckSeries: Array.from(seriesMap.values())
         };
     }
     case 'UPDATE_SERIES':

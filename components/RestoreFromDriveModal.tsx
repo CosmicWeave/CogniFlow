@@ -1,9 +1,10 @@
 
+
 import React, { useState, useRef } from 'react';
-import { GoogleDriveFile } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { GoogleDriveFile } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
 
 interface RestoreFromDriveModalProps {
   isOpen: boolean;

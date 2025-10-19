@@ -1,17 +1,18 @@
 
+
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
-import Button from './ui/Button';
-import Link from './ui/Link';
-import { getEffectiveMasteryLevel } from '../services/srs';
-import MasteryBar from './ui/MasteryBar';
-import Icon, { IconName } from './ui/Icon';
-import { useRouter } from '../contexts/RouterContext';
-import { stripHtml } from '../services/utils';
-import { useStore } from '../store/store';
-import Spinner from './ui/Spinner';
-import { useSettings } from '../hooks/useSettings';
-import ProgressBar from './ui/ProgressBar';
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Link from './ui/Link.tsx';
+import { getEffectiveMasteryLevel } from '../services/srs.ts';
+import MasteryBar from './ui/MasteryBar.tsx';
+import Icon, { IconName } from './ui/Icon.tsx';
+import { useRouter } from '../contexts/RouterContext.tsx';
+import { stripHtml } from '../services/utils.ts';
+import { useStore } from '../store/store.ts';
+import Spinner from './ui/Spinner.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
+import ProgressBar from './ui/ProgressBar.tsx';
 
 interface SeriesListItemProps {
   series: DeckSeries;

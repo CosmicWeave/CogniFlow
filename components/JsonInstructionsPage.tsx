@@ -3,13 +3,13 @@ import Icon, { IconName } from './ui/Icon';
 import Button from './ui/Button';
 import { useToast } from '../hooks/useToast';
 
-const CodeBlock = ({ children }: { children: React.ReactNode }) => (
+const CodeBlock = ({ children }: { children?: React.ReactNode }) => (
   <pre className="bg-gray-100 dark:bg-gray-900/70 p-4 rounded-lg overflow-x-auto text-sm text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700">
     <code>{children}</code>
   </pre>
 );
 
-const AccordionItem = ({ title, iconName, children, defaultOpen = false }: { title: string, iconName?: IconName, children: React.ReactNode, defaultOpen?: boolean }) => {
+const AccordionItem = ({ title, iconName, children, defaultOpen = false }: { title: string, iconName?: IconName, children?: React.ReactNode, defaultOpen?: boolean }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -407,7 +407,7 @@ Now, generate the complete JSON deck based on all the above requirements.`;
         </p>
       </div>
 
-      <AccordionItem title="Step 1: Generate Learning Outline (Text)" iconName="list" defaultOpen>
+      <AccordionItem title="Step 1: Generate Learning Outline (Text)" iconName="list" defaultOpen={true}>
          <div className="space-y-4 bg-green-900/10 dark:bg-green-900/20 p-6 rounded-lg border border-green-500/20">
             <p className="text-green-800/90 dark:text-green-200/90">
               Begin by generating a high-level, human-readable outline for your learning path using an external AI chat service. This allows you to review and approve the structure before generating the full content.

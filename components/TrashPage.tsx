@@ -1,9 +1,8 @@
-
 import React, { useMemo } from 'react';
-import { Deck, DeckSeries } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useStore } from '../store/store';
+import { Deck, DeckSeries } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useStore } from '../store/store.ts';
 
 interface TrashPageProps {
   onRestoreDeck: (deckId: string) => void;

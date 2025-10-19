@@ -1,308 +1,471 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { AIGenerationParams } from '../types';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
+import Spinner from './ui/Spinner';
 import { useToast } from '../hooks/useToast';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import ToggleSwitch from './ui/ToggleSwitch';
-import { useStore } from '../store/store';
 import { useAIOptions } from '../hooks/useAIOptions';
 import AIOptionsManager from './AIOptionsManager';
+import { AIGenerationParams, AIGenerationAnalysis, AIMessage } from '../types';
+import * as aiService from '../services/aiService';
+import ToggleSwitch from './ui/ToggleSwitch';
+import TopicSuggestionModal from './TopicSuggestionModal';
 
 interface AIGenerationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onGenerate: (params: AIGenerationParams & { 
-    generationType: 'series' | 'deck', 
-    isLearningMode: boolean,
-    generateQuestions?: boolean, 
-    sourceFiles?: File[],
-    useStrictSources?: boolean
-  }) => void;
+  onGenerate: (payload: AIGenerationParams) => void;
 }
 
-const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, onGenerate }) => {
-  const [view, setView] = useState<'form' | 'manager'>('form');
-  const [generationType, setGenerationType] = useState<'series' | 'deck' | null>(null);
-  const [isLearningMode, setIsLearningMode] = useState(false);
-  const [topic, setTopic] = useState('');
-  const [customInstructions, setCustomInstructions] = useState('');
-  const [comprehensiveness, setComprehensiveness] = useState('');
-  const [learningGoal, setLearningGoal] = useState('');
-  const [learningStyle, setLearningStyle] = useState('');
-  const [focusTopics, setFocusTopics] = useState('');
-  const [excludeTopics, setExcludeTopics] = useState('');
-  const [language, setLanguage] = useState('');
-  const [level, setLevel] = useState('');
-  const [generateQuestions, setGenerateQuestions] = useState(true);
-  const [sourceFiles, setSourceFiles] = useState<File[]>([]);
-  const [useStrictSources, setUseStrictSources] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, onGenerate }) => {
+  const [step, setStep] = useState(1);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isSuggestingTopics, setIsSuggestingTopics] = useState(false);
   
+  // Step 1 State
+  const [generationTarget, setGenerationTarget] = useState<'series' | 'deck'>('series');
+  const [isLearningMode, setIsLearningMode] = useState<boolean>(false);
+  const [params, setParams] = useState<Partial<Omit<AIGenerationParams, 'generationType' | 'isLearningMode'>>>({
+    topic: '',
+    understandingLevel: 'Auto',
+    learningGoal: 'Auto',
+    learningStyle: 'Auto',
+    language: 'English',
+    tone: 'Auto',
+    comprehensiveness: 'Standard',
+    customInstructions: '',
+    topicsToInclude: '',
+    topicsToExclude: '',
+  });
+  const [sourceFiles, setSourceFiles] = useState<{ name: string, content: string }[]>([]);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [pastedSource, setPastedSource] = useState('');
+  
+  // Step 2 State
+  const [analysis, setAnalysis] = useState<AIGenerationAnalysis | null>(null);
+  const [finalTitle, setFinalTitle] = useState('');
+  const [questionCount, setQuestionCount] = useState<number | undefined>(undefined);
+  const [brainstormHistory, setBrainstormHistory] = useState<AIMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+
+  const [managingOptions, setManagingOptions] = useState(false);
+  
+  const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
+  const [topicSuggestions, setTopicSuggestions] = useState<{ include: string[]; exclude: string[] } | null>(null);
+  
+  const [personaId, setPersonaId] = useState('default');
+  const [temperature, setTemperature] = useState(0.7);
+
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   useFocusTrap(modalRef, isOpen);
-  const { aiGenerationStatus } = useStore();
-  const { options: aiOptions } = useAIOptions();
+  const { options } = useAIOptions();
 
   useEffect(() => {
-    if (isOpen) {
-      setComprehensiveness(aiOptions.comprehensivenessLevels.includes('Standard') ? 'Standard' : aiOptions.comprehensivenessLevels[0] || '');
-      setLanguage(aiOptions.languageOptions.includes('English') ? 'English' : aiOptions.languageOptions[0] || '');
-    }
-  }, [isOpen, aiOptions]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [brainstormHistory]);
 
-  const handleClose = () => {
-    // Reset state on close
-    setGenerationType(null);
+  useEffect(() => {
+    const textarea = chatInputRef.current;
+    if (textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [chatInput]);
+
+  const derivedGenerationType = useMemo((): AIGenerationParams['generationType'] => {
+    if (generationTarget === 'series') {
+        return 'series-scaffold'; 
+    }
+    return isLearningMode ? 'deck-learning' : 'deck-quiz';
+  }, [generationTarget, isLearningMode]);
+  
+  const handleClose = useCallback(() => {
+    setStep(1);
+    setIsProcessing(false);
+    setGenerationTarget('series');
     setIsLearningMode(false);
-    setTopic('');
-    setLevel('');
-    setCustomInstructions('');
-    setFocusTopics('');
-    setExcludeTopics('');
-    setLearningGoal('');
-    setLearningStyle('');
-    setComprehensiveness(aiOptions.comprehensivenessLevels.includes('Standard') ? 'Standard' : aiOptions.comprehensivenessLevels[0] || '');
-    setLanguage(aiOptions.languageOptions.includes('English') ? 'English' : aiOptions.languageOptions[0] || '');
+    setParams({
+      topic: '',
+      understandingLevel: 'Auto',
+      learningGoal: 'Auto',
+      learningStyle: 'Auto',
+      language: 'English',
+      tone: 'Auto',
+      comprehensiveness: 'Standard',
+      customInstructions: '',
+      topicsToInclude: '',
+      topicsToExclude: '',
+    });
     setSourceFiles([]);
-    setUseStrictSources(false);
-    setView('form');
+    setSourceUrl('');
+    setPastedSource('');
+    setAnalysis(null);
+    setFinalTitle('');
+    setQuestionCount(undefined);
+    setBrainstormHistory([]);
+    setChatInput('');
     onClose();
+  }, [onClose]);
+  
+  const handleParamChange = (field: keyof typeof params, value: string) => {
+    setParams(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      const newFiles: { name: string, content: string }[] = [];
+      for (const file of Array.from(files)) {
+        try {
+          const f = file as File;
+          const text = await f.text();
+          newFiles.push({ name: f.name, content: text });
+        } catch (error) {
+          addToast(`Could not read file "${(file as File).name}".`, 'error');
+        }
+      }
+      setSourceFiles(prev => [...prev, ...newFiles]);
+      addToast(`${newFiles.length} file(s) loaded successfully.`, 'success');
+    }
+  };
+
+  const handleRemoveFile = (fileNameToRemove: string) => {
+    setSourceFiles(prev => prev.filter(file => file.name !== fileNameToRemove));
+  };
+
+  const handleSuggestTopics = async () => {
+    if (!params.topic?.trim()) {
+      addToast('Please enter a primary topic first to get suggestions.', 'error');
+      return;
+    }
+    setIsSuggestingTopics(true);
+    try {
+      const suggestions = await aiService.getTopicSuggestions(params.topic);
+      setTopicSuggestions({
+        include: suggestions.topicsToInclude,
+        exclude: suggestions.topicsToExclude,
+      });
+      setIsTopicModalOpen(true);
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Failed to get topic suggestions.", 'error');
+    } finally {
+      setIsSuggestingTopics(false);
+    }
   };
   
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setSourceFiles(prev => [...prev, ...Array.from(e.target.files!)]);
-    }
-    e.target.value = ''; // Reset file input to allow re-uploading the same file
+  const handleApplyTopicSelections = (selections: { included: string[], excluded: string[] }) => {
+    const currentInclude = params.topicsToInclude?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const combinedInclude = [...new Set([...currentInclude, ...selections.included])].join(', ');
+
+    const currentExclude = params.topicsToExclude?.split(',').map(s => s.trim()).filter(Boolean) || [];
+    const combinedExclude = [...new Set([...currentExclude, ...selections.excluded])].join(', ');
+    
+    setParams(prev => ({
+      ...prev,
+      topicsToInclude: combinedInclude,
+      topicsToExclude: combinedExclude,
+    }));
+    setIsTopicModalOpen(false);
+    setTopicSuggestions(null);
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+  const getFullPayload = (): AIGenerationParams => {
+    const sourceFileContents = sourceFiles.map(f => `--- Start of ${f.name} ---\n${f.content}\n--- End of ${f.name} ---`).join('\n\n');
+    const combinedSourceContent = [sourceFileContents, pastedSource.trim()].filter(Boolean).join('\n\n');
+    
+    const selectedPersona = options.personas.find(p => p.id === personaId);
+    const systemInstruction = personaId === 'custom' ? params.customInstructions : selectedPersona?.instruction;
+    
+    const formattedHistory = brainstormHistory.map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
+
+    return {
+        ...params,
+        topic: params.topic?.trim() || 'Content from provided sources',
+        generationType: derivedGenerationType,
+        isLearningMode,
+        finalTitle,
+        questionCount,
+        brainstormHistory: formattedHistory,
+        sourceContent: combinedSourceContent || undefined,
+        sourceUrl: sourceUrl.trim() || undefined,
+        topicsToInclude: params.topicsToInclude?.trim() || undefined,
+        topicsToExclude: params.topicsToExclude?.trim() || undefined,
+        systemInstruction: systemInstruction || undefined,
+        temperature,
+        customFields: options.customFields,
+    } as AIGenerationParams;
+  }
+
+  const handleAnalyze = async () => {
+    if (!params.topic?.trim() && !sourceFiles.length && !pastedSource.trim() && !sourceUrl.trim()) {
+        addToast('Please provide a topic or source material.', 'error');
+        return;
+    }
+    
+    setIsProcessing(true);
+    try {
+      const analysisPayload = getFullPayload();
+      const analysisResult = await aiService.getAIGenerationAnalysis(analysisPayload);
+      setAnalysis(analysisResult);
+      setFinalTitle(analysisResult.titleSuggestions[0] || params.topic!);
+      if (analysisResult.questionCountSuggestions.length > 0) {
+        const standardSuggestion = analysisResult.questionCountSuggestions.find(s => s.label.toLowerCase().includes('standard')) || analysisResult.questionCountSuggestions[0];
+        if (standardSuggestion) {
+            setQuestionCount(standardSuggestion.count);
+        }
+      }
+      
+      const initialAiMessage: AIMessage = {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: `${analysisResult.interpretation}\n\nTo help create the best content, can you answer these questions?\n- ${analysisResult.followUpQuestions.join('\n- ')}`
+      };
+      setBrainstormHistory([initialAiMessage]);
+      setStep(2);
+
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Failed to get AI analysis.", 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  const handleSendBrainstormMessage = useCallback(async (e: React.FormEvent | React.MouseEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    if (e.dataTransfer.files?.length) {
-      setSourceFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
-      e.dataTransfer.clearData();
+    const prompt = chatInput.trim();
+    if (!prompt || isProcessing) return;
+
+    const newUserMessage: AIMessage = { id: crypto.randomUUID(), role: 'user', text: prompt };
+    const loadingMessage: AIMessage = { id: crypto.randomUUID(), role: 'model', text: '', isLoading: true };
+    
+    const updatedHistory = [...brainstormHistory, newUserMessage, loadingMessage];
+    setBrainstormHistory(updatedHistory);
+    setChatInput('');
+    setIsProcessing(true);
+
+    try {
+      const payload = getFullPayload();
+      const aiResponseText = await aiService.brainstormWithAI(payload, [...brainstormHistory, newUserMessage]);
+      
+      const modelResponseMessage: AIMessage = {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: aiResponseText,
+      };
+
+      setBrainstormHistory(prev => [...prev.slice(0, -1), modelResponseMessage]);
+    } catch (error) {
+      const errorMessage: AIMessage = {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: error instanceof Error ? error.message : "An unknown error occurred.",
+      };
+      setBrainstormHistory(prev => [...prev.slice(0, -1), errorMessage]);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [chatInput, isProcessing, brainstormHistory, getFullPayload]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // Manually trigger the send message logic
+      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+      handleSendBrainstormMessage(fakeEvent);
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); };
-  const handleDragLeave = (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!generationType) return;
-    if (!topic.trim()) {
-      addToast("Please enter a topic.", "error");
-      return;
+    if (step === 1) {
+      handleAnalyze();
+    } else {
+      onGenerate(getFullPayload());
+      handleClose();
     }
-    
-    const aiParams: AIGenerationParams = {
-        topic, level: level || undefined, comprehensiveness,
-        customInstructions: customInstructions || undefined,
-        learningGoal: learningGoal || undefined,
-        learningStyle: learningStyle || undefined,
-        focusTopics: focusTopics || undefined,
-        excludeTopics: excludeTopics || undefined,
-        language: language || undefined,
-    };
-    
-    const generationConfig = {
-        ...aiParams,
-        generationType: generationType!,
-        isLearningMode,
-        generateQuestions: generationType === 'series' ? generateQuestions : undefined,
-        sourceFiles: sourceFiles.length > 0 ? sourceFiles : undefined,
-        useStrictSources: sourceFiles.length > 0 ? useStrictSources : undefined,
-    };
-
-    onGenerate(generationConfig);
-    handleClose();
   };
-  
+
   if (!isOpen) return null;
+  
+  const renderStep1 = () => (
+    <>
+      <div>
+          <label htmlFor="topic" className="block text-sm font-bold text-text mb-1">Primary Topic</label>
+          <input id="topic" type="text" value={params.topic} onChange={(e) => handleParamChange('topic', e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="e.g., The History of Ancient Rome" autoFocus />
+          <p className="text-xs text-text-muted mt-1">The main subject of the content you want to generate. Also used if no other sources are provided.</p>
+      </div>
 
-  const renderForm = () => (
-    <form onSubmit={handleSubmit} className="flex-grow overflow-y-auto p-6 space-y-6">
+      <div className="space-y-4">
+        <h3 className="text-sm font-bold text-text">Source Material (Optional)</h3>
         <div>
-            <label htmlFor="ai-topic" className="block text-sm font-bold text-text mb-1">
-            Main Topic <span className="text-red-500">*</span>
-            </label>
-            <input id="ai-topic" type="text" value={topic} onChange={(e) => setTopic(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="e.g., The History of Ancient Rome" required autoFocus/>
+          <input type="file" ref={fileInputRef} multiple className="hidden" accept=".txt,.md,.html" onChange={handleFileChange} />
+          <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click()} className="w-full">
+              <Icon name="upload-cloud" className="w-5 h-5 mr-2"/>Upload Files
+          </Button>
+          {sourceFiles.length > 0 && (
+              <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto">
+                  {sourceFiles.map(file => (
+                      <li key={file.name} className="flex items-center justify-between text-sm bg-background p-2 rounded-md border border-border">
+                          <div className="flex items-center gap-2 min-w-0"><Icon name="file-text" className="w-4 h-4 text-text-muted flex-shrink-0" /><span className="truncate" title={file.name}>{file.name}</span></div>
+                          <Button type="button" variant="ghost" size="sm" className="p-1 h-auto" onClick={() => handleRemoveFile(file.name)}><Icon name="trash-2" className="w-4 h-4 text-red-500" /></Button>
+                      </li>
+                  ))}
+              </ul>
+          )}
         </div>
-        
-        <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
-            <ToggleSwitch 
-                label="Enable Learning Mode" 
-                description="Generates info cards followed by related questions." 
-                checked={isLearningMode} 
-                onChange={setIsLearningMode} 
-            />
+        <div>
+          <label htmlFor="source-url" className="block text-sm font-medium text-text-muted mb-1">From URL</label>
+          <div className="relative"><Icon name="link" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" /><input id="source-url" type="url" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} className="w-full p-2 pl-9 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="https://..." /></div>
         </div>
+        <div>
+          <label htmlFor="paste-source" className="block text-sm font-medium text-text-muted mb-1">Paste Text</label>
+          <textarea id="paste-source" value={pastedSource} onChange={(e) => setPastedSource(e.target.value)} rows={4} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Paste an article, notes, or any other text..." />
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="generation-target" className="block text-sm font-medium text-text-muted mb-1">Content Type</label>
+          <select id="generation-target" value={generationTarget} onChange={(e) => setGenerationTarget(e.target.value as 'series' | 'deck')} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
+            <option value="series">Series</option>
+            <option value="deck">Single Deck</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="comprehensiveness" className="block text-sm font-medium text-text-muted mb-1">Comprehensiveness</label>
+          <select id="comprehensiveness" value={params.comprehensiveness} onChange={(e) => handleParamChange('comprehensiveness', e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
+             {options.comprehensivenessLevels.map(level => <option key={level} value={level}>{level}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="language" className="block text-sm font-medium text-text-muted mb-1">Language</label>
+          <select id="language" value={params.language} onChange={(e) => handleParamChange('language', e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
+             <option value="English">English</option>
+             <option value="Swedish">Swedish</option>
+          </select>
+        </div>
+      </div>
+      <ToggleSwitch label="Learning Mode" description="Generates info sections followed by questions." checked={isLearningMode} onChange={setIsLearningMode} />
 
-        {generationType === 'series' && (
-            <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
-                <ToggleSwitch 
-                    label="Generate questions for all decks" 
-                    description="The AI will create the full series and populate all decks with questions." 
-                    checked={generateQuestions} 
-                    onChange={setGenerateQuestions} 
-                />
-            </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label htmlFor="ai-level" className="block text-sm font-medium text-text-muted mb-1"> My Current Understanding Is... </label>
-                <select id="ai-level" value={level} onChange={(e) => setLevel(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                    <option value="">(Optional)</option>
-                    {aiOptions.understandingLevels.map(lvl => <option key={lvl} value={lvl}>{lvl}</option>)}
-                </select>
-            </div>
-            <div>
-                <label htmlFor="ai-goal" className="block text-sm font-medium text-text-muted mb-1"> My Primary Goal Is... </label>
-                <select id="ai-goal" value={learningGoal} onChange={(e) => setLearningGoal(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                    <option value="">(Optional)</option>
-                    {aiOptions.learningGoalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
-            </div>
-        </div>
-        
-        <details className="space-y-4">
-            <summary className="cursor-pointer text-sm font-medium text-primary hover:underline"> Advanced Options </summary>
-            <div className="pt-4 space-y-6 animate-fade-in">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label htmlFor="ai-style" className="block text-sm font-medium text-text-muted mb-1"> Preferred Learning Style </label>
-                        <select id="ai-style" value={learningStyle} onChange={(e) => setLearningStyle(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                            <option value="">(Optional)</option>
-                            {aiOptions.learningStyleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="ai-comp" className="block text-sm font-medium text-text-muted mb-1"> Desired Comprehensiveness </label>
-                        <select id="ai-comp" value={comprehensiveness} onChange={(e) => setComprehensiveness(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                            {aiOptions.comprehensivenessLevels.map(lvl => <option key={lvl} value={lvl}>{lvl}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <div>
-                    <label htmlFor="ai-focus" className="block text-sm font-medium text-text-muted mb-1"> Specific Topics to Focus On </label>
-                    <input id="ai-focus" type="text" value={focusTopics} onChange={(e) => setFocusTopics(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="e.g., The Roman Republic, not the Empire"/>
-                </div>
-                <div>
-                    <label htmlFor="ai-exclude" className="block text-sm font-medium text-text-muted mb-1"> Topics to Exclude </label>
-                    <input id="ai-exclude" type="text" value={excludeTopics} onChange={(e) => setExcludeTopics(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="e.g., military history, specific emperors"/>
-                </div>
-                <div>
-                    <label htmlFor="ai-instructions" className="block text-sm font-medium text-text-muted mb-1"> Additional Instructions </label>
-                    <textarea id="ai-instructions" value={customInstructions} onChange={(e) => setCustomInstructions(e.target.value)} rows={3} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="e.g., 'Focus on practical examples for a beginner.'"/>
-                </div>
-                <div>
-                    <label htmlFor="ai-lang" className="block text-sm font-medium text-text-muted mb-1"> Output Language </label>
-                    <select id="ai-lang" value={language} onChange={(e) => setLanguage(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                        {aiOptions.languageOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                </div>
-                <div className="space-y-2 pt-4 border-t border-border">
-                    <label className="block text-sm font-medium text-text-muted">
-                        Source Files (Optional)
-                    </label>
-                    <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileChange} />
-                    <label
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:bg-background'}`}
-                    >
-                        <Icon name="upload-cloud" className="w-8 h-8 text-text-muted mb-2"/>
-                        <p className="text-sm text-text-muted">
-                            <span className="font-semibold text-primary" onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}>
-                                Click to upload
-                            </span> or drag and drop
-                        </p>
-                        <p className="text-xs text-text-muted/70">Upload files as context for the AI.</p>
-                    </label>
-                    {sourceFiles.length > 0 && (
-                        <div className="pt-2">
-                            <div className="flex justify-between items-center">
-                                <p className="text-sm font-medium text-text-muted">Selected files:</p>
-                                <Button variant="ghost" size="sm" onClick={() => setSourceFiles([])} className="text-xs">Clear</Button>
-                            </div>
-                            <ul className="list-disc list-inside text-sm text-text-muted bg-background p-2 rounded-md max-h-24 overflow-y-auto">
-                                {sourceFiles.map((file, index) => <li key={index} className="truncate">{file.name}</li>)}
-                            </ul>
-                        </div>
-                    )}
-                    <div className="pt-2">
-                        <ToggleSwitch
-                            label="Strictly use sources"
-                            description="The AI will only use the provided files to generate content."
-                            checked={useStrictSources}
-                            onChange={setUseStrictSources}
-                            disabled={sourceFiles.length === 0}
-                        />
-                    </div>
-                </div>
-            </div>
-        </details>
-    </form>
+      <div className="space-y-4 pt-4 border-t border-border">
+          <h3 className="text-sm font-bold text-text -mb-2">Fine-Tuning</h3>
+          <div>
+            <label htmlFor="persona" className="block text-sm font-medium text-text-muted mb-1">AI Persona</label>
+            <select id="persona" value={personaId} onChange={(e) => setPersonaId(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
+              {options.personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+          {personaId === 'custom' && (
+             <div>
+                <label htmlFor="custom-instructions" className="block text-sm font-medium text-text-muted mb-1">Custom Instructions</label>
+                <textarea id="custom-instructions" value={params.customInstructions} onChange={(e) => handleParamChange('customInstructions', e.target.value)} rows={3} className="w-full p-2 bg-background border border-border rounded-md" placeholder="e.g., 'Act as a pirate and explain everything in character...'" />
+             </div>
+          )}
+          <div>
+            <label htmlFor="temperature" className="block text-sm font-medium text-text-muted mb-1">Creativity vs. Precision ({temperature.toFixed(1)})</label>
+            <input id="temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))} className="w-full" />
+          </div>
+          <div>
+            <label htmlFor="topics-to-include" className="block text-sm font-medium text-text-muted mb-1">Topics to Include (comma-separated)</label>
+            <textarea id="topics-to-include" value={params.topicsToInclude} onChange={(e) => handleParamChange('topicsToInclude', e.target.value)} rows={2} className="w-full p-2 bg-background border border-border rounded-md" placeholder="e.g., 'republican era', 'julius caesar'" />
+          </div>
+          <div className="text-center -my-2">
+             <Button type="button" variant="ghost" onClick={handleSuggestTopics} disabled={!params.topic?.trim() || isSuggestingTopics || isProcessing} className="px-2" aria-label="Get AI suggestions for topics to include and exclude">
+                {isSuggestingTopics ? <Spinner size="sm" /> : <Icon name="zap" className="w-4 h-4 mr-1" />} Suggest Topics
+              </Button>
+          </div>
+          <div>
+            <label htmlFor="topics-to-exclude" className="block text-sm font-medium text-text-muted mb-1">Topics to Exclude (comma-separated)</label>
+            <textarea id="topics-to-exclude" value={params.topicsToExclude} onChange={(e) => handleParamChange('topicsToExclude', e.target.value)} rows={2} className="w-full p-2 bg-background border border-border rounded-md" placeholder="e.g., 'imperial era', 'byzantine history'" />
+          </div>
+      </div>
+    </>
   );
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
-      <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative max-h-[90vh] flex flex-col">
-        <div className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            {generationType && view === 'form' && (
-              <Button variant="ghost" size="sm" className="p-1" onClick={() => setGenerationType(null)}>
-                <Icon name="chevron-left" />
-              </Button>
-            )}
-            <h2 className="text-xl font-bold">Generate with AI</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            {view === 'form' && (
-                <Button type="button" variant="ghost" onClick={() => setView('manager')} className="p-1 h-auto" aria-label="Manage AI options">
-                    <Icon name="settings" />
-                </Button>
-            )}
-            <Button type="button" variant="ghost" onClick={handleClose} className="p-1 h-auto"><Icon name="x" /></Button>
-          </div>
-        </div>
-        
-        {view === 'manager' ? <AIOptionsManager onBack={() => setView('form')} /> : (
-            generationType ? renderForm() : (
-                <div className="p-6 text-center space-y-4">
-                    <p className="text-text-muted">What would you like to create?</p>
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <Button variant="secondary" size="lg" onClick={() => setGenerationType('series')} className="w-full sm:w-auto">
-                            <Icon name="layers" className="w-5 h-5 mr-2"/>
-                            A Series of Decks
-                        </Button>
-                        <Button variant="secondary" size="lg" onClick={() => setGenerationType('deck')} className="w-full sm:w-auto">
-                            <Icon name="help-circle" className="w-5 h-5 mr-2"/>
-                            A Single Deck
-                        </Button>
+  const renderStep2 = () => (
+    <div className="h-full flex flex-col">
+        <div className="flex-grow overflow-y-auto space-y-4 -mx-6 px-6">
+            {brainstormHistory.map(message => (
+                <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {message.role === 'model' && <Icon name="bot" className="w-6 h-6 text-primary flex-shrink-0 mt-1" />}
+                    <div className={`max-w-md p-3 rounded-2xl ${message.role === 'user' ? 'bg-primary text-on-primary rounded-br-lg' : 'bg-background rounded-bl-lg'}`}>
+                        {message.isLoading ? (
+                            <div className="flex items-center gap-2">
+                                <Spinner size="sm" />
+                                <span className="text-text-muted">Thinking...</span>
+                            </div>
+                        ) : (
+                            <p className="whitespace-pre-wrap">{message.text}</p>
+                        )}
                     </div>
                 </div>
-            )
-        )}
-
-        {view === 'form' && generationType && (
-            <div className="flex-shrink-0 flex justify-end p-4 bg-background/50 border-t border-border">
-            <Button type="button" variant="secondary" onClick={handleClose}>Cancel</Button>
-            <Button type="submit" variant="primary" onClick={handleSubmit}>
-                {`Generate ${isLearningMode ? 'Learning ' : ''}${generationType === 'series' ? 'Series' : 'Deck'}`}
+            ))}
+            <div ref={messagesEndRef} />
+        </div>
+        <div className="flex-shrink-0 flex items-start gap-2 pt-4">
+            <textarea
+                ref={chatInputRef}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Your response... (Shift+Enter for new line)"
+                className="flex-grow p-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none px-4 resize-none overflow-y-auto"
+                rows={1}
+                style={{ maxHeight: '120px' }}
+                disabled={isProcessing}
+            />
+            <Button type="button" onClick={handleSendBrainstormMessage} variant="primary" className="rounded-full w-10 h-10 p-0 flex-shrink-0" aria-label="Send message" disabled={isProcessing}>
+                <Icon name="arrow-down" className="w-5 h-5 -rotate-90"/>
             </Button>
-            </div>
-        )}
-      </div>
+        </div>
     </div>
   );
+  
+  return (
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4">
+        <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative max-h-[90vh] flex flex-col">
+          {managingOptions ? (
+            <AIOptionsManager onBack={() => setManagingOptions(false)} />
+          ) : (
+            <>
+              <header className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
+                <h2 className="text-xl font-bold">Generate with AI (Step {step} of 2)</h2>
+                <Button type="button" variant="ghost" onClick={handleClose} className="p-1 h-auto" disabled={isProcessing}><Icon name="x" /></Button>
+              </header>
+              <main className="flex-grow p-6 overflow-y-auto">
+                <form id="ai-gen-form" onSubmit={handleSubmit} className="space-y-6 h-full">
+                  {step === 1 ? renderStep1() : renderStep2()}
+                </form>
+              </main>
+              <footer className="flex-shrink-0 flex justify-between items-center p-4 bg-background/50 border-t border-border">
+                {step === 1 ? (
+                  <Button type="button" variant="ghost" onClick={() => setManagingOptions(true)}><Icon name="settings" className="w-4 h-4 mr-2" /> Manage Options</Button>
+                ) : (
+                  <Button type="button" variant="ghost" onClick={() => setStep(1)}><Icon name="chevron-left" className="w-4 h-4 mr-2" /> Back</Button>
+                )}
+                <div className="flex gap-2">
+                    <Button type="button" variant="secondary" onClick={handleClose}>Cancel</Button>
+                    <Button type="submit" form="ai-gen-form" variant="primary" disabled={isProcessing}>
+                        {isProcessing ? <Spinner size="sm" /> : 
+                          step === 1 ? (<>Next <Icon name="chevron-left" className="w-4 h-4 ml-2 rotate-180"/></>) : 
+                                       (<><Icon name="zap" className="w-4 h-4 mr-2" /> Generate Content</>)}
+                    </Button>
+                </div>
+              </footer>
+            </>
+          )}
+        </div>
+      </div>
+      {isTopicModalOpen && topicSuggestions && (
+          <TopicSuggestionModal isOpen={isTopicModalOpen} onClose={() => setIsTopicModalOpen(false)} suggestedTopics={topicSuggestions} onApply={handleApplyTopicSelections}/>
+      )}
+    </>
+  );
 };
-
-export default AIGenerationModal;

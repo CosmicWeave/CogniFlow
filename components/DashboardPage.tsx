@@ -1,13 +1,14 @@
-
 import React, { useMemo } from 'react';
 import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Link from './ui/Link';
 import SeriesListItem from './SeriesListItem';
-import DeckListItem from './DeckListItem';
+// FIX: Changed to named import to match the updated export in DeckListItem.tsx.
+import { DeckListItem } from './DeckListItem';
 import { useStore } from '../store/store';
-import { getEffectiveMasteryLevel } from '../services/srs';
+import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs';
+import { useSettings } from '../hooks/useSettings';
 
 interface DashboardPageProps {
   totalDueQuestions: number;
@@ -23,19 +24,8 @@ interface DashboardPageProps {
   handleGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
   handleGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
   onCancelAIGeneration: () => void;
+  onGenerateAI?: () => void;
 }
-
-const getDueItemsCount = (deck: Deck): number => {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const items = (deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
-                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                  (deck as FlashcardDeck).cards) || [];
-    if (!Array.isArray(items)) {
-        return 0;
-    }
-    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
-};
 
 const DashboardPage: React.FC<DashboardPageProps> = ({
   totalDueQuestions,
@@ -50,8 +40,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   handleGenerateQuestionsForDeck,
   handleGenerateContentForLearningDeck,
   handleGenerateQuestionsForEmptyDecksInSeries,
+  onGenerateAI,
 }) => {
   const { decks, deckSeries } = useStore();
+  const { aiFeaturesEnabled } = useSettings();
 
   const { recentDecks, recentSeries, seriesData } = useMemo(() => {
     const seriesDeckIds = new Set<string>();
@@ -104,14 +96,24 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
     return { recentDecks, recentSeries, seriesData };
   }, [decks, deckSeries, seriesProgress]);
 
+  const showButtons = totalDueQuestions > 0 || (aiFeaturesEnabled && onGenerateAI);
+
   return (
     <div className="space-y-12">
-      {totalDueQuestions > 0 && (
-        <div className="mb-6">
-          <Button onClick={onStartGeneralStudy} variant="primary" className="w-full sm:w-auto text-lg py-3">
-            <Icon name="zap" className="w-5 h-5 mr-2" />
-            Study All Due Items ({totalDueQuestions})
-          </Button>
+      {showButtons && (
+        <div className="mb-6 flex flex-wrap items-center gap-4">
+          {totalDueQuestions > 0 && (
+            <Button onClick={onStartGeneralStudy} variant="primary" className="w-full sm:w-auto text-lg py-3">
+              <Icon name="zap" className="w-5 h-5 mr-2" />
+              Study All Due Items ({totalDueQuestions})
+            </Button>
+          )}
+          {aiFeaturesEnabled && onGenerateAI && (
+            <Button onClick={onGenerateAI} variant="secondary" className="w-full sm:w-auto text-lg py-3">
+              <Icon name="bot" className="w-5 h-5 mr-2" />
+              Generate with AI
+            </Button>
+          )}
         </div>
       )}
 

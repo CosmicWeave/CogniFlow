@@ -15,8 +15,8 @@
  *   the "forgetting curve", providing a dynamic and realistic view of knowledge retention.
  */
 // FIX: Corrected import path for types
-import { Reviewable, ReviewRating } from '../types';
-import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR, AGAIN_INTERVAL_DAYS, HARD_INTERVAL_MULTIPLIER, EASY_BONUS_MULTIPLIER, EASE_FACTOR_MODIFIERS } from '../constants';
+import { Reviewable, ReviewRating, Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types.ts';
+import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR, AGAIN_INTERVAL_DAYS, HARD_INTERVAL_MULTIPLIER, EASY_BONUS_MULTIPLIER, EASE_FACTOR_MODIFIERS } from '../constants.ts';
 
 function addDays(date: Date, days: number): Date {
   const result = new Date(date);
@@ -155,4 +155,16 @@ export const getEffectiveMasteryLevel = (item: Reviewable): number => {
     const decayFactor = Math.pow(0.5, daysSinceLastReview / halfLifeDays);
     
     return storedMastery * decayFactor;
+};
+
+export const getDueItemsCount = (deck: Deck): number => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const items = (deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
+                  (deck as FlashcardDeck).cards) || [];
+    if (!Array.isArray(items)) {
+        return 0;
+    }
+    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
 };

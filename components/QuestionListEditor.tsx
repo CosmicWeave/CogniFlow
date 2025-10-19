@@ -1,28 +1,27 @@
-
-
 import React, { useState, useRef, useEffect } from 'react';
-// FIX: Corrected import path for types
-import { Question } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import type { EditableQuestionParts } from './EditQuestionModal';
-import EditQuestionModal from './EditQuestionModal';
-import ConfirmModal from './ConfirmModal';
-import { getEffectiveMasteryLevel } from '../services/srs';
-import MasteryBar from './ui/MasteryBar';
-import Spinner from './ui/Spinner';
-import { useSettings } from '../hooks/useSettings';
-import { stripHtml } from '../services/utils';
+import { Question, QuizDeck, LearningDeck } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import type { EditableQuestionParts } from './EditQuestionModal.tsx';
+import EditQuestionModal from './EditQuestionModal.tsx';
+import ConfirmModal from './ConfirmModal.tsx';
+import { getEffectiveMasteryLevel } from '../services/srs.ts';
+import MasteryBar from './ui/MasteryBar.tsx';
+import Spinner from './ui/Spinner.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
+import { stripHtml } from '../services/utils.ts';
 
 type NewQuestionData = Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'lapses'>;
 
 interface QuestionListEditorProps {
+  deck: QuizDeck | LearningDeck;
   questions: Question[];
   onQuestionsChange: (newQuestions: Question[]) => void;
   onAddQuestion: (newQuestionData: NewQuestionData) => void;
   onBulkAdd: () => void;
   onGenerateAI?: () => void;
   isGeneratingAI: boolean;
+  onRegenerateQuestion: (deck: QuizDeck | LearningDeck, question: Question) => Promise<void>;
 }
 
 const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean } => {
@@ -52,12 +51,13 @@ const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean }
 };
 
 
-const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQuestionsChange, onAddQuestion, onBulkAdd, onGenerateAI, isGeneratingAI }) => {
+const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions, onQuestionsChange, onAddQuestion, onBulkAdd, onGenerateAI, isGeneratingAI, onRegenerateQuestion }) => {
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
   const [isOpen, setIsOpen] = useState(true);
   const [menuOpenForQuestion, setMenuOpenForQuestion] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { aiFeaturesEnabled } = useSettings();
@@ -125,6 +125,16 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
     setMenuOpenForQuestion(null);
   };
 
+  const handleRegenerate = async (question: Question) => {
+    setMenuOpenForQuestion(null);
+    setRegeneratingId(question.id);
+    try {
+        await onRegenerateQuestion(deck, question);
+    } finally {
+        setRegeneratingId(null);
+    }
+  };
+
   return (
     <div>
       <div className="border-b border-border">
@@ -171,6 +181,9 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                             </div>
                         </div>
                         <div className="flex-shrink-0 relative" ref={menuOpenForQuestion === question.id ? menuRef : null}>
+                           {regeneratingId === question.id ? (
+                                <div className="p-2"><Spinner size="sm" /></div>
+                           ) : (
                             <Button
                                 variant="ghost"
                                 className="p-2 h-auto"
@@ -179,6 +192,7 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                             >
                                 <Icon name="more-vertical" className="w-5 h-5" />
                             </Button>
+                           )}
                             {menuOpenForQuestion === question.id && (
                                 <div
                                     className="absolute right-0 mt-2 w-48 bg-surface rounded-md shadow-lg py-1 z-10 ring-1 ring-black ring-opacity-5 animate-fade-in"
@@ -187,6 +201,10 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ questions, onQu
                                     <button type="button" onClick={(e) => { openEditModal(question, e); setMenuOpenForQuestion(null); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
                                         <Icon name="edit" className="w-4 h-4 mr-3" />
                                         Edit
+                                    </button>
+                                    <button type="button" onClick={() => handleRegenerate(question)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
+                                        <Icon name="zap" className="w-4 h-4 mr-3" />
+                                        Regenerate
                                     </button>
                                     {question.suspended ? (
                                         <button type="button" onClick={() => handleUnsuspendQuestion(question.id)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">

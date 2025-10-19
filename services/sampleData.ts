@@ -1,5 +1,6 @@
 
-import { QuizDeck, DeckType, Question, DeckSeries } from '../types';
+
+import { QuizDeck, DeckType, Question, DeckSeries } from '../types.ts';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
 const createQuestion = (

@@ -1,7 +1,8 @@
 // services/backupService.ts
 import * as db from './db';
 import { parseAndValidateBackupFile } from './importService';
-import { Deck, Folder, DeckSeries, ReviewLog, SessionState, FullBackupData, AIMessage } from '../types';
+// FIX: Imported FlashcardDeck and AIMessage to resolve type errors.
+import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType, FullBackupData, AIMessage, FlashcardDeck, Reviewable, QuizDeck, LearningDeck } from '../types';
 import { getStockholmFilenameTimestamp } from './time';
 
 // FIX: Create a mutable copy of the db module's functions to allow mocking in tests.
@@ -457,7 +458,8 @@ export async function runBackupServiceTests() {
     assertEqual(data.decks.length, 1, 'Should filter out null decks');
     const firstDeck = data.decks[0];
     if (firstDeck && firstDeck.type === 'flashcard') {
-      assertEqual(firstDeck.cards.length, 2, 'Should filter out null cards');
+      // FIX: Cast `firstDeck` to `FlashcardDeck` to access `cards` property.
+      assertEqual((firstDeck as FlashcardDeck).cards.length, 2, 'Should filter out null cards');
     } else {
       throw new Error('Assertion failed: Expected a FlashcardDeck or no deck at all.');
     }

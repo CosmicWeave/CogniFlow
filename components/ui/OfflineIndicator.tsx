@@ -1,6 +1,6 @@
 import React from 'react';
-import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import Icon from './Icon';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus.ts';
+import Icon from './Icon.tsx';
 
 const OfflineIndicator: React.FC = () => {
   const { isOnline } = useOnlineStatus();

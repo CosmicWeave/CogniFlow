@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 // FIX: Corrected import path for types
-import type { Question, QuestionOption, InfoCard } from '../types';
-import Icon from './ui/Icon';
-import MasteryBar from './ui/MasteryBar';
-import { getEffectiveMasteryLevel } from '../services/srs';
-import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer';
-import Button from './ui/Button';
+import type { Question, QuestionOption, InfoCard } from '../types.ts';
+import Icon from './ui/Icon.tsx';
+import MasteryBar from './ui/MasteryBar.tsx';
+import { getEffectiveMasteryLevel } from '../services/srs.ts';
+import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer.tsx';
+import Button from './ui/Button.tsx';
 
 interface QuizQuestionProps {
   question: Question;

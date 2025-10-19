@@ -1,9 +1,9 @@
 import React, { useRef } from 'react';
-import { useStore } from '../store/store';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import Spinner from './ui/Spinner';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useStore } from '../store/store.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import Spinner from './ui/Spinner.tsx';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
 
 interface AIGenerationStatusModalProps {
   isOpen: boolean;

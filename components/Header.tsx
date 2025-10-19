@@ -1,9 +1,9 @@
 import React from 'react';
-import { useRouter } from '../contexts/RouterContext';
-import { Deck } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import Link from './ui/Link';
+import { useRouter } from '../contexts/RouterContext.tsx';
+import { Deck } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import Link from './ui/Link.tsx';
 
 interface HeaderProps {
     onOpenMenu: () => void;
@@ -13,32 +13,57 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activeDeck, isVisible }) => {
-    const { path, navigate } = useRouter();
+    const { path } = useRouter();
+
+    const [pathname, queryString] = path.split('?');
+    const isHomePage = pathname === '/';
+    
+    const isStudySessionPath = (p: string) => {
+        if (p === '/study/general') return true;
+        if (p.startsWith('/decks/')) {
+            const parts = p.split('/');
+            const lastPart = parts[parts.length - 1];
+            return ['study', 'cram', 'study-reversed', 'study-flip'].includes(lastPart);
+        }
+        return false;
+    };
+    const isStudyPage = isStudySessionPath(pathname);
 
     let headerContent;
-    const [pathname] = path.split('?');
 
-    const logoTextSpan = <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300">CogniFlow</span>;
-    const activeDeckId = activeDeck?.id;
-
-    if (pathname.startsWith('/decks/') && pathname.endsWith('/study')) {
-        const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId');
-        const backPath = activeDeckId ? `/decks/${activeDeckId}?${seriesId ? `seriesId=${seriesId}` : ''}` : (seriesId ? `/series/${seriesId}` : '/decks');
-        headerContent = <Button variant="ghost" onClick={() => navigate(backPath)} className="flex items-center space-x-2 -ml-3 min-w-0"><Icon name="chevron-left" /><span className="truncate">{activeDeck?.name || 'Back'}</span></Button>;
-    } else if (pathname.startsWith('/decks/')) {
-        const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId');
-        if (seriesId) {
-            headerContent = <Button variant="ghost" onClick={() => navigate(`/series/${seriesId}`)} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" /><span>Back to Series</span></Button>;
-        } else {
-            headerContent = <Button variant="ghost" onClick={() => navigate('/decks')} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" /><span>All Decks</span></Button>;
-        }
-    } else if (pathname.startsWith('/series/')) {
-        headerContent = <Button variant="ghost" onClick={() => navigate('/series')} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" /><span>All Series</span></Button>;
-    } else if (pathname === '/study/general' || ['/settings', '/instructions/json', '/archive', '/trash', '/decks', '/series', '/progress'].includes(pathname)) {
-        headerContent = <Button variant="ghost" onClick={() => navigate('/')} className="flex items-center space-x-2 -ml-3"><Icon name="chevron-left" />{logoTextSpan}</Button>;
-    } else {
-        // Home page
+    if (isHomePage) {
         headerContent = <Link href="/" className="no-underline"><h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300">CogniFlow</h1></Link>;
+    } else {
+        let backHref = '/'; // Default to home
+        let backButtonText: React.ReactNode = "Back";
+
+        if (isStudyPage) {
+            const deckName = activeDeck?.name || (pathname === '/study/general' ? 'General Study' : 'Back');
+            backButtonText = <span className="truncate">{deckName}</span>;
+            
+            const deckId = pathname.split('/')[2];
+            const params = new URLSearchParams(queryString);
+            const seriesId = params.get('seriesId');
+            
+            // From a study session, always go back to the deck/series page
+            backHref = seriesId ? `/series/${seriesId}` : `/decks/${deckId}`;
+            
+        } else if (pathname.startsWith('/decks/')) {
+            const params = new URLSearchParams(queryString);
+            const seriesId = params.get('seriesId');
+            backHref = seriesId ? `/series/${seriesId}` : '/decks';
+        } else if (pathname.startsWith('/series/')) {
+            backHref = '/series';
+        } else if (['/decks', '/series', '/settings', '/archive', '/trash', '/progress', '/instructions/json'].includes(pathname)) {
+            backHref = '/';
+        }
+
+        headerContent = (
+            <Link href={backHref} passAs={Button} variant="ghost" className="flex items-center space-x-2 -ml-3 min-w-0">
+                <Icon name="chevron-left" />
+                {backButtonText}
+            </Link>
+        );
     }
 
     return (

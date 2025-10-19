@@ -1,11 +1,10 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Deck, Folder, LearningDeck, QuizDeck } from '../types';
-import DeckListItem from './DeckListItem';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
+import { Deck, Folder, LearningDeck, QuizDeck } from '../types.ts';
+// FIX: Changed to named import to match the updated export in DeckListItem.tsx.
+import { DeckListItem } from './DeckListItem.tsx';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
 
 interface FolderViewProps {
   folder: Folder;
@@ -155,7 +154,6 @@ const FolderView: React.FC<FolderViewProps> = ({ folder, decks, isOpen, onToggle
                 onUpdateDeck={onUpdateDeck}
                 onDeleteDeck={onDeleteDeck}
                 openConfirmModal={openConfirmModal}
-                // FIX: Renamed props to match the DeckListItem component's expected prop names.
                 handleGenerateQuestionsForDeck={onGenerateQuestionsForDeck}
                 handleGenerateContentForLearningDeck={onGenerateContentForLearningDeck}
               />

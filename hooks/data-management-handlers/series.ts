@@ -1,15 +1,14 @@
-
 import { useCallback, useMemo } from 'react';
-// FIX: Imported 'LearningDeck' to resolve 'Cannot find name' error.
-import { Deck, DeckSeries, QuizDeck, DeckType, LearningDeck } from '../../types';
-import * as db from '../../services/db';
-import { useStore } from '../../store/store';
-import { createSampleSeries } from '../../services/sampleData';
-import { useToast } from '../useToast';
-import { useRouter } from '../../contexts/RouterContext';
+import { Deck, DeckSeries, QuizDeck, DeckType, LearningDeck } from '../../types.ts';
+import * as db from '../../services/db.ts';
+import { useStore } from '../../store/store.ts';
+import { createSampleSeries } from '../../services/sampleData.ts';
+import { useToast } from '../useToast.ts';
+import { useRouter } from '../../contexts/RouterContext.tsx';
+import * as exportService from '../../services/exportService.ts';
 
 export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDeck }: any) => {
-  const { dispatch } = useStore();
+  const { dispatch, decks: allDecks } = useStore();
   const { addToast } = useToast();
   const { navigate } = useRouter();
 
@@ -97,93 +96,108 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
 
 
   const handleSaveSeries = useCallback(async (data: { id: string | null; name: string; description: string; scaffold?: any; }) => {
-    if (data.id) {
+    if (data.id) { // Existing series
       const seriesToUpdate = useStore.getState().deckSeries.find(s => s.id === data.id);
       if (seriesToUpdate) {
-        handleUpdateSeries({ ...seriesToUpdate, name: data.name, description: data.description }, { toastMessage: "Series updated." });
+        handleUpdateSeries({ ...seriesToUpdate, name: data.name, description: data.description });
       }
-    } else {
-      if (data.scaffold) {
-          const { seriesName, seriesDescription, levels: levelsData } = data.scaffold;
-          const allNewDecks: (QuizDeck | LearningDeck)[] = [];
-          const newLevels = (levelsData || []).map((levelData: any) => {
-              const decksForLevel = (levelData.decks || []).map((d: any) => ({
-                  id: crypto.randomUUID(), name: d.name, description: d.description, 
-                  type: DeckType.Quiz, // Scaffolds are always Quiz for now
-                  questions: [],
-                  suggestedQuestionCount: d.suggestedQuestionCount,
-              }));
-              allNewDecks.push(...decksForLevel);
-              return { title: levelData.title, deckIds: decksForLevel.map(deck => deck.id) };
-          });
-          const newSeries: DeckSeries = {
-              id: crypto.randomUUID(), type: 'series', name: seriesName, description: seriesDescription,
-              levels: newLevels, archived: false, createdAt: new Date().toISOString(),
-          };
-          handleAddSeriesWithDecks(newSeries, allNewDecks);
-      } else {
-          const newSeries: DeckSeries = {
-            id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description,
-            levels: [], archived: false, createdAt: new Date().toISOString(),
-          };
-          dispatch({ type: 'ADD_SERIES', payload: newSeries });
-          try {
-            await db.addDeckSeries([newSeries]);
-            addToast(`Series "${newSeries.name}" created.`, 'success');
-            navigate(`/series/${newSeries.id}?edit=true`);
-            triggerSync({ isManual: false });
-          } catch(e) {
-            addToast("Error creating series.", "error");
-          }
-      }
-    }
-  }, [dispatch, addToast, navigate, triggerSync, handleUpdateSeries, handleAddSeriesWithDecks]);
-  
-  const handleAddDeckToSeries = useCallback(async (seriesId: string, newDeck: QuizDeck) => {
-    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
-    if (!series) return;
-    
-    const updatedLevels = [...(series.levels || [])];
-    if (updatedLevels.length === 0) {
-        updatedLevels.push({ title: 'Decks', deckIds: [] });
-    }
-    updatedLevels[updatedLevels.length - 1].deckIds.push(newDeck.id);
+    } else { // New series
+        if (data.scaffold) {
+            const { seriesName, seriesDescription, levels: levelsData } = data.scaffold;
+            const allNewDecks: Deck[] = [];
+            const newLevels = (levelsData || []).map((levelData: any) => {
+                const decksForLevel = (levelData.decks || []).map((d: any): Deck | null => {
+                    const newDeckBase = { id: crypto.randomUUID(), name: d.name, description: d.description };
+                    if (d.type === DeckType.Quiz) return { ...newDeckBase, type: DeckType.Quiz, questions: d.questions || [] };
+                    if (d.type === DeckType.Learning) return { ...newDeckBase, type: DeckType.Learning, questions: d.questions || [], infoCards: d.infoCards || [] };
+                    if (d.type === DeckType.Flashcard) return { ...newDeckBase, type: DeckType.Flashcard, cards: d.cards || [] };
+                    return null;
+                }).filter((d: Deck | null): d is Deck => d !== null);
+                allNewDecks.push(...decksForLevel);
+                return { title: levelData.title, deckIds: decksForLevel.map(deck => deck.id) };
+            });
 
-    const updatedSeries = { ...series, levels: updatedLevels };
-    
-    await handleAddDecks([newDeck]);
-    await handleUpdateSeries(updatedSeries, { toastMessage: `Deck "${newDeck.name}" added to series.`});
-
-  }, [handleAddDecks, handleUpdateSeries]);
-
-  const updateLastOpenedSeries = useCallback((seriesId: string) => {
-    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
-    if (series) {
-        const lastOpened = new Date().toISOString();
-        if (series.lastOpened !== lastOpened) {
-            handleUpdateSeries({ ...series, lastOpened }, { silent: true });
+            const newSeries: DeckSeries = {
+                id: crypto.randomUUID(), type: 'series', name: seriesName, description: seriesDescription,
+                levels: newLevels, archived: false, createdAt: new Date().toISOString(),
+            };
+            await handleAddSeriesWithDecks(newSeries, allNewDecks);
+        } else {
+            const newSeries: DeckSeries = {
+                id: crypto.randomUUID(), type: 'series', name: data.name, description: data.description,
+                levels: [], createdAt: new Date().toISOString(), archived: false
+            };
+            dispatch({ type: 'ADD_SERIES', payload: newSeries });
+            try {
+                await db.addDeckSeries([newSeries]);
+                addToast(`Series "${newSeries.name}" created.`, 'success');
+                navigate(`/series/${newSeries.id}`);
+            } catch (e) {
+                addToast('Error saving new series.', 'error');
+            }
         }
     }
-  }, [handleUpdateSeries]);
-  
+  }, [dispatch, addToast, navigate, handleUpdateSeries, handleAddSeriesWithDecks]);
+
   const handleCreateSampleSeries = useCallback(() => {
     const { series, decks } = createSampleSeries();
     handleAddSeriesWithDecks(series, decks);
   }, [handleAddSeriesWithDecks]);
+
+  const updateLastOpenedSeries = useCallback((seriesId: string) => {
+    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+    if (series) {
+      const now = new Date();
+      const lastOpenedDate = new Date(series.lastOpened || 0);
+      if (now.getTime() - lastOpenedDate.getTime() > 5000) {
+        handleUpdateSeries({ ...series, lastOpened: now.toISOString() }, { silent: true });
+      }
+    }
+  }, [handleUpdateSeries]);
   
+  const handleAddDeckToSeries = useCallback(async (seriesId: string, newDeck: QuizDeck) => {
+      const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+      if (!series) {
+          addToast("Could not find the series to add the deck to.", "error");
+          return;
+      }
+      await handleAddDecks([newDeck]);
+      const lastLevel = series.levels[series.levels.length - 1];
+      if (lastLevel) {
+          const updatedSeries = {
+              ...series,
+              levels: [
+                  ...series.levels.slice(0, -1),
+                  { ...lastLevel, deckIds: [...lastLevel.deckIds, newDeck.id] }
+              ]
+          };
+          handleUpdateSeries(updatedSeries);
+      }
+  }, [handleAddDecks, handleUpdateSeries, addToast]);
+
+  const handleExportSeries = useCallback((series: DeckSeries) => {
+    try {
+        exportService.exportSeries(series, allDecks);
+        addToast(`Series "${series.name}" exported.`, 'success');
+    } catch(e) {
+        addToast(`Failed to export series: ${(e as Error).message}`, 'error');
+    }
+  }, [allDecks, addToast]);
+
+
   return useMemo(() => ({
     handleAddSeriesWithDecks,
     handleUpdateSeries,
     handleDeleteSeries,
-    handleSaveSeries,
     handleRestoreSeries,
     handleDeleteSeriesPermanently,
-    handleAddDeckToSeries,
-    updateLastOpenedSeries,
+    handleSaveSeries,
     handleCreateSampleSeries,
+    updateLastOpenedSeries,
+    handleAddDeckToSeries,
+    handleExportSeries,
   }), [
-    handleAddSeriesWithDecks, handleUpdateSeries, handleDeleteSeries, handleSaveSeries,
-    handleRestoreSeries, handleDeleteSeriesPermanently, handleAddDeckToSeries,
-    updateLastOpenedSeries, handleCreateSampleSeries
+    handleAddSeriesWithDecks, handleUpdateSeries, handleDeleteSeries, handleRestoreSeries, handleDeleteSeriesPermanently,
+    handleSaveSeries, handleCreateSampleSeries, updateLastOpenedSeries, handleAddDeckToSeries, handleExportSeries,
   ]);
 };

@@ -1,10 +1,11 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { DeckSeries } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { DeckSeries } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
 
 interface EditSeriesModalProps {
   series: DeckSeries | null;

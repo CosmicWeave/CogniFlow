@@ -1,11 +1,9 @@
-
-
 import React, { useRef, useEffect } from 'react';
-import Icon from './ui/Icon';
-import Button from './ui/Button';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import Link from './ui/Link';
-import { useSettings } from '../hooks/useSettings';
+import Icon from './ui/Icon.tsx';
+import Button from './ui/Button.tsx';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
+import Link from './ui/Link.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
 
 interface SidebarProps {
   isOpen: boolean;

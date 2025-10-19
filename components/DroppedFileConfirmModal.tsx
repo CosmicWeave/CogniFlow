@@ -1,11 +1,12 @@
 
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 export interface DroppedFileAnalysis {
-  type: 'backup' | 'quiz_series' | 'quiz' | 'flashcard';
+  type: 'backup' | 'series' | 'quiz' | 'flashcard';
   data: any;
   fileName: string;
 }
@@ -44,7 +45,7 @@ const DroppedFileConfirmModal: React.FC<DroppedFileConfirmModalProps> = ({
           message: `You dropped the backup file "${analysis.fileName}". Restoring will merge its content with your current data. Do you want to continue?`,
           confirmText: 'Restore',
         };
-      case 'quiz_series':
+      case 'series':
         return {
           title: 'Import Series',
           message: `You dropped a file containing the series "${analysis.data.seriesName}". Would you like to import it?`,

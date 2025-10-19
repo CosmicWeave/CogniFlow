@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck, Card, Question, LearningDeck } from '../types';
 import DeckList from './DeckList';
@@ -8,16 +6,7 @@ import Icon from './ui/Icon';
 import DeckSortControl, { SortPreference } from './ui/DeckSortControl';
 import { useStore, useStandaloneDecks } from '../store/store';
 import { stripHtml } from '../services/utils';
-
-const getDueItemsCount = (deck: Deck): number => {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    const items = (deck.type === 'quiz' || deck.type === 'learning' ? (deck as QuizDeck | LearningDeck).questions : (deck as FlashcardDeck).cards) || [];
-    if (!Array.isArray(items)) {
-        return 0;
-    }
-    return items.filter(item => !item.suspended && new Date(item.dueDate) <= today).length;
-};
+import { getDueItemsCount } from '../services/srs';
 
 interface AllDecksPageProps {
   sessionsToResume: Set<string>;

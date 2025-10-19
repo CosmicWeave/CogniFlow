@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo, useRef } from 'react';
-import { Deck } from '../types';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import { useToast } from '../hooks/useToast';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { Deck } from '../types.ts';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useFocusTrap } from '../hooks/useFocusTrap.ts';
 
 interface ResetProgressModalProps {
   isOpen: boolean;
@@ -15,27 +14,25 @@ interface ResetProgressModalProps {
 
 const ResetProgressModal: React.FC<ResetProgressModalProps> = ({ isOpen, onClose, onReset, decks }) => {
   const [selectedDeckId, setSelectedDeckId] = useState<string>('');
-  const [confirmationText, setConfirmationText] = useState('');
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, isOpen);
 
   const selectedDeck = useMemo(() => decks.find(d => d.id === selectedDeckId), [decks, selectedDeckId]);
   
-  const isConfirmationValid = selectedDeck ? confirmationText === selectedDeck.name : false;
+  const isConfirmationValid = !!selectedDeck;
 
   const handleReset = () => {
-    if (!isConfirmationValid || !selectedDeck) {
-      addToast("Confirmation text does not match.", "error");
+    if (!isConfirmationValid) {
+      addToast("Please select a deck to reset.", "error");
       return;
     };
-    onReset(selectedDeck.id);
+    onReset(selectedDeckId);
     onClose();
   };
 
   const handleClose = () => {
     setSelectedDeckId('');
-    setConfirmationText('');
     onClose();
   };
   
@@ -61,7 +58,6 @@ const ResetProgressModal: React.FC<ResetProgressModalProps> = ({ isOpen, onClose
                 value={selectedDeckId}
                 onChange={e => {
                   setSelectedDeckId(e.target.value);
-                  setConfirmationText('');
                 }}
                 className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
               >
@@ -71,21 +67,6 @@ const ResetProgressModal: React.FC<ResetProgressModalProps> = ({ isOpen, onClose
                 ))}
               </select>
             </div>
-            
-            {selectedDeck && (
-              <div className="animate-fade-in">
-                <label htmlFor="confirm-text" className="block text-sm font-medium text-text-muted mb-1">
-                  To confirm, type "<strong className="text-text">{selectedDeck.name}</strong>" below:
-                </label>
-                <input
-                  id="confirm-text"
-                  type="text"
-                  value={confirmationText}
-                  onChange={e => setConfirmationText(e.target.value)}
-                  className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                />
-              </div>
-            )}
           </div>
 
           <div className="flex justify-end p-4 bg-background/50 border-t border-border">

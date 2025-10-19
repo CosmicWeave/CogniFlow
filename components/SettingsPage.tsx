@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import Button from './ui/Button';
-import Icon from './ui/Icon';
-import ToggleSwitch from './ui/ToggleSwitch';
-import { useSettings } from '../hooks/useSettings';
-import { useTheme } from '../contexts/ThemeContext';
-import ThemeToggle from './ui/ThemeToggle';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/Accordion';
-import { useToast } from '../hooks/useToast';
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
+import ToggleSwitch from './ui/ToggleSwitch.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
+import { useTheme } from '../contexts/ThemeContext.tsx';
+import ThemeToggle from './ui/ThemeToggle.tsx';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/Accordion.tsx';
+import { useToast } from '../hooks/useToast.ts';
 
 interface SettingsPageProps {
   onExport: () => void;

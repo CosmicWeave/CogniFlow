@@ -1,7 +1,7 @@
 // FIX: Corrected import path for types
-import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData } from '../types';
-import { broadcastDataChange } from './syncService';
-import { getStockholmFilenameTimestamp } from './time';
+import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, AppSettings } from '../types.ts';
+import { broadcastDataChange } from './syncService.ts';
+import { getStockholmFilenameTimestamp } from './time.ts';
 
 const DB_NAME = 'CogniFlowDB';
 const DB_VERSION = 8; // Incremented version
@@ -692,6 +692,38 @@ export async function clearReviews(): Promise<void> {
     });
 }
 
+export async function deleteReviewsForDecks(deckIds: string[]): Promise<void> {
+    if (deckIds.length === 0) return;
+    const db = await initDB();
+    return new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(REVIEW_STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(REVIEW_STORE_NAME);
+        const index = store.index('deckId');
+        const deckIdSet = new Set(deckIds);
+        
+        const request = index.openCursor();
+        request.onsuccess = () => {
+            const cursor = request.result;
+            if (cursor) {
+                if (deckIdSet.has(cursor.value.deckId)) {
+                    cursor.delete();
+                }
+                cursor.continue();
+            }
+        };
+
+        transaction.oncomplete = () => {
+            dbLogger.log(`Deleted reviews for ${deckIds.length} deck(s).`);
+            resolve();
+        };
+        transaction.onerror = () => {
+            dbLogger.error("Transaction error deleting reviews for decks", transaction.error);
+            reject(new Error("Failed to delete review logs for specified decks."));
+        };
+    });
+}
+
+
 export async function bulkAddReviews(logs: ReviewLog[]): Promise<void> {
     if (logs.length === 0) return;
     const db = await initDB();
@@ -705,7 +737,7 @@ export async function bulkAddReviews(logs: ReviewLog[]): Promise<void> {
         };
 
         logs.forEach(log => {
-            const { id, ...logWithoutId } = log;
+            const { id, ...logWithoutId } = log; // Reviews have auto-incrementing key
             store.add(logWithoutId);
         });
     });
@@ -858,16 +890,46 @@ export async function exportAllData(): Promise<string | null> {
     const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
     const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
     const aiChatHistory = await getAIChatHistory();
+    
+    // Gather settings from localStorage
+    const settings: AppSettings = {};
+    const keys: (keyof AppSettings)[] = ['themeId', 'disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'backupApiKey', 'syncOnCellular'];
+    const lsKeys: Record<keyof AppSettings, string> = {
+        themeId: 'cogniflow-themeId',
+        disableAnimations: 'cogniflow-disableAnimations',
+        hapticsEnabled: 'cogniflow-hapticsEnabled',
+        aiFeaturesEnabled: 'cogniflow-aiFeaturesEnabled',
+        backupEnabled: 'cogniflow-backupEnabled',
+        backupApiKey: 'cogniflow-backupApiKey',
+        syncOnCellular: 'cogniflow-syncOnCellular',
+    };
+    keys.forEach(key => {
+        const lsKey = lsKeys[key];
+        const value = localStorage.getItem(lsKey);
+        if (value !== null) {
+            try {
+                // some are booleans stored as strings
+                if (['disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'syncOnCellular'].includes(key)) {
+                    (settings as any)[key] = JSON.parse(value);
+                } else {
+                    (settings as any)[key] = value;
+                }
+            } catch (e) {
+                (settings as any)[key] = value;
+            }
+        }
+    });
 
-    const exportData: any = {
-        version: 6,
+    const exportData: FullBackupData = {
+        version: 7,
         decks,
         folders,
         deckSeries,
         reviews,
         sessions,
         aiChatHistory,
-        seriesProgress
+        seriesProgress,
+        settings,
     };
 
     if (aiOptions) {

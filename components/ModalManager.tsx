@@ -1,27 +1,27 @@
-
 import React from 'react';
-import { useModal } from '../contexts/ModalContext';
-import { useStore } from '../store/store';
-import { useData } from '../contexts/DataManagementContext';
-import { GoogleDriveFile } from '../types';
-import { useRouter } from '../contexts/RouterContext';
+import { useModal } from '../contexts/ModalContext.tsx';
+import { useStore } from '../store/store.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import { GoogleDriveFile } from '../types.ts';
+import { useRouter } from '../contexts/RouterContext.tsx';
 
 // Import all modals
-import ImportModal from './ImportModal';
-import RestoreModal from './RestoreModal';
-import ResetProgressModal from './ResetProgressModal';
-import ConfirmModal from './ConfirmModal';
-import FolderModal from './FolderModal';
-import EditSeriesModal from './EditSeriesModal';
-import AIGenerationModal from './AIGenerationModal';
-import AIGenerationStatusModal from './AIGenerationStatusModal';
-import ServerBackupModal from './ServerBackupModal';
-import DroppedFileConfirmModal from './DroppedFileConfirmModal';
-import AIChatModal from './AIChatModal';
-import RestoreFromDriveModal from './RestoreFromDriveModal';
-import MergeConflictModal from './MergeConflictModal';
-import CommandPalette from './CommandPalette';
-import AddDeckToSeriesModal from './AddDeckToSeriesModal';
+import ImportModal from './ImportModal.tsx';
+import RestoreModal from './RestoreModal.tsx';
+import ResetProgressModal from './ResetProgressModal.tsx';
+import ConfirmModal from './ConfirmModal.tsx';
+import FolderModal from './FolderModal.tsx';
+import EditSeriesModal from './EditSeriesModal.tsx';
+import { AIGenerationModal } from './AIGenerationModal.tsx';
+import AIGenerationStatusModal from './AIGenerationStatusModal.tsx';
+import ServerBackupModal from './ServerBackupModal.tsx';
+import DroppedFileConfirmModal from './DroppedFileConfirmModal.tsx';
+import AIChatModal from './AIChatModal.tsx';
+import RestoreFromDriveModal from './RestoreFromDriveModal.tsx';
+import MergeConflictModal from './MergeConflictModal.tsx';
+import CommandPalette from './CommandPalette.tsx';
+import AddDeckToSeriesModal from './AddDeckToSeriesModal.tsx';
+import AIResponseFixModal from './AIResponseFixModal.tsx';
 
 interface ModalManagerProps {
     driveFiles: GoogleDriveFile[];
@@ -42,7 +42,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
   return (
     <>
       {modalType === 'import' && <ImportModal isOpen={true} onClose={closeModal} onAddDecks={dataHandlers.handleAddDecks} onAddSeriesWithDecks={dataHandlers.handleAddSeriesWithDecks} />}
-      {modalType === 'restore' && <RestoreModal isOpen={true} onClose={closeModal} onRestore={dataHandlers.handleRestoreData} />}
+      {modalType === 'restore' && <RestoreModal isOpen={true} onClose={closeModal} onCompare={dataHandlers.handleCompareBackup} onRestoreSelected={dataHandlers.handleRestoreSelectedItems} file={payload.file} onFullRestore={dataHandlers.onRestoreData} openConfirmModal={(p: any) => openModal('confirm', p)} />}
       {modalType === 'resetProgress' && <ResetProgressModal isOpen={true} onClose={closeModal} onReset={dataHandlers.handleResetDeckProgress} decks={decks} />}
       {modalType === 'confirm' && <ConfirmModal isOpen={true} onClose={closeModal} {...payload} />}
       {modalType === 'folder' && <FolderModal isOpen={true} onClose={closeModal} onSave={dataHandlers.handleSaveFolder} folder={payload.folder === 'new' ? null : payload.folder} />}
@@ -66,6 +66,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
             { id: 'progress', label: 'View Progress', icon: 'trending-up', action: () => navigate('/progress') },
           ]}
       />}
+      {modalType === 'aiResponseFix' && <AIResponseFixModal isOpen={true} onClose={closeModal} {...payload} />}
     </>
   );
 };
