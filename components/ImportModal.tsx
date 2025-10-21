@@ -1,13 +1,13 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel } from '../types.ts';
+import { Deck, DeckType, FlashcardDeck, QuizDeck, DeckSeries, SeriesLevel } from '../types';
 import { parseAndValidateImportData, createCardsFromImport, createQuestionsFromImport } from '../services/importService.ts';
 import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService.ts';
-import Button from './ui/Button.tsx';
-import Icon from './ui/Icon.tsx';
+import Button from './ui/Button';
+import Icon from './ui/Icon';
 import { useToast } from '../hooks/useToast.ts';
 import { useFocusTrap } from '../hooks/useFocusTrap.ts';
-import Spinner from './ui/Spinner.tsx';
-import Link from './ui/Link.tsx';
+import Spinner from './ui/Spinner';
+import Link from './ui/Link';
 import { getStockholmDateString } from '../services/time.ts';
 
 interface ImportModalProps {

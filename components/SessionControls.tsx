@@ -45,10 +45,10 @@ const SessionControls: React.FC<SessionControlsProps> = ({
                 ) : showRatingButtons ? (
                     <div className="space-y-4 animate-fade-in w-full">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <Button onClick={() => onReview(ReviewRating.Again)} className="bg-red-600 hover:bg-red-700 focus:ring-red-500 py-3 text-base text-white" disabled={isReviewing}>Again</Button>
-                            <Button onClick={() => onReview(ReviewRating.Hard)} className="bg-orange-500 hover:bg-orange-600 focus:ring-orange-400 py-3 text-base text-white" disabled={isReviewing}>Hard</Button>
-                            <Button onClick={() => onReview(ReviewRating.Good)} className="bg-green-600 hover:bg-green-700 focus:ring-green-500 py-3 text-base text-white" disabled={isReviewing}>Good</Button>
-                            <Button onClick={() => onReview(ReviewRating.Easy)} className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 py-3 text-base text-white" disabled={isReviewing}>Easy</Button>
+                            <Button onClick={() => onReview(ReviewRating.Again)} className="bg-red-600 hover:bg-red-700 focus:ring-red-500 py-3 text-base text-white" disabled={isReviewing}>Forgot</Button>
+                            <Button onClick={() => onReview(ReviewRating.Hard)} className="bg-orange-500 hover:bg-orange-600 focus:ring-orange-400 py-3 text-base text-white" disabled={isReviewing}>Struggled</Button>
+                            <Button onClick={() => onReview(ReviewRating.Good)} className="bg-green-600 hover:bg-green-700 focus:ring-green-500 py-3 text-base text-white" disabled={isReviewing}>Knew It</Button>
+                            <Button onClick={() => onReview(ReviewRating.Easy)} className="bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 py-3 text-base text-white" disabled={isReviewing}>Mastered</Button>
                         </div>
                         {!isCramSession && (
                             <div className="text-center">

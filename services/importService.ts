@@ -1,7 +1,7 @@
 // services/importService.ts
 
 // FIX: Corrected import path for types
-import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck, FullBackupData, LearningDeck } from '../types.ts';
+import { ImportedCard, Card, ImportedQuestion, Question, Deck, DeckType, Folder, DeckSeries, ImportedQuizDeck, SeriesLevel, FlashcardDeck, QuizDeck, FullBackupData, LearningDeck } from '../types';
 import { INITIAL_EASE_FACTOR } from '../constants.ts';
 import { validate } from './jsonValidator.ts';
 import { getStockholmDateString } from './time.ts';

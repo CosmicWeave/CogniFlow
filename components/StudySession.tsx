@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // FIX: Corrected import path for types
-import { Card, Question, ReviewRating, Deck, Reviewable, QuizDeck, LearningDeck, InfoCard, SessionState, DeckType, FlashcardDeck } from '../types.ts';
+import { Card, Question, ReviewRating, Deck, Reviewable, QuizDeck, LearningDeck, InfoCard, SessionState, DeckType, FlashcardDeck } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs.ts';
 import { saveSessionState, deleteSessionState } from '../services/db.ts';
 import Flashcard from './Flashcard.tsx';
@@ -109,7 +109,27 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const isQuiz = displayedItem && 'questionText' in displayedItem;
     const isInfoCard = displayedItem && 'content' in displayedItem && !('front' in displayedItem);
     const isAnswered = selectedAnswerId !== null;
-    const originalDeckName = displayedItem && 'originalDeckName' in displayedItem ? (displayedItem as any).originalDeckName : undefined;
+
+    const { title, subtitle, titleLink } = useMemo(() => {
+        const itemDeckName = displayedItem && 'originalDeckName' in displayedItem ? (displayedItem as any).originalDeckName : undefined;
+        const itemDeckId = displayedItem && 'originalDeckId' in displayedItem ? (displayedItem as any).originalDeckId : deck.id;
+        const itemSeriesName = displayedItem && 'originalSeriesName' in displayedItem ? (displayedItem as any).originalSeriesName : undefined;
+        const itemSeriesId = displayedItem && 'originalSeriesId' in displayedItem ? (displayedItem as any).originalSeriesId : undefined;
+
+        if (deck.id === 'general-study-deck') {
+            const title = itemSeriesName || itemDeckName || "General Study";
+            const titleLink = itemSeriesId ? `/series/${itemSeriesId}` : `/decks/${itemDeckId}`;
+            const subtitle = itemSeriesName ? itemDeckName : undefined;
+            return { title, subtitle, titleLink };
+        } else {
+            // Regular session
+            const title = deck.name;
+            const titleLink = `/decks/${deck.id}${seriesId ? `?seriesId=${seriesId}` : ''}`;
+            // subtitle is handled by the `series` prop check below, so we can leave it undefined here.
+            return { title, subtitle: undefined, titleLink };
+        }
+    }, [displayedItem, deck.id, deck.name, seriesId, series]);
+
 
     const nextDeckId = useMemo(() => {
         if (!seriesId || itemsCompleted < totalSessionItems) return null;
@@ -194,7 +214,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             await onItemReviewed(originalDeckId, updatedItem, null, seriesId);
             addToast("Item suspended.", "info");
         } catch (error) {
-            console.error("Failed to save suspended item:", error);
+            console.error("Failed to suspend item:", error);
             addToast("Failed to suspend item.", "error");
         } finally {
             setSessionQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
@@ -207,8 +227,18 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     }, [isCurrent]);
 
     const handleSelectAnswer = useCallback((optionId: string) => {
-        if (isCurrent && !isAnswered) setSelectedAnswerId(optionId);
-    }, [isCurrent, isAnswered]);
+        if (isCurrent && !isAnswered) {
+            setSelectedAnswerId(optionId);
+            setSessionQueue(prevQueue => {
+                const newQueue = [...prevQueue];
+                const currentItem = newQueue[currentIndex];
+                if (currentItem && 'questionText' in currentItem) {
+                    newQueue[currentIndex] = { ...currentItem, userSelectedAnswerId: optionId };
+                }
+                return newQueue;
+            });
+        }
+    }, [isCurrent, isAnswered, currentIndex, setSessionQueue]);
 
     const handleReadInfoCard = useCallback(() => {
         if (isCurrent && isInfoCard) {
@@ -294,7 +324,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             </div>
 
             <div className="text-center mt-4 mb-2 px-4">
-                {series && (
+                {deck.id !== 'general-study-deck' && series && (
                     <div className="mb-1">
                         <span className="text-xs text-text-muted mr-1">in</span>
                         <Link href={`/series/${series.id}`} className="text-xs font-semibold text-text-muted hover:underline break-words">
@@ -302,14 +332,14 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                         </Link>
                     </div>
                 )}
-                <Link href={`/decks/${deck.id}${seriesId ? `?seriesId=${seriesId}` : ''}`} className="text-lg font-bold text-text hover:underline break-words">
-                    {deck.name}
+                <Link href={titleLink} className="text-lg font-bold text-text hover:underline break-words">
+                    {title}
                 </Link>
             </div>
 
             <div className="flex-grow flex items-center justify-center pb-4">
                 <div className="w-full">
-                    {originalDeckName && <p className="text-center text-xs mb-2 text-text-muted uppercase tracking-wider font-semibold">{originalDeckName}</p>}
+                    {subtitle && <p className="text-center text-xs mb-2 text-text-muted uppercase tracking-wider font-semibold">{subtitle}</p>}
                     
                     {isInfoCard ? (
                         <InfoCardDisplay infoCard={displayedItem as InfoCard} />
@@ -317,7 +347,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                         <QuizQuestion
                             key={displayedItem!.id}
                             question={displayedItem as Question}
-                            selectedAnswerId={selectedAnswerId}
+                            selectedAnswerId={isCurrent ? selectedAnswerId : (displayedItem as Question).userSelectedAnswerId || null}
                             onSelectAnswer={handleSelectAnswer}
                             onShowInfo={isLearningDeck ? handleShowInfo : undefined}
                         />

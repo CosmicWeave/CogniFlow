@@ -49,10 +49,10 @@ const SessionSummary: React.FC<SessionSummaryProps> = ({ deckId, seriesId, revie
             <div className="mt-8 max-w-sm mx-auto bg-surface p-4 rounded-lg border border-border">
                 <h3 className="font-semibold text-lg mb-3">Session Summary</h3>
                 <div className="flex justify-around text-center">
-                    <div><p className="text-2xl font-bold text-red-500">{summary[ReviewRating.Again] || 0}</p><p className="text-xs text-text-muted">Again</p></div>
-                    <div><p className="text-2xl font-bold text-orange-500">{summary[ReviewRating.Hard] || 0}</p><p className="text-xs text-text-muted">Hard</p></div>
-                    <div><p className="text-2xl font-bold text-green-500">{summary[ReviewRating.Good] || 0}</p><p className="text-xs text-text-muted">Good</p></div>
-                    <div><p className="text-2xl font-bold text-blue-500">{summary[ReviewRating.Easy] || 0}</p><p className="text-xs text-text-muted">Easy</p></div>
+                    <div><p className="text-2xl font-bold text-red-500">{summary[ReviewRating.Again] || 0}</p><p className="text-xs text-text-muted">Forgot</p></div>
+                    <div><p className="text-2xl font-bold text-orange-500">{summary[ReviewRating.Hard] || 0}</p><p className="text-xs text-text-muted">Struggled</p></div>
+                    <div><p className="text-2xl font-bold text-green-500">{summary[ReviewRating.Good] || 0}</p><p className="text-xs text-text-muted">Knew It</p></div>
+                    <div><p className="text-2xl font-bold text-blue-500">{summary[ReviewRating.Easy] || 0}</p><p className="text-xs text-text-muted">Mastered</p></div>
                 </div>
                 <div className="mt-4 text-sm">
                     <p>Average Mastery Change: <strong className={avgMasteryChange >= 0 ? 'text-green-500' : 'text-red-500'}>{avgMasteryChange >= 0 ? '+' : ''}{avgMasteryChange.toFixed(1)}%</strong></p>

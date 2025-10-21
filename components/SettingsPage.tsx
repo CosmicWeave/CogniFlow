@@ -7,6 +7,8 @@ import { useTheme } from '../contexts/ThemeContext.tsx';
 import ThemeToggle from './ui/ThemeToggle.tsx';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/Accordion.tsx';
 import { useToast } from '../hooks/useToast.ts';
+import { getSyncLog, clearSyncLog } from '../services/syncLogService.ts';
+import { SyncLogEntry } from '../types';
 
 interface SettingsPageProps {
   onExport: () => void;
@@ -33,6 +35,16 @@ interface SettingsPageProps {
   onClearCdnCache: () => void;
   onRevertLastFetch: () => void;
 }
+
+const getLogIcon = (type: SyncLogEntry['type']) => {
+    switch (type) {
+        case 'success': return <Icon name="check-circle" className="w-4 h-4 text-green-500" />;
+        case 'info': return <Icon name="info" className="w-4 h-4 text-blue-500" />;
+        case 'warning': return <Icon name="zap" className="w-4 h-4 text-yellow-500" />;
+        case 'error': return <Icon name="x-circle" className="w-4 h-4 text-red-500" />;
+    }
+};
+
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   onExport,
@@ -62,13 +74,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const settings = useSettings();
   const { themeId, setThemeById } = useTheme();
   const [hasRevertBackup, setHasRevertBackup] = useState(false);
+  const [syncLog, setSyncLog] = useState<SyncLogEntry[]>([]);
   const { addToast } = useToast();
   
   useEffect(() => {
     if (localStorage.getItem('cogniflow-pre-fetch-backup')) {
         setHasRevertBackup(true);
     }
+    setSyncLog(getSyncLog());
   }, []);
+
+  const handleClearLog = () => {
+    clearSyncLog();
+    setSyncLog([]);
+    addToast('Sync log cleared.', 'success');
+  };
   
   return (
     <div className="max-w-3xl mx-auto animate-fade-in space-y-8">
@@ -147,6 +167,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       <Icon name="settings" className="w-4 h-4 mr-2" /> Manage Backups
                   </Button>
               </div>
+          </AccordionContent>
+        </AccordionItem>
+        
+        <AccordionItem value="sync-history" className="border border-border rounded-lg overflow-hidden">
+          <AccordionTrigger>
+             <h2 className="text-2xl font-semibold text-text">Sync History</h2>
+          </AccordionTrigger>
+          <AccordionContent className="bg-surface p-6 space-y-4">
+              <div className="flex justify-end">
+                <Button variant="secondary" size="sm" onClick={handleClearLog}>Clear Log</Button>
+              </div>
+              {syncLog.length > 0 ? (
+                <ul className="space-y-2 max-h-64 overflow-y-auto bg-background p-3 rounded-md border border-border">
+                  {syncLog.map(log => (
+                    <li key={log.timestamp} className="flex items-start gap-3 text-sm">
+                      <div className="flex-shrink-0 mt-0.5">{getLogIcon(log.type)}</div>
+                      <div className="flex-grow">
+                          <p className="text-text">{log.message}</p>
+                          <p className="text-xs text-text-muted">{new Date(log.timestamp).toLocaleString()}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-center text-text-muted py-4">No sync history yet.</p>
+              )}
           </AccordionContent>
         </AccordionItem>
         

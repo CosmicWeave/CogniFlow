@@ -15,7 +15,7 @@
  *   the "forgetting curve", providing a dynamic and realistic view of knowledge retention.
  */
 // FIX: Corrected import path for types
-import { Reviewable, ReviewRating, Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types.ts';
+import { Reviewable, ReviewRating, Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR, AGAIN_INTERVAL_DAYS, HARD_INTERVAL_MULTIPLIER, EASY_BONUS_MULTIPLIER, EASE_FACTOR_MODIFIERS } from '../constants.ts';
 
 function addDays(date: Date, days: number): Date {

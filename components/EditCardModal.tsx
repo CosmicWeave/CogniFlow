@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card } from '../types.ts';
+import { Card } from '../types';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
 import { useToast } from '../hooks/useToast.ts';
@@ -63,49 +63,19 @@ const EditCardModal: React.FC<EditCardModalProps> = ({ card, onClose, onSave }) 
             <Button type="button" variant="ghost" onClick={onClose} className="p-1 h-auto"><Icon name="x" /></Button>
           </div>
 
-          <div className="p-6 space-y-4">
+          <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
             <div>
-              <label htmlFor="card-front" className="block text-sm font-medium text-text-muted mb-1">Front</label>
-              <textarea
-                id="card-front"
-                value={front}
-                onChange={(e) => setFront(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={5}
-                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="Enter front content (question, term, etc.)"
-              />
+              <label htmlFor="card-front" className="block text-sm font-medium text-text-muted mb-1">Front (Supports HTML)</label>
+              <textarea id="card-front" value={front} onChange={(e) => setFront(e.target.value)} onKeyDown={handleKeyDown} rows={5} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-sm" />
             </div>
             <div>
-              <label htmlFor="card-back" className="block text-sm font-medium text-text-muted mb-1">Back</label>
-              <textarea
-                id="card-back"
-                value={back}
-                onChange={(e) => setBack(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={5}
-                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="Enter back content (answer, definition, etc.)"
-              />
+              <label htmlFor="card-back" className="block text-sm font-medium text-text-muted mb-1">Back (Supports HTML)</label>
+              <textarea id="card-back" value={back} onChange={(e) => setBack(e.target.value)} onKeyDown={handleKeyDown} rows={5} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-sm" />
             </div>
-             <details className="space-y-2">
-                <summary className="cursor-pointer text-sm font-medium text-primary hover:underline">
-                    Advanced CSS Styling
-                </summary>
-                <div className="pt-2">
-                     <label htmlFor="card-css" className="block text-sm font-medium text-text-muted mb-1">Custom CSS</label>
-                      <textarea
-                        id="card-css"
-                        value={css}
-                        onChange={(e) => setCss(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        rows={5}
-                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-xs"
-                        placeholder=".card { color: blue; }"
-                      />
-                      <p className="text-xs text-text-muted mt-1">CSS is applied directly to the card. Useful for Anki imports.</p>
-                </div>
-            </details>
+            <div>
+              <label htmlFor="card-css" className="block text-sm font-medium text-text-muted mb-1">Custom CSS (Optional)</label>
+              <textarea id="card-css" value={css} onChange={(e) => setCss(e.target.value)} onKeyDown={handleKeyDown} rows={5} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none font-mono text-sm" placeholder=".card { font-family: 'Arial'; }" />
+            </div>
           </div>
 
           <div className="flex justify-end p-4 bg-background/50 border-t border-border">
@@ -120,4 +90,5 @@ const EditCardModal: React.FC<EditCardModalProps> = ({ card, onClose, onSave }) 
   );
 };
 
+// FIX: Add default export to make the component importable.
 export default EditCardModal;

@@ -1,5 +1,5 @@
 // FIX: Corrected import path for types
-import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, AppSettings } from '../types.ts';
+import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, AppSettings } from '../types';
 import { broadcastDataChange } from './syncService.ts';
 import { getStockholmFilenameTimestamp } from './time.ts';
 

@@ -1,5 +1,5 @@
 // FIX: Corrected import path for types
-import { Deck, Card, DeckType, FlashcardDeck } from '../types.ts';
+import { Deck, Card, DeckType, FlashcardDeck } from '../types';
 import { INITIAL_EASE_FACTOR, MIN_EASE_FACTOR } from '../constants.ts';
 import JSZip from 'jszip';
 import initSqlJs, { type SqlJsStatic } from 'sql.js';

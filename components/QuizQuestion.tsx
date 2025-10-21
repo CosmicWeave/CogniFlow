@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 // FIX: Corrected import path for types
-import type { Question, QuestionOption, InfoCard } from '../types.ts';
+import type { Question, QuestionOption, InfoCard } from '../types';
 import Icon from './ui/Icon.tsx';
 import MasteryBar from './ui/MasteryBar.tsx';
 import { getEffectiveMasteryLevel } from '../services/srs.ts';

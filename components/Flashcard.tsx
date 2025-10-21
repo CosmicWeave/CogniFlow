@@ -1,6 +1,6 @@
 import React from 'react';
 // FIX: Corrected import path for types
-import type { Card } from '../types.ts';
+import type { Card } from '../types';
 import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer.tsx';
 import MasteryBar from './ui/MasteryBar.tsx';
 import { getEffectiveMasteryLevel } from '../services/srs.ts';

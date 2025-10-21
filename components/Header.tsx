@@ -41,12 +41,17 @@ const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activ
             const deckName = activeDeck?.name || (pathname === '/study/general' ? 'General Study' : 'Back');
             backButtonText = <span className="truncate">{deckName}</span>;
             
-            const deckId = pathname.split('/')[2];
             const params = new URLSearchParams(queryString);
             const seriesId = params.get('seriesId');
+            const fromPath = params.get('from');
             
-            // From a study session, always go back to the deck/series page
-            backHref = seriesId ? `/series/${seriesId}` : `/decks/${deckId}`;
+            if (fromPath) {
+                backHref = decodeURIComponent(fromPath);
+            } else {
+                const deckId = pathname.split('/')[2];
+                // From a study session, always go back to the deck/series page
+                backHref = seriesId ? `/series/${seriesId}` : `/decks/${deckId}`;
+            }
             
         } else if (pathname.startsWith('/decks/')) {
             const params = new URLSearchParams(queryString);

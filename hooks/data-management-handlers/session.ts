@@ -7,7 +7,7 @@ import { useToast } from '../useToast.ts';
 import { useRouter } from '../../contexts/RouterContext.tsx';
 
 export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setGeneralStudyDeck, handleUpdateDeck }: any) => {
-  const { navigate } = useRouter();
+  const { navigate, path } = useRouter();
   const { dispatch } = useStore();
   const { addToast } = useToast();
 
@@ -122,11 +122,12 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
         if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
         return true;
       })
-      .flatMap(deck => 
-        (deck.questions || [])
+      .flatMap(deck => {
+        const series = deckSeries.find(s => (s.levels || []).some(l => (l.deckIds || []).includes(deck.id)));
+        return (deck.questions || [])
           .filter(q => !q.suspended && new Date(q.dueDate) <= today)
-          .map(q => ({ ...q, originalDeckId: deck.id, originalDeckName: deck.name }))
-      )
+          .map(q => ({ ...q, originalDeckId: deck.id, originalDeckName: deck.name, originalSeriesName: series?.name, originalSeriesId: series?.id }))
+      })
       .sort(() => Math.random() - 0.5);
     const virtualDeck: QuizDeck = {
       id: 'general-study-deck',
@@ -136,8 +137,8 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
       questions: allDueQuestions
     };
     setGeneralStudyDeck(virtualDeck);
-    navigate('/study/general');
-  }, [navigate, setGeneralStudyDeck]);
+    navigate(`/study/general?from=${encodeURIComponent(path)}`);
+  }, [navigate, setGeneralStudyDeck, path]);
 
   const handleStartSeriesStudy = useCallback(async (seriesId: string) => {
     const { decks, deckSeries, seriesProgress } = useStore.getState();
@@ -171,8 +172,8 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
       questions: allDueQuestions
     };
     setGeneralStudyDeck(virtualDeck);
-    navigate(`/study/general?seriesId=${seriesId}`);
-  }, [navigate, setGeneralStudyDeck]);
+    navigate(`/study/general?seriesId=${seriesId}&from=${encodeURIComponent(path)}`);
+  }, [navigate, setGeneralStudyDeck, path]);
   
   return useMemo(() => ({
     handleSessionEnd,

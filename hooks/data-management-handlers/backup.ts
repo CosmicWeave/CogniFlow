@@ -7,6 +7,7 @@ import { useOnlineStatus } from '../useOnlineStatus';
 import { Deck, DeckSeries, FullBackupData, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable } from '../../types';
 import { getDueItemsCount } from '../../services/srs';
 import { getEffectiveMasteryLevel } from '../../services/srs';
+import { addSyncLog } from '../../services/syncLogService';
 
 export const useBackupHandlers = ({
   addToast,
@@ -53,7 +54,7 @@ export const useBackupHandlers = ({
     }
   }, [addToast]);
 
-  const fetchAndRestoreFromServer = useCallback(async (isForce = false, createRevertBackup = true) => {
+  const fetchAndRestoreFromServer = useCallback(async (isForce = false, createRevertBackup = true, dataToRestore?: FullBackupData) => {
     setIsSyncing(true);
     if (createRevertBackup) {
       try {
@@ -67,23 +68,129 @@ export const useBackupHandlers = ({
       }
     }
     try {
-      const data = await backupService.syncDataFromServer();
+      const data = dataToRestore || await backupService.syncDataFromServer();
       await onRestoreData(data);
+      addSyncLog(`Success: Downloaded and restored data from server.`, 'success');
       localStorage.setItem('cogniflow-lastSyncTimestamp', new Date().toISOString());
       setLastSyncStatus(`Last sync: ${new Date().toLocaleString()}`);
       addToast('Data restored from server.', 'success');
     } catch (e) {
       const message = (e as Error).message;
+      addSyncLog(`Failure: Could not restore from server. Error: ${message}`, 'error');
       setLastSyncStatus(`Sync failed: ${message}`);
       addToast(`Sync failed: ${message}`, 'error');
     } finally {
       setIsSyncing(false);
     }
   }, [setIsSyncing, setLastSyncStatus, addToast, onRestoreData]);
+  
+  const handleCompareBackup = useCallback((backupData: FullBackupData) => {
+    const { decks: localDecks, deckSeries: localSeries } = useStore.getState();
+    const backupDecks = new Map(backupData.decks.map(d => [d.id, d]));
+    const backupSeries = new Map(backupData.deckSeries.map(s => [s.id, s]));
+
+    const newDecks: Deck[] = [];
+    const changedDecks: any[] = [];
+    localDecks.forEach(localDeck => {
+      const backupDeck = backupDecks.get(localDeck.id);
+      if (backupDeck) {
+        const diff = { content: false, dueCount: false, mastery: false };
+        const localContent = localDeck.type === DeckType.Flashcard ? (localDeck as FlashcardDeck).cards : (localDeck as QuizDeck | LearningDeck).questions;
+        const backupContent = backupDeck.type === DeckType.Flashcard ? (backupDeck as FlashcardDeck).cards : (backupDeck as QuizDeck | LearningDeck).questions;
+        if (JSON.stringify(localContent || []) !== JSON.stringify(backupContent || [])) {
+            diff.content = true;
+        }
+
+        if (localDeck.lastModified && backupDeck.lastModified && backupDeck.lastModified > localDeck.lastModified) {
+            diff.dueCount = true;
+            diff.mastery = true;
+        }
+        if (diff.content || diff.dueCount || diff.mastery) {
+          changedDecks.push({ local: localDeck, backup: backupDeck, diff });
+        }
+      }
+    });
+    for (const backupDeck of backupData.decks as Deck[]) {
+      if (!localDecks.some(d => d.id === backupDeck.id)) newDecks.push(backupDeck);
+    }
+
+    const newSeries: DeckSeries[] = [];
+    const changedSeries: any[] = [];
+    localSeries.forEach(localS => {
+        const backupS = backupSeries.get(localS.id);
+        if (backupS) {
+            const diff = { structure: false, completion: false, mastery: false };
+            if (JSON.stringify(localS.levels) !== JSON.stringify(backupS.levels)) diff.structure = true;
+            if (localS.lastModified && backupS.lastModified && backupS.lastModified > localS.lastModified) {
+                diff.completion = true;
+                diff.mastery = true;
+            }
+            if(diff.structure || diff.completion || diff.mastery) {
+                changedSeries.push({ local: localS, backup: backupS, diff });
+            }
+        }
+    });
+    for (const backupS of backupData.deckSeries as DeckSeries[]) {
+      if (!localSeries.some(s => s.id === backupS.id)) newSeries.push(backupS);
+    }
+    
+    const allDecks = [...localDecks, ...newDecks, ...changedDecks.map(d=>d.backup)];
+    const dueCounts = new Map<string, number>();
+    allDecks.forEach(d => {
+        dueCounts.set(d.id, getDueItemsCount(d));
+        const localDeck = localDecks.find(ld => ld.id === d.id);
+        if (localDeck) dueCounts.set(`local-${d.id}`, getDueItemsCount(localDeck));
+    });
+
+    const masteryLevels = new Map<string, number>();
+    const allItems = (deck: Deck): Reviewable[] => (deck.type === 'flashcard' ? (deck as any).cards : (deck as any).questions) || [];
+    allDecks.forEach(d => {
+        const items = allItems(d).filter(i => !i.suspended);
+        const mastery = items.length > 0 ? items.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / items.length : 0;
+        masteryLevels.set(d.id, mastery);
+        const localDeck = localDecks.find(ld => ld.id === d.id);
+        if (localDeck) {
+            const localItems = allItems(localDeck).filter(i => !i.suspended);
+            const localMastery = localItems.length > 0 ? localItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / localItems.length : 0;
+            masteryLevels.set(`local-${d.id}`, localMastery);
+        }
+    });
+
+    for(const series of [...localSeries, ...newSeries, ...changedSeries.map(s => s.backup)] as DeckSeries[]) {
+        const seriesDecks = (series.levels || []).flatMap(l => l.deckIds).map(id => allDecks.find(d => d.id === id)).filter(Boolean);
+        const allSeriesItems = seriesDecks.flatMap(d => allItems(d!)).filter(i => !i.suspended);
+        const mastery = allSeriesItems.length > 0 ? allSeriesItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allSeriesItems.length : 0;
+        masteryLevels.set(series.id, mastery);
+        const localS = localSeries.find(ls => ls.id === series.id);
+        if(localS){
+            const localSeriesDecks = (localS.levels || []).flatMap(l => l.deckIds).map(id => localDecks.find(d => d.id === id)).filter(Boolean);
+            const allLocalSeriesItems = localSeriesDecks.flatMap(d => allItems(d!)).filter(i => !i.suspended);
+            const localMastery = allLocalSeriesItems.length > 0 ? allLocalSeriesItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allLocalSeriesItems.length : 0;
+            masteryLevels.set(`local-${series.id}`, localMastery);
+        }
+    }
+
+
+    return { newDecks, newSeries, changedDecks, changedSeries, dueCounts, masteryLevels };
+  }, []);
+
+  const handleMergeResolution = useCallback(async (resolution: 'local' | 'remote', remoteData: FullBackupData) => {
+    if (resolution === 'local') {
+        localStorage.setItem('cogniflow-post-merge-sync', 'true');
+        addSyncLog('Conflict resolved by choosing local data. Will force upload on next reload.', 'info');
+        addToast('Keeping local data. It will be uploaded after reloading.', 'info');
+        setTimeout(() => window.location.reload(), 1500);
+    } else { // remote
+        addSyncLog('Conflict resolved by choosing remote data. Overwriting local data.', 'info');
+        await fetchAndRestoreFromServer(true, false, remoteData); // Pass remoteData to avoid re-fetching
+    }
+    closeModal();
+  }, [addToast, closeModal, fetchAndRestoreFromServer]);
 
   const triggerSync = useCallback(async ({ isManual }: { isManual: boolean }) => {
     if (!isOnline) {
       if (isManual) addToast('Sync failed: You are offline.', 'error');
+      addSyncLog('Sync failed: Offline.', 'error');
       return;
     }
     if (!backupEnabled || !backupApiKey) {
@@ -109,19 +216,24 @@ export const useBackupHandlers = ({
   
       if (isNotModified && !localHasChanges) {
         setLastSyncStatus(`Up to date. (${new Date().toLocaleTimeString()})`);
+        addSyncLog('Sync skipped: Data is up to date.', 'info');
         if (isManual) addToast('Already up to date.', 'success');
       } else if (remoteHasChanges) {
         if (localHasChanges) {
+          addSyncLog('Conflict detected. Manual resolution required.', 'warning');
+          const remoteBackupData = await backupService.syncDataFromServer();
+          const comparisonResult = handleCompareBackup(remoteBackupData);
           openModal('mergeConflict', {
-            localData: { lastModified },
-            remoteData: metadata
+              comparison: comparisonResult,
+              remoteData: remoteBackupData,
+              onResolve: (resolution: 'local' | 'remote') => handleMergeResolution(resolution, remoteBackupData)
           });
         } else {
           if (isManual) {
             openModal('confirm', {
               title: 'Download from Server?',
               message: `Newer data was found on the server from ${new Date(metadata.modified).toLocaleString()}. Your local data has no changes. Would you like to download it?`,
-              onConfirm: () => fetchAndRestoreFromServer(),
+              onConfirm: () => fetchAndRestoreFromServer(true, true),
               confirmText: 'Download'
             });
           } else {
@@ -130,21 +242,24 @@ export const useBackupHandlers = ({
         }
       } else if (localHasChanges) {
         const { timestamp, etag } = await backupService.syncDataToServer();
+        addSyncLog('Success: Uploaded local changes.', 'success');
         localStorage.setItem('cogniflow-lastSyncTimestamp', timestamp);
         setLastSyncStatus(`Last sync: ${new Date().toLocaleString()}`);
         if (isManual) addToast('Local changes synced to server.', 'success');
       } else {
         setLastSyncStatus(`Up to date. (${new Date().toLocaleTimeString()})`);
+        addSyncLog('Sync skipped: Data is up to date.', 'info');
         if (isManual) addToast('Already up to date.', 'success');
       }
     } catch (e: any) {
       const message = e.isNetworkError ? e.message : (e.status === 401 ? 'Unauthorized. Check API Key.' : (e.message || 'An unknown error occurred.'));
       setLastSyncStatus(`Sync failed: ${message}`);
+      addSyncLog(`Failure: ${message}`, 'error');
       if (isManual) addToast(`Sync failed: ${message}`, 'error');
     } finally {
       setIsSyncing(false);
     }
-  }, [isOnline, backupEnabled, backupApiKey, syncOnCellular, isMetered, isSyncing, addToast, setIsSyncing, setLastSyncStatus, openModal, closeModal, fetchAndRestoreFromServer]);
+  }, [isOnline, backupEnabled, backupApiKey, syncOnCellular, isMetered, isSyncing, addToast, setIsSyncing, setLastSyncStatus, openModal, closeModal, fetchAndRestoreFromServer, handleCompareBackup, handleMergeResolution]);
 
   const handleSync = useCallback(async ({ isManual, force = false }: { isManual: boolean, force?: boolean }) => {
     if (isSyncing) {
@@ -184,8 +299,10 @@ export const useBackupHandlers = ({
         try {
           const { timestamp } = await backupService.syncDataToServer(undefined, true);
           localStorage.setItem('cogniflow-lastSyncTimestamp', timestamp);
+          addSyncLog('Success: Forced upload of local data to server.', 'success');
           addToast('Successfully uploaded local data to server.', 'success');
         } catch (e) {
+          addSyncLog(`Failure: Forced upload failed. Error: ${(e as Error).message}`, 'error');
           addToast(`Upload failed: ${(e as Error).message}`, 'error');
         } finally {
           setIsSyncing(false);
@@ -211,18 +328,6 @@ export const useBackupHandlers = ({
       },
     });
   }, [openModal, addToast]);
-
-  const handleMergeResolution = useCallback(async (resolution: 'local' | 'remote') => {
-    if (resolution === 'local') {
-        localStorage.setItem('cogniflow-post-merge-sync', 'true');
-        addToast('Keeping local data. It will be force-uploaded after reloading.', 'info');
-        setTimeout(() => window.location.reload(), 1500);
-    } else { // remote
-// FIX: The original code incorrectly tried to restore from the local state, which is wrong for the "remote" choice and caused a type error. This now correctly calls the function to fetch and restore from the server.
-        await fetchAndRestoreFromServer(true, false);
-    }
-    closeModal();
-  }, [addToast, closeModal, fetchAndRestoreFromServer]);
 
   const handleCreateServerBackup = useCallback(async () => {
     try {
@@ -313,100 +418,6 @@ export const useBackupHandlers = ({
     }
   }, [dispatch, addToast, triggerSync]);
 
-
-  const handleCompareBackup = useCallback((backupData: FullBackupData) => {
-    const { decks: localDecks, deckSeries: localSeries } = useStore.getState();
-    const backupDecks = new Map(backupData.decks.map(d => [d.id, d]));
-    const backupSeries = new Map(backupData.deckSeries.map(s => [s.id, s]));
-
-    const newDecks: Deck[] = [];
-    const changedDecks: any[] = [];
-    localDecks.forEach(localDeck => {
-      const backupDeck = backupDecks.get(localDeck.id);
-      if (backupDeck) {
-        const diff = { content: false, dueCount: false, mastery: false };
-        // FIX: Narrow the union type 'Deck' before accessing 'cards' or 'questions' properties.
-        const localContent = localDeck.type === DeckType.Flashcard ? (localDeck as FlashcardDeck).cards : (localDeck as QuizDeck | LearningDeck).questions;
-        const backupContent = backupDeck.type === DeckType.Flashcard ? (backupDeck as FlashcardDeck).cards : (backupDeck as QuizDeck | LearningDeck).questions;
-        if (JSON.stringify(localContent || []) !== JSON.stringify(backupContent || [])) {
-            diff.content = true;
-        }
-
-        if (localDeck.lastModified && backupDeck.lastModified && backupDeck.lastModified > localDeck.lastModified) {
-            diff.dueCount = true;
-            diff.mastery = true;
-        }
-        if (diff.content || diff.dueCount || diff.mastery) {
-          changedDecks.push({ local: localDeck, backup: backupDeck, diff });
-        }
-      }
-    });
-    for (const backupDeck of backupData.decks as Deck[]) {
-      if (!localDecks.some(d => d.id === backupDeck.id)) newDecks.push(backupDeck);
-    }
-
-    const newSeries: DeckSeries[] = [];
-    const changedSeries: any[] = [];
-    localSeries.forEach(localS => {
-        const backupS = backupSeries.get(localS.id);
-        if (backupS) {
-            const diff = { structure: false, completion: false, mastery: false };
-            if (JSON.stringify(localS.levels) !== JSON.stringify(backupS.levels)) diff.structure = true;
-            if (localS.lastModified && backupS.lastModified && backupS.lastModified > localS.lastModified) {
-                diff.completion = true;
-                diff.mastery = true;
-            }
-            if(diff.structure || diff.completion || diff.mastery) {
-                changedSeries.push({ local: localS, backup: backupS, diff });
-            }
-        }
-    });
-    for (const backupS of backupData.deckSeries as DeckSeries[]) {
-      if (!localSeries.some(s => s.id === backupS.id)) newSeries.push(backupS);
-    }
-    
-    const allDecks = [...localDecks, ...newDecks, ...changedDecks.map(d=>d.backup)];
-    const dueCounts = new Map<string, number>();
-    allDecks.forEach(d => {
-        dueCounts.set(d.id, getDueItemsCount(d));
-        const localDeck = localDecks.find(ld => ld.id === d.id);
-        if (localDeck) dueCounts.set(`local-${d.id}`, getDueItemsCount(localDeck));
-    });
-
-    const masteryLevels = new Map<string, number>();
-    // FIX: Add `Reviewable` type to satisfy TypeScript. The type was not imported.
-    const allItems = (deck: Deck): Reviewable[] => (deck.type === 'flashcard' ? (deck as any).cards : (deck as any).questions) || [];
-    allDecks.forEach(d => {
-        const items = allItems(d).filter(i => !i.suspended);
-        const mastery = items.length > 0 ? items.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / items.length : 0;
-        masteryLevels.set(d.id, mastery);
-        const localDeck = localDecks.find(ld => ld.id === d.id);
-        if (localDeck) {
-            const localItems = allItems(localDeck).filter(i => !i.suspended);
-            const localMastery = localItems.length > 0 ? localItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / localItems.length : 0;
-            masteryLevels.set(`local-${d.id}`, localMastery);
-        }
-    });
-
-    for(const series of [...localSeries, ...newSeries, ...changedSeries.map(s => s.backup)] as DeckSeries[]) {
-        const seriesDecks = (series.levels || []).flatMap(l => l.deckIds).map(id => allDecks.find(d => d.id === id)).filter(Boolean);
-        const allSeriesItems = seriesDecks.flatMap(d => allItems(d!)).filter(i => !i.suspended);
-        const mastery = allSeriesItems.length > 0 ? allSeriesItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allSeriesItems.length : 0;
-        masteryLevels.set(series.id, mastery);
-        const localS = localSeries.find(ls => ls.id === series.id);
-        if(localS){
-            const localSeriesDecks = (localS.levels || []).flatMap(l => l.deckIds).map(id => localDecks.find(d => d.id === id)).filter(Boolean);
-            const allLocalSeriesItems = localSeriesDecks.flatMap(d => allItems(d!)).filter(i => !i.suspended);
-            const localMastery = allLocalSeriesItems.length > 0 ? allLocalSeriesItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allLocalSeriesItems.length : 0;
-            masteryLevels.set(`local-${series.id}`, localMastery);
-        }
-    }
-
-
-    return { newDecks, newSeries, changedDecks, changedSeries, dueCounts, masteryLevels };
-  }, []);
-
-  // FIX: Added cache clearing handlers.
   const handleClearAppCache = useCallback(() => {
     if (navigator.serviceWorker?.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_APP_CACHE' });

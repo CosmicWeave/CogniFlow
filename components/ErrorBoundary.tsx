@@ -55,7 +55,7 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
     
-    // FIX: Correctly return children from props to render the component tree.
+    // FIX: In a React class component, `this.props.children` must be used to access and render the child components.
     return this.props.children;
   }
 }

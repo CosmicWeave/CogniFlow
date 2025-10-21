@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.tsx';
+// FIX: Fix module import for App component by removing the file extension.
+import App from './App';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { ThemeProvider } from './contexts/ThemeContext.tsx';
 import { ToastProvider } from './contexts/ToastContext.tsx';

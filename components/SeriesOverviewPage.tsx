@@ -1,7 +1,7 @@
 import React from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable } from '../types.ts';
 import { useStore } from '../store/store.ts';
-import { getEffectiveMasteryLevel } from '../services/srs.ts';
+import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs.ts';
 // FIX: Changed to named import to match the updated export in DeckListItem.tsx.
 import { DeckListItem } from './DeckListItem.tsx';
 import Button from './ui/Button.tsx';
@@ -10,6 +10,7 @@ import { stripHtml } from '../services/utils.ts';
 import TruncatedText from './ui/TruncatedText.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
 import Spinner from './ui/Spinner.tsx';
+import Link from './ui/Link.tsx';
 
 interface SeriesOverviewPageProps {
   series: DeckSeries;
@@ -34,12 +35,43 @@ interface SeriesOverviewPageProps {
 
 const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
   const { series, sessionsToResume, onUpdateLastOpened, onUpdateDeck, onDeleteDeck, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck } = props;
-  const { decks, aiGenerationStatus } = useStore();
+  const { decks, seriesProgress, aiGenerationStatus } = useStore();
   const { aiFeaturesEnabled } = useSettings();
 
   React.useEffect(() => {
     onUpdateLastOpened(series.id);
   }, [series.id, onUpdateLastOpened]);
+
+  const { dueCount, nextUpDeckId, isCompleted, completedCount, totalCount } = React.useMemo(() => {
+    const seriesDecks = (series.levels || []).flatMap(l => l?.deckIds || []).map(id => decks.find(d => d.id === id)).filter((d): d is Deck => !!d);
+    
+    const completedDeckIds = seriesProgress.get(series.id) || new Set<string>();
+    const completedCount = completedDeckIds.size;
+    
+    const flatDeckIds = (series.levels || []).flatMap(l => l?.deckIds || []);
+    const totalCount = flatDeckIds.length;
+
+    const unlockedDeckIds = new Set<string>();
+    flatDeckIds.forEach((deckId, index) => {
+        // A deck is unlocked if it's the next one up, or has been completed.
+        if (index <= completedCount) {
+            unlockedDeckIds.add(deckId);
+        }
+    });
+
+    const dueCount = seriesDecks.reduce((total, deck) => {
+        if (unlockedDeckIds.has(deck.id)) {
+            return total + getDueItemsCount(deck);
+        }
+        return total;
+    }, 0);
+
+    const nextUpDeckId = flatDeckIds.find(id => !completedDeckIds.has(id)) || null;
+
+    const isCompleted = totalCount > 0 && completedCount >= totalCount;
+
+    return { dueCount, nextUpDeckId, isCompleted, completedCount, totalCount };
+  }, [series, decks, seriesProgress]);
   
   const hasEmptyDecks = React.useMemo(() => {
     const seriesDeckIds = new Set((series.levels || []).flatMap(l => l?.deckIds || []));
@@ -69,6 +101,41 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
             )}
         </div>
       </div>
+      
+      {(dueCount > 0 || nextUpDeckId || isCompleted) && (
+        <div className="border-t border-border pt-6 flex flex-wrap items-center justify-center gap-4">
+          {!isCompleted && nextUpDeckId && (
+            <Link
+              href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
+              passAs={Button}
+              variant="primary"
+              size="lg"
+              className="font-semibold w-full sm:w-auto"
+            >
+              <Icon name="zap" className="w-5 h-5 mr-2" />
+              {completedCount > 0 ? 'Continue Series' : 'Start Series'}
+            </Link>
+          )}
+          {dueCount > 0 && (
+            <Button
+              variant={!isCompleted && nextUpDeckId ? 'secondary' : 'primary'}
+              size="lg"
+              onClick={() => props.onStartSeriesStudy(series.id)}
+              className="font-semibold w-full sm:w-auto"
+            >
+              <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
+              Study Due ({dueCount})
+            </Button>
+          )}
+          {isCompleted && (
+            <div className="flex items-center gap-2 text-green-500 dark:text-green-400 bg-green-100 dark:bg-green-900/50 px-4 py-2 rounded-full">
+              <Icon name="check-circle" className="w-6 h-6" />
+              <span className="text-lg font-semibold">Series Completed!</span>
+            </div>
+          )}
+        </div>
+      )}
+
 
       <div className="space-y-8">
         {(series.levels || []).map((level, index) => (

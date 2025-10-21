@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Card } from '../types.ts';
+import { Card } from '../types';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
 import EditCardModal from './EditCardModal.tsx';

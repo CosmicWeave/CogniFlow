@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Deck, Folder, LearningDeck, QuizDeck } from '../types.ts';
+import { Deck, Folder, LearningDeck, QuizDeck } from '../types';
 // FIX: Changed to named import to match the updated export in DeckListItem.tsx.
-import { DeckListItem } from './DeckListItem.tsx';
+import { DeckListItem } from './DeckListItem';
 import FolderView from './FolderView.tsx';
 
 interface DeckListProps {

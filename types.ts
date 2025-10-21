@@ -1,16 +1,9 @@
-// types.ts
+// FIX: Populate `types.ts` with all necessary type definitions for the application.
 
-// --- Core SRS & Reviewable Types ---
-
-export interface Reviewable {
-  id: string;
-  dueDate: string; // ISO string
-  interval: number; // in days
-  easeFactor: number;
-  suspended?: boolean;
-  masteryLevel?: number; // 0.0 to 1.0
-  lastReviewed?: string; // ISO string
-  lapses?: number;
+export enum DeckType {
+  Flashcard = 'flashcard',
+  Quiz = 'quiz',
+  Learning = 'learning',
 }
 
 export enum ReviewRating {
@@ -20,18 +13,21 @@ export enum ReviewRating {
   Easy = 4,
 }
 
-// --- Deck & Content Types ---
-
-export enum DeckType {
-  Flashcard = 'flashcard',
-  Quiz = 'quiz',
-  Learning = 'learning',
+export interface Reviewable {
+  id: string;
+  dueDate: string;
+  interval: number; // in days
+  easeFactor: number;
+  suspended?: boolean;
+  masteryLevel?: number;
+  lastReviewed?: string;
+  lapses?: number;
 }
 
 export interface Card extends Reviewable {
   front: string;
   back: string;
-  css?: string; // For Anki imports
+  css?: string;
 }
 
 export interface QuestionOption {
@@ -41,14 +37,14 @@ export interface QuestionOption {
 }
 
 export interface Question extends Reviewable {
-  questionType: 'multipleChoice';
+  questionType: 'multipleChoice'; // Can be expanded later
   questionText: string;
-  tags?: string[];
   options: QuestionOption[];
   correctAnswerId: string;
   detailedExplanation: string;
-  infoCardIds?: string[]; // Link to InfoCards in a LearningDeck
-  [key: string]: any; // For dynamic custom fields from AI
+  tags?: string[];
+  infoCardIds?: string[];
+  userSelectedAnswerId?: string; // For session state
 }
 
 export interface InfoCard {
@@ -57,39 +53,36 @@ export interface InfoCard {
   unlocksQuestionIds: string[];
 }
 
-interface BaseDeck {
+interface DeckBase {
   id: string;
   name: string;
   description: string;
   type: DeckType;
   folderId?: string | null;
-  lastOpened?: string; // ISO string
+  lastOpened?: string;
   archived?: boolean;
-  deletedAt?: string | null; // ISO string for soft delete
-  locked?: boolean; // For series progression
-  lastModified?: number; // timestamp
-  suggestedQuestionCount?: number;
+  deletedAt?: string | null;
+  lastModified?: number;
+  locked?: boolean;
 }
 
-export interface FlashcardDeck extends BaseDeck {
+export interface FlashcardDeck extends DeckBase {
   type: DeckType.Flashcard;
   cards: Card[];
 }
 
-export interface QuizDeck extends BaseDeck {
+export interface QuizDeck extends DeckBase {
   type: DeckType.Quiz;
   questions: Question[];
 }
 
-export interface LearningDeck extends BaseDeck {
+export interface LearningDeck extends DeckBase {
   type: DeckType.Learning;
   infoCards: InfoCard[];
   questions: Question[];
 }
 
 export type Deck = FlashcardDeck | QuizDeck | LearningDeck;
-
-// --- Organizational Types ---
 
 export interface Folder {
   id: string;
@@ -107,16 +100,12 @@ export interface DeckSeries {
   name: string;
   description: string;
   levels: SeriesLevel[];
-  lastOpened?: string; // ISO string
-  createdAt: string; // ISO string
+  createdAt: string;
+  lastOpened?: string;
   archived?: boolean;
-  deletedAt?: string | null; // ISO string for soft delete
-  lastModified?: number; // timestamp
+  deletedAt?: string | null;
+  lastModified?: number;
 }
-
-export type SeriesProgress = Map<string, Set<string>>; // Map<seriesId, Set<completedDeckId>>
-
-// --- Import/Export & Backup Types ---
 
 export interface ImportedCard {
   front: string;
@@ -138,14 +127,96 @@ export interface ImportedQuizDeck {
   questions: ImportedQuestion[];
 }
 
+export interface ReviewLog {
+  id?: number;
+  itemId: string;
+  deckId: string;
+  seriesId?: string;
+  timestamp: string;
+  rating: ReviewRating | null;
+  newInterval: number;
+  easeFactor: number;
+  masteryLevel: number;
+}
+
+// FIX: Add SeriesProgress type definition for use in the store and components.
+export type SeriesProgress = Map<string, Set<string>>;
+
+export interface SessionState {
+  id: string;
+  reviewQueue: (Card | Question | InfoCard)[];
+  currentIndex: number;
+  itemsCompleted: number;
+  readInfoCardIds?: string[];
+  unlockedQuestionIds?: string[];
+}
+
+export enum AIActionType {
+    NO_ACTION = 'NO_ACTION',
+    CREATE_DECK = 'CREATE_DECK',
+    RENAME_DECK = 'RENAME_DECK',
+    MOVE_DECK_TO_FOLDER = 'MOVE_DECK_TO_FOLDER',
+    DELETE_DECK = 'DELETE_DECK',
+    CREATE_FOLDER = 'CREATE_FOLDER',
+    RENAME_FOLDER = 'RENAME_FOLDER',
+    DELETE_FOLDER = 'DELETE_FOLDER',
+    EXPAND_SERIES_ADD_LEVELS = 'EXPAND_SERIES_ADD_LEVELS',
+    EXPAND_SERIES_ADD_DECKS = 'EXPAND_SERIES_ADD_DECKS',
+    GENERATE_QUESTIONS_FOR_DECK = 'GENERATE_QUESTIONS_FOR_DECK',
+}
+
+export interface AIAction {
+    action: AIActionType;
+    payload: { [key: string]: any };
+    confirmationMessage: string;
+}
+
+export interface AIMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  actions?: AIAction[];
+  isLoading?: boolean;
+}
+
+// FIX: Add AIPersona type definition for use in AI services and hooks.
+export interface AIPersona {
+  id: string;
+  name: string;
+  instruction: string;
+}
+
+export interface AIGenerationParams {
+  generationType: 'series-scaffold' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-flashcard' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck';
+  topic: string;
+  persona: string;
+  understanding: string;
+  comprehensiveness: string;
+  imageStyle?: 'none' | 'realistic' | 'creative';
+  // for expansions
+  seriesId?: string;
+  levelIndex?: number;
+  deckId?: string;
+}
+
+export interface AIGenerationTask {
+  id: string;
+  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck' | 'generateFullSeriesFromScaffold' | 'generateFlashcardDeckWithAI' | 'regenerateQuestion';
+  payload: any;
+  statusText: string;
+  deckId?: string;
+  seriesId?: string;
+}
+
+
 export interface AppSettings {
-  themeId?: string;
-  disableAnimations?: boolean;
-  hapticsEnabled?: boolean;
-  aiFeaturesEnabled?: boolean;
-  backupEnabled?: boolean;
-  backupApiKey?: string;
-  syncOnCellular?: boolean;
+    themeId?: string;
+    disableAnimations?: boolean;
+    hapticsEnabled?: boolean;
+    aiFeaturesEnabled?: boolean;
+    backupEnabled?: boolean;
+    backupApiKey?: string;
+    syncOnCellular?: boolean;
 }
 
 export interface FullBackupData {
@@ -161,6 +232,18 @@ export interface FullBackupData {
   settings?: AppSettings;
 }
 
+export interface SyncLogEntry {
+    timestamp: string;
+    message: string;
+    type: 'success' | 'info' | 'warning' | 'error';
+}
+
+export interface GoogleDriveFile {
+    id: string;
+    name: string;
+    modifiedTime: string;
+}
+
 export interface DeckComparison {
     local: Deck;
     backup: Deck;
@@ -170,147 +253,40 @@ export interface DeckComparison {
         mastery: boolean;
     };
 }
-
 export interface SeriesComparison {
     local: DeckSeries;
     backup: DeckSeries;
     diff: {
         structure: boolean;
-        mastery: boolean;
         completion: boolean;
+        mastery: boolean;
     };
 }
-
 export interface BackupComparison {
-    newSeries: DeckSeries[];
     newDecks: Deck[];
-    changedSeries: SeriesComparison[];
+    newSeries: DeckSeries[];
     changedDecks: DeckComparison[];
+    changedSeries: SeriesComparison[];
     dueCounts: Map<string, number>;
     masteryLevels: Map<string, number>;
 }
 
-// --- Session & Log Types ---
-
-export interface ReviewLog {
-  id?: number; // auto-incremented by DB
-  itemId: string;
-  deckId: string;
-  seriesId?: string;
-  timestamp: string; // ISO string
-  rating: ReviewRating | null; // null for suspend
-  newInterval: number;
-  easeFactor: number;
-  masteryLevel: number;
-}
-
-export interface SessionState {
-  id: string;
-  reviewQueue: (Card | Question | InfoCard)[];
-  currentIndex: number;
-  readInfoCardIds?: string[];
-  unlockedQuestionIds?: string[];
-  itemsCompleted?: number;
-}
-
-// --- Google Drive Types ---
-export interface GoogleDriveFile {
-  id: string;
-  name: string;
-  modifiedTime: string;
-}
-
-// --- AI Related Types ---
-
-export enum AIActionType {
-    NO_ACTION = 'NO_ACTION',
-    CREATE_DECK = 'CREATE_DECK',
-    RENAME_DECK = 'RENAME_DECK',
-    DELETE_DECK = 'DELETE_DECK',
-    CREATE_FOLDER = 'CREATE_FOLDER',
-    RENAME_FOLDER = 'RENAME_FOLDER',
-    DELETE_FOLDER = 'DELETE_FOLDER',
-    MOVE_DECK_TO_FOLDER = 'MOVE_DECK_TO_FOLDER',
-    EXPAND_SERIES_ADD_LEVELS = 'EXPAND_SERIES_ADD_LEVELS',
-    EXPAND_SERIES_ADD_DECKS = 'EXPAND_SERIES_ADD_DECKS',
-    GENERATE_QUESTIONS_FOR_DECK = 'GENERATE_QUESTIONS_FOR_DECK',
-}
-
-export interface AIAction {
-    action: AIActionType;
-    payload: {
-        deckId?: string;
-        folderId?: string | null;
-        name?: string;
-        newName?: string;
-        seriesId?: string;
-        levelIndex?: number;
-        count?: number;
-    };
-    confirmationMessage: string;
-}
-
-export interface AIMessage {
-    id: string;
-    role: 'user' | 'model';
-    text: string;
-    actions?: AIAction[];
-    isLoading?: boolean;
-}
-
-export interface AIGenerationParams {
-  generationType: 'series-scaffold' | 'deck-quiz' | 'deck-learning';
-  topic: string;
-  understandingLevel: string;
-  learningGoal: string;
-  learningStyle: string;
-  language: string;
-  tone: string;
-  comprehensiveness: string;
-  isLearningMode?: boolean;
-  // For the final generation step
-  finalTitle?: string;
-  questionCount?: number;
-  followUpAnswers?: string;
-  sourceContent?: string;
-  sourceUrl?: string;
-  customInstructions?: string;
-  topicsToInclude?: string;
-  topicsToExclude?: string;
-  brainstormHistory?: string;
-  // Fine-tuning parameters
-  systemInstruction?: string;
-  temperature?: number;
-  customFields?: { name: string; type: string; description: string }[];
-}
-
-export interface AIGenerationAnalysis {
-  interpretation: string;
-  titleSuggestions: string[];
-  questionCountSuggestions: {
-    label: string; // e.g., "Quick Review", "Deep Dive"
-    count: number;
-  }[];
-  followUpQuestions: string[];
-}
-
-
-// --- Component Prop Types ---
+// For AppRouter.tsx
 export interface AppRouterProps {
-  sessionsToResume: Set<string>;
-  sortPreference: 'lastOpened' | 'name' | 'dueCount';
-  setSortPreference: (pref: 'lastOpened' | 'name' | 'dueCount') => void;
-  draggedDeckId: string | null;
-  setDraggedDeckId: (id: string | null) => void;
-  openFolderIds: Set<string>;
-  onToggleFolder: (id: string) => void;
-  generalStudyDeck: any | null;
   activeDeck: Deck | null;
   activeSeries: DeckSeries | null;
+  generalStudyDeck: QuizDeck | null;
+  sessionsToResume: Set<string>;
   onSync: () => void;
   isSyncing: boolean;
   lastSyncStatus: string;
   isGapiReady: boolean;
   isGapiSignedIn: boolean;
   gapiUser: any;
+  sortPreference: any;
+  setSortPreference: (pref: any) => void;
+  draggedDeckId: string | null;
+  setDraggedDeckId: (id: string | null) => void;
+  openFolderIds: Set<string>;
+  onToggleFolder: (id: string) => void;
 }
