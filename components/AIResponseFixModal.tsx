@@ -57,7 +57,7 @@ const AIResponseFixModal: React.FC<AIResponseFixModalProps> = ({ isOpen, onClose
           <div className="flex-grow p-6 space-y-4 overflow-y-auto">
             <div className="bg-yellow-900/10 border border-yellow-500/30 rounded-lg p-4 text-sm text-yellow-800 dark:text-yellow-200">
                 <p><strong className="font-bold">Error:</strong> The AI returned malformed JSON. This can happen if the response is too long and gets cut off. You can try to fix it manually below.</p>
-                <p className="mt-2">Common fixes include adding a missing closing quote (`"`) or bracket/brace (`]` or `}`).</p>
+                <p className="mt-2">Common fixes include adding a missing closing quote (`"`) or bracket/brace (`]` or ``).</p>
             </div>
             
             <div>
