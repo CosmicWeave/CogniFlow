@@ -1,10 +1,11 @@
+
 import React, { useState, useMemo } from 'react';
 import { Deck, Folder, DeckType, FlashcardDeck, QuizDeck, Card, Question, LearningDeck } from '../types';
 import DeckList from './DeckList';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import DeckSortControl, { SortPreference } from './ui/DeckSortControl';
-import { useStore, useStandaloneDecks } from '../store/store';
+import { useStore, useStandaloneDecks, useFoldersList } from '../store/store';
 import { stripHtml } from '../services/utils';
 import { getDueItemsCount } from '../services/srs';
 
@@ -34,7 +35,7 @@ interface AllDecksPageProps {
 
 const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const folders = useStore(state => state.folders);
+    const folders = useFoldersList();
     const decks = useStandaloneDecks();
 
     const filteredAndSortedDecks = useMemo(() => {
@@ -43,7 +44,7 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
         if (!lowercasedSearchTerm) {
             const sorted = [...decks];
             switch (props.sortPreference) {
-                case 'name': return sorted.sort((a, b) => a.name.localeCompare(b.name));
+                case 'name': return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 case 'dueCount': return sorted.sort((a, b) => getDueItemsCount(b) - getDueItemsCount(a));
                 case 'lastOpened': default: return sorted.sort((a,b) => (b.lastOpened || '').localeCompare(a.lastOpened || ''));
             }
@@ -53,7 +54,7 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
 
         const scoredDecks = decks.map(deck => {
             let score = 0;
-            const name = deck.name.toLowerCase();
+            const name = (deck.name || '').toLowerCase();
             const description = stripHtml(deck.description).toLowerCase();
 
             // High score for exact or prefix matches in title
@@ -97,7 +98,7 @@ const AllDecksPage: React.FC<AllDecksPageProps> = (props) => {
         scoredDecks.sort((a, b) => {
             if (a.score !== b.score) return b.score - a.score;
             switch (props.sortPreference) {
-                case 'name': return a.deck.name.localeCompare(b.deck.name);
+                case 'name': return (a.deck.name || '').localeCompare(b.deck.name || '');
                 case 'dueCount': return getDueItemsCount(b.deck) - getDueItemsCount(a.deck);
                 case 'lastOpened': default: return (b.deck.lastOpened || '').localeCompare(a.deck.lastOpened || '');
             }

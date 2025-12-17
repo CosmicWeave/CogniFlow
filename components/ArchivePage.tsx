@@ -1,8 +1,9 @@
+
 import React, { useMemo } from 'react';
 import { Deck, DeckSeries } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
-import { useStore } from '../store/store.ts';
+import { useDecksList, useSeriesList } from '../store/store.ts';
 import { stripHtml } from '../services/utils.ts';
 
 interface ArchivePageProps {
@@ -15,7 +16,8 @@ interface ArchivePageProps {
 
 // FIX: Changed to a named export to resolve module resolution issues.
 export const ArchivePage: React.FC<ArchivePageProps> = ({ onUpdateDeck, onUpdateSeries, onDeleteDeck, onDeleteSeries, openConfirmModal }) => {
-  const { decks, deckSeries } = useStore();
+  const decks = useDecksList();
+  const deckSeries = useSeriesList();
   
   const archivedDecks = useMemo(() => decks.filter(d => d.archived && !d.deletedAt), [decks]);
   const archivedSeries = useMemo(() => deckSeries.filter(s => s.archived && !s.deletedAt), [deckSeries]);

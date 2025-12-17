@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { InfoCard, Question, QuestionOption, ReviewRating } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -5,6 +6,7 @@ import Icon from './ui/Icon.tsx';
 import { useToast } from '../hooks/useToast.ts';
 import { useFocusTrap } from '../hooks/useFocusTrap.ts';
 import { INITIAL_EASE_FACTOR } from '../constants.ts';
+import RichTextToolbar from './ui/RichTextToolbar.tsx';
 
 export interface LearningBlockData {
   infoCard: InfoCard;
@@ -91,6 +93,19 @@ const EditLearningBlockModal: React.FC<EditLearningBlockModalProps> = ({ block, 
       }
   };
 
+  const handleTextAreaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, setter: React.Dispatch<React.SetStateAction<string>>) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const target = e.target as HTMLTextAreaElement;
+        const start = target.selectionStart;
+        const end = target.selectionEnd;
+        const newValue = target.value.substring(0, start) + "\t" + target.value.substring(end);
+        target.value = newValue; // Visual update
+        setter(newValue); // State update
+        target.selectionStart = target.selectionEnd = start + 1;
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!infoContent.trim()) {
@@ -141,7 +156,18 @@ const EditLearningBlockModal: React.FC<EditLearningBlockModalProps> = ({ block, 
           <main className="p-6 space-y-6 overflow-y-auto">
             <div>
               <label htmlFor="info-content" className="block text-sm font-bold text-text mb-1">Informational Content (Supports HTML)</label>
-              <textarea id="info-content" value={infoContent} onChange={(e) => setInfoContent(e.target.value)} rows={8} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Explain a concept here..."/>
+              <div className="border border-border rounded-md focus-within:ring-2 focus-within:ring-primary overflow-hidden">
+                <RichTextToolbar targetId="info-content" value={infoContent} onChange={setInfoContent} />
+                <textarea 
+                    id="info-content" 
+                    value={infoContent} 
+                    onChange={(e) => setInfoContent(e.target.value)} 
+                    onKeyDown={(e) => handleTextAreaKeyDown(e, setInfoContent)}
+                    rows={12} 
+                    className="w-full p-2 bg-background focus:outline-none font-mono text-sm block" 
+                    placeholder="Explain a concept here..."
+                />
+              </div>
             </div>
 
             <div className="border-t border-border pt-4">

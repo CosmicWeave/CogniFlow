@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 // FIX: Corrected import path for types
 import type { Question, QuestionOption, InfoCard } from '../types';
@@ -13,9 +14,10 @@ interface QuizQuestionProps {
   onSelectAnswer: (optionId: string) => void;
   deckName?: string;
   onShowInfo?: () => void; // Callback to show related info
+  textSize?: string;
 }
 
-const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId, onSelectAnswer, deckName, onShowInfo }) => {
+const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId, onSelectAnswer, deckName, onShowInfo, textSize = 'text-xl' }) => {
   const isAnswered = selectedAnswerId !== null;
 
   const shuffledOptions = useMemo(() => {
@@ -66,7 +68,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, selectedAnswerId,
             )}
             {deckName && <p className="text-xs text-text-muted uppercase tracking-wider font-semibold">{deckName}</p>}
         </div>
-        <DangerousHtmlRenderer html={question.questionText} className="text-xl font-semibold text-text" as="h3"/>
+        <DangerousHtmlRenderer html={question.questionText} className={`${textSize} font-semibold text-text transition-all duration-200`} as="h3"/>
       </div>
 
       {/* Options */}

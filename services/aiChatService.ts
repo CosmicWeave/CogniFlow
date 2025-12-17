@@ -94,12 +94,13 @@ export const getAIResponse = async (
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-pro',
             contents: prompt,
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json",
                 responseSchema: actionSchema,
+                thinkingConfig: { thinkingBudget: 32768 },
             },
         });
 

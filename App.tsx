@@ -1,74 +1,119 @@
-// FIX: Populate `App.tsx` with the main application component.
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useStore } from './store/store';
-import { useDataManagement } from './hooks/useDataManagement';
-import { useModal, ModalProvider } from './contexts/ModalContext'; // Re-exporting for use in Manager
-import { useOnlineStatus } from './hooks/useOnlineStatus';
-import { useInstallPrompt } from './hooks/useInstallPrompt';
-import { useAutoHideHeader } from './hooks/useAutoHideHeader';
-import { usePullToRefresh, REFRESH_THRESHOLD } from './hooks/usePullToRefresh';
-import * as db from './services/db';
-import { onDataChange } from './services/syncService';
-import { initGoogleDriveService, onAuthStateChanged, onGapiReady, attemptSilentSignIn } from './services/googleDriveService';
-import { Deck, DeckSeries, QuizDeck, GoogleDriveFile } from './types';
-import { useRouter } from './contexts/RouterContext';
 
-// Components
+import React, { useEffect, useState } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import ModalManager from './components/ModalManager';
 import AppRouter from './components/AppRouter';
-import OfflineIndicator from './components/ui/OfflineIndicator';
+import ModalManager from './components/ModalManager';
 import AIGenerationStatusIndicator from './components/AIGenerationStatusIndicator';
-import { DataManagementProvider } from './contexts/DataManagementContext';
-import { SortPreference } from './components/ui/DeckSortControl';
+import AIChatFab from './components/AIChatFab';
+import OfflineIndicator from './components/ui/OfflineIndicator';
 import PullToRefreshIndicator from './components/ui/PullToRefreshIndicator';
-import { analyzeFileContent } from './services/importService';
+import { DataManagementProvider, useData } from './contexts/DataManagementContext';
+import { useDataManagement } from './hooks/useDataManagement';
+import { useStore } from './store/store';
+import { useSettings } from './hooks/useSettings';
+import { useAutoHideHeader } from './hooks/useAutoHideHeader';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
+import * as googleDriveService from './services/googleDriveService';
+import * as db from './services/db';
+import { GoogleDriveFile } from './types';
+import Button from './components/ui/Button';
+import Icon from './components/ui/Icon';
+import { analyzeFile } from './services/importService';
 
-const App: React.FC = () => {
-    const { dispatch, decks, deckSeries, isLoading, aiGenerationStatus } = useStore();
-    const { path } = useRouter();
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const [sessionsToResume, setSessionsToResume] = useState<Set<string>>(new Set());
-    const [generalStudyDeck, setGeneralStudyDeck] = useState<QuizDeck | null>(null);
-    const [installPrompt, handleInstall] = useInstallPrompt();
-    const isHeaderVisible = useAutoHideHeader();
-    const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd } = usePullToRefresh();
-    
-    // State for sync and drive
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [lastSyncStatus, setLastSyncStatus] = useState<string>('Not synced yet.');
-    const [isGapiReady, setIsGapiReady] = useState(false);
-    const [isGapiSignedIn, setIsGapiSignedIn] = useState(false);
-    const [gapiUser, setGapiUser] = useState<any>(null);
-    const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
-    
-    // State for drag & drop
-    const [sortPreference, setSortPreference] = useState<SortPreference>('lastOpened');
-    const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
-    const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set());
-    
-    const dataHandlers = useDataManagement({
-        isSyncing, setIsSyncing, lastSyncStatus, setLastSyncStatus,
-        isGapiReady, isGapiSignedIn, gapiUser,
-        sessionsToResume, setSessionsToResume,
-        setGeneralStudyDeck,
-        setDriveFiles
-    });
+const AppContent: React.FC = () => {
+  const { aiGenerationStatus, dispatch, isLoading } = useStore();
+  const dataHandlers = useData();
+  const settings = useSettings();
+  const isHeaderVisible = useAutoHideHeader();
+  const { pullToRefreshState, handleTouchStart, handleTouchMove, handleTouchEnd, REFRESH_THRESHOLD } = usePullToRefresh();
 
-    const { openModal } = useModal();
-    
-    // --- Data Loading and Syncing ---
-    const loadData = useCallback(async () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isGapiReady, setIsGapiReady] = useState(false);
+  const [isGapiSignedIn, setIsGapiSignedIn] = useState(false);
+  const [gapiUser, setGapiUser] = useState<any>(null);
+  const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
+  // We no longer use initError to block the UI, but we track if DB failed
+  const [isDbFailed, setIsDbFailed] = useState(false);
+  
+  const { decks, deckSeries, isLoading: storeLoading } = useStore();
+  // Simple URL parsing for active items
+  const activeDeckId = window.location.hash.match(/\/decks\/([^/?]+)/)?.[1];
+  const activeSeriesId = window.location.hash.match(/\/series\/([^/?]+)/)?.[1];
+  
+  const activeDeck = activeDeckId ? decks[activeDeckId] || null : null;
+  const activeSeries = activeSeriesId ? deckSeries[activeSeriesId] || null : null;
+
+  // --- Google Drive Init ---
+  useEffect(() => {
+    googleDriveService.initGoogleDriveService()
+      .then(() => {
+        setIsGapiReady(true);
+        googleDriveService.onAuthStateChanged((isSignedIn, user) => {
+          setIsGapiSignedIn(isSignedIn);
+          setGapiUser(user);
+        });
+        const previouslySignedIn = localStorage.getItem('gdrive-previously-signed-in');
+        if (previouslySignedIn) {
+          googleDriveService.attemptSilentSignIn();
+        }
+      })
+      .catch(err => console.error("GAPI Init Error", err));
+  }, []);
+
+  // --- Global File Drop ---
+  useEffect(() => {
+      const handleWindowDragOver = (e: DragEvent) => {
+          // Only allow dropping files, not internal elements like cards/decks
+          if (e.dataTransfer?.types.includes('Files')) {
+              e.preventDefault();
+          }
+      };
+
+      const handleWindowDrop = async (e: DragEvent) => {
+          if (!e.dataTransfer?.types.includes('Files')) return;
+          e.preventDefault();
+          
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              const file = e.dataTransfer.files[0];
+              try {
+                  const analysis = await analyzeFile(file);
+                  if (analysis) {
+                      dataHandlers?.openModal('droppedFile', { analysis });
+                  } else {
+                      dataHandlers?.addToast(`Could not recognize format of "${file.name}".`, 'error');
+                  }
+              } catch (err) {
+                  console.error("File analysis failed", err);
+                  dataHandlers?.addToast('Failed to analyze dropped file.', 'error');
+              }
+          }
+      };
+
+      window.addEventListener('dragover', handleWindowDragOver);
+      window.addEventListener('drop', handleWindowDrop);
+
+      return () => {
+          window.removeEventListener('dragover', handleWindowDragOver);
+          window.removeEventListener('drop', handleWindowDrop);
+      };
+  }, [dataHandlers]);
+
+  // --- Initial Data Load ---
+  useEffect(() => {
+    const loadData = async () => {
         try {
-            const [decks, folders, deckSeries, sessions, seriesProgress, aiChatHistory] = await Promise.all([
+            const [decks, folders, deckSeries, sessions, seriesProgress, learningProgress, aiChatHistory] = await Promise.all([
                 db.getAllDecks(),
                 db.getAllFolders(),
                 db.getAllDeckSeries(),
                 db.getAllSessions(),
                 db.getAllSeriesProgress(),
+                db.getAllLearningProgress(),
                 db.getAIChatHistory()
             ]);
+
+            // Dispatch to global store
             dispatch({ type: 'LOAD_DATA', payload: { decks, folders, deckSeries } });
             dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: aiChatHistory });
             
@@ -77,167 +122,246 @@ const App: React.FC = () => {
                 progressMap.set(seriesId, new Set(deckIds));
             });
             dispatch({ type: 'SET_SERIES_PROGRESS', payload: progressMap });
+            dispatch({ type: 'SET_LEARNING_PROGRESS', payload: learningProgress });
             
-            setSessionsToResume(new Set(sessions.map(s => s.id.replace('session_deck_', ''))));
-            
+            if (dataHandlers && dataHandlers.setSessionsToResume) {
+                 dataHandlers.setSessionsToResume(new Set(sessions.map(s => s.id.replace('session_deck_', ''))));
+            }
+
+            if (dataHandlers) {
+                dataHandlers.triggerSync({ isManual: false });
+            }
+
         } catch (error) {
-            console.error("Failed to load initial data:", error);
-        }
-    }, [dispatch]);
-
-    useEffect(() => {
-        loadData();
-        const unsubscribe = onDataChange(loadData);
-        return unsubscribe;
-    }, [loadData]);
-    
-    // --- Google Drive Initialization ---
-    useEffect(() => {
-        initGoogleDriveService();
-        const unsubGapi = onGapiReady(setIsGapiReady);
-        const unsubAuth = onAuthStateChanged((isSignedIn, user) => {
-            setIsGapiSignedIn(isSignedIn);
-            setGapiUser(user || null);
-        });
-        return () => { unsubGapi(); unsubAuth(); };
-    }, []);
-
-    useEffect(() => {
-        if (isGapiReady && localStorage.getItem('gdrive-previously-signed-in') === 'true') {
-            attemptSilentSignIn();
-        }
-    }, [isGapiReady]);
-
-    // --- Drag and Drop File Import ---
-    useEffect(() => {
-        const handleDragOver = (e: DragEvent) => e.preventDefault();
-        const handleDrop = async (e: DragEvent) => {
-            e.preventDefault();
-            const file = e.dataTransfer?.files[0];
-            if (file) {
-                try {
-                    const content = await file.text();
-                    const analysis = analyzeFileContent(content);
-                    if (analysis) {
-                        openModal('droppedFile', { analysis: { ...analysis, fileName: file.name } });
-                    }
-                } catch (error) {
-                    dataHandlers.addToast((error as Error).message, 'error');
-                }
-            }
-        };
-        window.addEventListener('dragover', handleDragOver);
-        window.addEventListener('drop', handleDrop);
-        return () => {
-            window.removeEventListener('dragover', handleDragOver);
-            window.removeEventListener('drop', handleDrop);
-        };
-    }, [openModal, dataHandlers]);
-    
-     // --- AI Task Queue Processor ---
-    useEffect(() => {
-        const processQueue = async () => {
-            if (aiGenerationStatus.currentTask || (aiGenerationStatus.queue?.length || 0) === 0) {
-                return;
-            }
-
-            const task = aiGenerationStatus.queue[0];
-            const abortController = new AbortController();
+            console.error("Failed to load initial data from DB. Falling back to empty state.", error);
+            // Treat as a fresh start if DB fails, rather than blocking the user
+            setIsDbFailed(true);
             
-            dispatch({ type: 'START_NEXT_AI_TASK', payload: { task, abortController } });
-
-            try {
-                switch (task.type) {
-                    case 'generateFlashcardDeckWithAI':
-                        await (dataHandlers as any).onGenerateFlashcardDeck(task.payload, abortController.signal);
-                        break;
-                    // FIX: Added a case for 'generateQuestionsForDeck' to handle question generation tasks from the AI queue.
-                    case 'generateQuestionsForDeck':
-                        await (dataHandlers as any).handleGenerateQuestionsForDeck(task.payload.deck, task.payload.count, abortController.signal);
-                        break;
-                    default:
-                        console.warn(`Unknown AI task type: ${task.type}`);
-                }
-            } catch (error) {
-                 if ((error as Error).name !== 'AbortError') {
-                    console.error("Error processing AI task:", error);
-                    dataHandlers.addToast(`AI task failed: ${(error as Error).message}`, 'error');
-                } else {
-                    console.log("AI task was cancelled by user.");
-                    dataHandlers.addToast('AI task cancelled.', 'info');
-                }
-            } finally {
-                // Check if the task is still the current one before finishing
-                // This prevents a late-arriving error from dismissing a new task
-                if (useStore.getState().aiGenerationStatus.currentTask?.id === task.id) {
-                    dispatch({ type: 'FINISH_CURRENT_AI_TASK' });
-                }
+            dispatch({ type: 'LOAD_DATA', payload: { decks: [], folders: [], deckSeries: [] } });
+            
+            if (dataHandlers) {
+                dataHandlers.addToast("Storage error: Data may not persist between reloads.", "warning");
             }
-        };
+        } finally {
+            dispatch({ type: 'SET_LOADING', payload: false });
+        }
+    };
+    loadData();
+  }, [dispatch]); // Only run once on mount
 
-        processQueue();
-    }, [aiGenerationStatus.queue, aiGenerationStatus.currentTask, dispatch, dataHandlers]);
+  // --- AI Queue Processing ---
+  useEffect(() => {
+    const processQueue = async () => {
+      if (aiGenerationStatus.isGenerating || aiGenerationStatus.queue.length === 0 || !dataHandlers) return;
+
+      const task = aiGenerationStatus.queue[0];
+      const abortController = new AbortController();
+      
+      dispatch({ type: 'START_NEXT_AI_TASK', payload: { task, abortController } });
+
+      try {
+        switch (task.type) {
+            case 'generateFullSeriesFromScaffold':
+                await (dataHandlers as any).onGenerateFullSeriesFromScaffold(task.payload, abortController.signal);
+                break;
+            case 'generateFlashcardDeckWithAI':
+                await (dataHandlers as any).onGenerateFlashcardDeck(task.payload, abortController.signal);
+                break;
+            case 'generateLearningDeckWithAI':
+                await (dataHandlers as any).onGenerateLearningDeckWithAI(task.payload, abortController.signal);
+                break;
+            case 'generateQuestionsForDeck':
+                await (dataHandlers as any).onGenerateQuestionsForDeck(task.payload.deck, task.payload.count, task.payload.seriesContext, abortController.signal);
+                break;
+            case 'generateDeckFromOutline':
+                 await (dataHandlers as any).onGenerateDeckFromOutline(task.payload.outline, task.payload.metadata, task.payload.seriesId, task.payload.levelIndex, abortController.signal);
+                 break;
+            case 'autoPopulateSeries':
+                await (dataHandlers as any).onAutoPopulateSeries(task.payload, abortController.signal);
+                break;
+            case 'autoPopulateLevel':
+                await (dataHandlers as any).onAutoPopulateLevel(task.payload, abortController.signal);
+                break;
+            case 'generateSeriesQuestionsInBatches':
+                await (dataHandlers as any).onGenerateSeriesQuestionsInBatches(task.payload, abortController.signal);
+                break;
+            case 'regenerateQuestion':
+                 await (dataHandlers as any).onRegenerateQuestion(task.payload, abortController.signal);
+                 break;
+            case 'generateSeriesLearningContentInBatches':
+                 await (dataHandlers as any).onGenerateLearningContentForDeck(task.payload, abortController.signal);
+                 break;
+            default:
+                console.warn(`Unknown AI task type: ${task.type}`);
+                break;
+        }
+      } catch (error: any) {
+         if (error.message !== "Cancelled by user" && error.name !== 'AbortError') {
+             console.error("AI Task Failed", error);
+             dataHandlers.addToast(`AI Task Failed: ${error.message}`, 'error');
+         }
+      } finally {
+         dispatch({ type: 'FINISH_CURRENT_AI_TASK' });
+      }
+    };
+    processQueue();
+  }, [aiGenerationStatus.isGenerating, aiGenerationStatus.queue, dispatch, dataHandlers]);
 
 
-    // --- App Logic ---
-    const { activeDeck, activeSeries } = useMemo(() => {
-        const deckMatch = path.match(/\/decks\/([^/]+)/);
-        const seriesMatch = path.match(/\/series\/([^/]+)/);
-        return {
-            activeDeck: deckMatch ? decks.find(d => d.id === deckMatch[1]) || null : null,
-            activeSeries: seriesMatch ? deckSeries.find(s => s.id === seriesMatch[1]) || null : null,
-        };
-    }, [path, decks, deckSeries]);
-    
-    if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (isLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center h-screen bg-background text-text">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+            <p className="text-lg font-medium animate-pulse">Loading Library...</p>
+        </div>
+      );
+  }
+
+  // Router props need to be wired up to the handlers and state
+  const routerProps = {
+      activeDeck,
+      activeSeries,
+      generalStudyDeck: null,
+      sessionsToResume: new Set<string>(),
+      onSync: () => dataHandlers?.handleManualSync(),
+      isSyncing: false,
+      lastSyncStatus: '',
+      isGapiReady,
+      isGapiSignedIn,
+      gapiUser,
+      sortPreference: 'lastOpened',
+      setSortPreference: () => {},
+      draggedDeckId: null,
+      setDraggedDeckId: () => {},
+      openFolderIds: new Set<string>(),
+      onToggleFolder: (id: string) => {},
+  };
+
+  return (
+    <div 
+        className="min-h-screen bg-background text-text transition-colors duration-200"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+    >
+      <Header 
+        onOpenMenu={() => setIsSidebarOpen(true)} 
+        onOpenCommandPalette={() => dataHandlers?.openModal('commandPalette')}
+        activeDeck={activeDeck}
+        isVisible={isHeaderVisible}
+      />
+      
+      {isDbFailed && (
+          <div className="bg-red-500 text-white text-center text-xs py-1 px-2 fixed top-16 left-0 right-0 z-30">
+              Storage Warning: Changes may not be saved locally due to a browser database error.
+          </div>
+      )}
+      
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        onClose={() => setIsSidebarOpen(false)}
+        onImport={() => dataHandlers?.openModal('import')}
+        onCreateSeries={() => dataHandlers?.openModal('series', { series: 'new' })}
+        onGenerateAI={() => dataHandlers?.openModal('aiGeneration')}
+        onInstall={null} 
+      />
+
+      <main className={`pt-20 pb-20 px-4 max-w-7xl mx-auto min-h-[calc(100vh-5rem)] ${isDbFailed ? 'mt-6' : ''}`}>
+        <PullToRefreshIndicator 
+            pullDistance={pullToRefreshState.pullDistance} 
+            isRefreshing={pullToRefreshState.isRefreshing} 
+            threshold={REFRESH_THRESHOLD} 
+        />
+        <AppRouter {...routerProps} 
+            // Override with props passed from App wrapper if available, otherwise defaults
+            sessionsToResume={dataHandlers.sessionsToResume || new Set()}
+            isSyncing={dataHandlers.isSyncing || false}
+            lastSyncStatus={dataHandlers.lastSyncStatus || ''}
+            sortPreference={dataHandlers.sortPreference || 'lastOpened'}
+            setSortPreference={dataHandlers.setSortPreference || (() => {})}
+            draggedDeckId={dataHandlers.draggedDeckId || null}
+            setDraggedDeckId={dataHandlers.setDraggedDeckId || (() => {})}
+            openFolderIds={dataHandlers.openFolderIds || new Set()}
+            onToggleFolder={dataHandlers.onToggleFolder || (() => {})}
+            generalStudyDeck={dataHandlers.generalStudyDeck || null}
+        />
+      </main>
+
+      <ModalManager driveFiles={driveFiles} />
+      <AIGenerationStatusIndicator 
+        onOpen={() => dataHandlers?.openModal('aiStatus')} 
+        onCancel={() => dataHandlers?.handleCancelAIGeneration()} 
+      />
+      <AIChatFab />
+      <OfflineIndicator />
+    </div>
+  );
+};
+
+const App: React.FC = () => {
+    // Lift state required for UI that isn't in global store yet
+    const [sessionsToResume, setSessionsToResume] = useState<Set<string>>(new Set());
+    const [generalStudyDeck, setGeneralStudyDeck] = useState<any>(null);
+    const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSyncStatus, setLastSyncStatus] = useState('');
+    const [sortPreference, setSortPreference] = useState<any>('lastOpened');
+    const [draggedDeckId, setDraggedDeckId] = useState<string | null>(null);
+    const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(new Set());
+
+    const settings = useSettings();
+
+    // Pass state setters to hook so handlers can update them
+    const dataManagementProps = {
+        sessionsToResume,
+        setSessionsToResume,
+        generalStudyDeck,
+        setGeneralStudyDeck,
+        driveFiles,
+        setDriveFiles,
+        isSyncing,
+        setIsSyncing,
+        lastSyncStatus,
+        setLastSyncStatus,
+        sortPreference,
+        setSortPreference,
+        draggedDeckId,
+        setDraggedDeckId,
+        openFolderIds,
+        setOpenFolderIds,
+        onToggleFolder: (id: string) => {
+            const newSet = new Set(openFolderIds);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            setOpenFolderIds(newSet);
+        },
+        // Settings for sync
+        backupEnabled: settings.backupEnabled,
+        backupApiKey: settings.backupApiKey,
+        syncOnCellular: settings.syncOnCellular
+    };
+
+    const dataHandlers = useDataManagement(dataManagementProps);
+
+    // Combine handlers and state into one object for the context to consume easily
+    const contextValue = {
+        ...dataHandlers,
+        // Expose state vars for AppContent to use in props
+        sessionsToResume,
+        generalStudyDeck,
+        isSyncing,
+        lastSyncStatus,
+        sortPreference,
+        setSortPreference,
+        draggedDeckId,
+        setDraggedDeckId,
+        openFolderIds,
+        onToggleFolder: dataManagementProps.onToggleFolder
+    };
 
     return (
-        <DataManagementProvider value={dataHandlers}>
-            <div onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-                <PullToRefreshIndicator pullDistance={pullToRefreshState.pullDistance} isRefreshing={pullToRefreshState.isRefreshing} threshold={REFRESH_THRESHOLD} />
-                <Header 
-                    onOpenMenu={() => setIsSidebarOpen(true)}
-                    onOpenCommandPalette={() => openModal('commandPalette')}
-                    activeDeck={activeDeck}
-                    isVisible={isHeaderVisible}
-                />
-                <Sidebar 
-                    isOpen={isSidebarOpen} 
-                    onClose={() => setIsSidebarOpen(false)}
-                    onImport={() => openModal('import')}
-                    onCreateSeries={() => openModal('series', { series: 'new' })}
-                    onGenerateAI={() => openModal('aiGeneration')}
-                    onInstall={installPrompt ? handleInstall : null}
-                />
-                <main className="container mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-20 min-h-screen">
-                    <AppRouter 
-                        activeDeck={activeDeck}
-                        activeSeries={activeSeries}
-                        generalStudyDeck={generalStudyDeck}
-                        sessionsToResume={sessionsToResume}
-                        onSync={dataHandlers.handleManualSync}
-                        isSyncing={isSyncing}
-                        lastSyncStatus={lastSyncStatus}
-                        isGapiReady={isGapiReady}
-                        isGapiSignedIn={isGapiSignedIn}
-                        gapiUser={gapiUser}
-                        sortPreference={sortPreference}
-                        setSortPreference={setSortPreference}
-                        draggedDeckId={draggedDeckId}
-                        setDraggedDeckId={setDraggedDeckId}
-                        openFolderIds={openFolderIds}
-                        onToggleFolder={(id) => setOpenFolderIds(prev => {
-                            const newSet = new Set(prev);
-                            if (newSet.has(id)) newSet.delete(id);
-                            else newSet.add(id);
-                            return newSet;
-                        })}
-                    />
-                </main>
-                <ModalManager driveFiles={driveFiles} />
-                <OfflineIndicator />
-                <AIGenerationStatusIndicator onOpen={() => openModal('aiStatus')} onCancel={dataHandlers.handleCancelAIGeneration} />
-            </div>
+        <DataManagementProvider value={contextValue}>
+            <AppContent />
         </DataManagementProvider>
     );
 };

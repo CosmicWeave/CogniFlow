@@ -26,6 +26,7 @@ const PullToRefreshIndicator: React.FC<PullToRefreshIndicatorProps> = ({ pullDis
   
   const progress = Math.min(pullDistance / threshold, 1);
   const hasMetThreshold = progress >= 1;
+  const scale = Math.min(0.5 + progress * 0.5, 1);
 
   // SVG circle properties
   const radius = 20;
@@ -36,11 +37,11 @@ const PullToRefreshIndicator: React.FC<PullToRefreshIndicatorProps> = ({ pullDis
     <div
       className="fixed top-0 left-0 right-0 h-20 flex items-center justify-center z-10 pointer-events-none"
       style={{
-        transform: `translateY(${Math.min(pullDistance, threshold * 1.5) - 80}px)`,
+        transform: `translateY(${Math.min(pullDistance, threshold * 1.5) - 80}px) scale(${scale})`,
         opacity: Math.min(pullDistance / (threshold / 2), 1),
       }}
     >
-      <div className="relative w-12 h-12 flex items-center justify-center bg-white dark:bg-gray-800 rounded-full shadow-lg">
+      <div className="relative w-12 h-12 flex items-center justify-center bg-white dark:bg-gray-800 rounded-full shadow-lg transition-transform duration-200" style={{ transform: hasMetThreshold ? 'scale(1.1)' : 'scale(1)' }}>
         {/* Circular progress SVG */}
         <svg className="absolute w-full h-full transform -rotate-90" viewBox="0 0 44 44">
           <circle

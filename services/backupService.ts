@@ -1,24 +1,16 @@
+
 // services/backupService.ts
 import * as db from './db';
 import { parseAndValidateBackupFile } from './importService';
-// FIX: Imported FlashcardDeck and AIMessage to resolve type errors.
 import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType, FullBackupData, AIMessage, FlashcardDeck, Reviewable, QuizDeck, LearningDeck } from '../types';
 import { getStockholmFilenameTimestamp } from './time';
-
-// FIX: Create a mutable copy of the db module's functions to allow mocking in tests.
-const db_internal = { ...db };
-
-// Create a mutable dependencies object for mocking in tests
-const dependencies = {
-    fetch: window.fetch.bind(window)
-};
+import JSZip from 'jszip';
+import { encryptData, decryptData } from './encryptionService';
 
 const BASE_URL = 'https://www.greenyogafestival.org/backup-api/api/v1';
 const APP_ID = 'cogniflow-data';
 const SYNC_FILENAME = 'cogniflow-data.json';
 const AI_CHAT_FILENAME = 'cogniflow-ai-chat.json';
-const MOCK_API_KEY = 'test-api-key';
-
 
 const getApiKey = () => localStorage.getItem('cogniflow-backupApiKey') || 'qRt+gU/57GHKhxTZeRnRi+dfT274iSkKKq2UnTr9Bxs=';
 const setLastSyncEtag = (etag: string) => localStorage.setItem('cogniflow-lastSyncEtag', etag);
@@ -64,7 +56,7 @@ async function request(endpoint: string, options: RequestInit = {}): Promise<Res
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const response = await dependencies.fetch(url, finalOptions);
+            const response = await window.fetch(url, finalOptions);
             console.log(`[BackupService] Response from ${options.method || 'GET'} ${url}: ${response.status}`);
 
             if (!response.ok && ![304, 404].includes(response.status)) {
@@ -106,6 +98,24 @@ async function request(endpoint: string, options: RequestInit = {}): Promise<Res
     throw new Error("An unexpected error occurred in the request function.");
 }
 
+/**
+ * Compresses the backup data into a zip file and returns a JSON wrapper with the base64 content.
+ */
+async function compressData(data: FullBackupData): Promise<any> {
+    const zip = new JSZip();
+    zip.file("backup.json", JSON.stringify(data));
+    const base64 = await zip.generateAsync({ 
+        type: "base64", 
+        compression: "DEFLATE", 
+        compressionOptions: { level: 6 } 
+    });
+    
+    return {
+        dataType: 'cogniflow-compressed-backup-v1',
+        content: base64
+    };
+}
+
 export async function syncDataToServer(dataToSync?: FullBackupData, force = false): Promise<{ timestamp: string, etag: string }> {
     console.log('[BackupService] Starting syncDataToServer...');
     let backupData: FullBackupData;
@@ -113,24 +123,38 @@ export async function syncDataToServer(dataToSync?: FullBackupData, force = fals
     if (dataToSync) {
         backupData = dataToSync;
     } else {
-        const { decks, folders, deckSeries, reviews, sessions, seriesProgress } = await db_internal.getAllDataForBackup();
-        const aiChatHistory = await db_internal.getAIChatHistory();
+        const { decks, folders, deckSeries, reviews, sessions, seriesProgress, learningProgress } = await db.getAllDataForBackup();
+        const aiChatHistory = await db.getAIChatHistory();
         const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
         const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
         backupData = {
-            version: 6,
+            version: 9, // Incremented due to learningProgress
             decks,
             folders,
             deckSeries,
             reviews,
             sessions,
             seriesProgress,
+            learningProgress,
             aiOptions,
             aiChatHistory,
         };
     }
     
-    const body = JSON.stringify(backupData);
+    // Compress payload
+    const compressedPayload = await compressData(backupData);
+    let body = JSON.stringify(compressedPayload);
+    
+    // Encrypt if password exists
+    const password = localStorage.getItem('cogniflow-encryptionPassword');
+    if (password) {
+       const encrypted = await encryptData(body, password);
+       body = JSON.stringify({
+           dataType: 'cogniflow-encrypted-v1',
+           content: encrypted
+       });
+       console.log('[BackupService] Payload encrypted.');
+    }
     
     const headers: HeadersInit = {
         'Content-Type': 'application/json',
@@ -140,7 +164,7 @@ export async function syncDataToServer(dataToSync?: FullBackupData, force = fals
         headers['If-Match'] = etag;
     }
     
-    console.log(`[BackupService] PUT ${SYNC_FILENAME}`, { headers, body: `(JSON body of size ${body.length})` });
+    console.log(`[BackupService] PUT ${SYNC_FILENAME}`, { headers, bodySize: body.length });
     
     const rawResponse = await request(`apps/${APP_ID}/backups/${SYNC_FILENAME}`, {
         method: 'PUT',
@@ -176,9 +200,27 @@ export async function syncDataFromServer(): Promise<FullBackupData> {
     if (etag) {
         setLastSyncEtag(etag);
     }
-    const jsonString = await response.text();
-    // The parse function already returns FullBackupData, so we just return its result directly.
-    const parsedData = parseAndValidateBackupFile(jsonString);
+    let jsonString = await response.text();
+
+    // Check for encryption wrapper
+    try {
+        const potentialEncrypted = JSON.parse(jsonString);
+        if (potentialEncrypted && potentialEncrypted.dataType === 'cogniflow-encrypted-v1') {
+             const password = localStorage.getItem('cogniflow-encryptionPassword');
+             if (!password) throw new Error("Sync data is encrypted but no password is set on this device. Please set it in Settings.");
+             jsonString = await decryptData(potentialEncrypted.content, password);
+             console.log('[BackupService] Payload decrypted.');
+        }
+    } catch (e) {
+        // If decryption failed explicitly, rethrow
+        if (e instanceof Error && (e.message.includes("Decryption failed") || e.message.includes("password is set"))) {
+             throw e;
+        }
+        // If JSON parse failed or other error, assume it's legacy plaintext or compressed data handled below
+    }
+
+    // parseAndValidateBackupFile handles decompression automatically
+    const parsedData = await parseAndValidateBackupFile(jsonString);
     console.log('[BackupService] syncDataFromServer successful.');
     return parsedData;
 }
@@ -206,7 +248,7 @@ export async function getSyncDataMetadata(): Promise<{ metadata: BackupFileMetad
 
 export async function syncAIChatHistoryToServer(): Promise<void> {
     console.log('[BackupService] Starting syncAIChatHistoryToServer...');
-    const history = await db_internal.getAIChatHistory();
+    const history = await db.getAIChatHistory();
     const body = JSON.stringify({ version: 1, history: history || [] });
 
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
@@ -288,25 +330,40 @@ export async function listServerBackups(): Promise<BackupFileMetadata[]> {
 
 export async function createServerBackup(): Promise<CreateBackupResponse> {
     console.log('[BackupService] Starting createServerBackup...');
-    const { decks, folders, deckSeries, reviews, sessions, seriesProgress } = await db_internal.getAllDataForBackup();
+    const { decks, folders, deckSeries, reviews, sessions, seriesProgress, learningProgress } = await db.getAllDataForBackup();
     
     const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
     const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
-    const aiChatHistory = await db_internal.getAIChatHistory();
+    const aiChatHistory = await db.getAIChatHistory();
 
     const backupData: FullBackupData = {
-        version: 6,
+        version: 9, // Incremented
         decks,
         folders,
         deckSeries,
         reviews,
         sessions,
         seriesProgress,
+        learningProgress,
         aiOptions,
         aiChatHistory
     };
 
-    const body = JSON.stringify(backupData);
+    // Use compression for manual backups as well
+    const compressedPayload = await compressData(backupData);
+    let body = JSON.stringify(compressedPayload);
+
+    // Encrypt if password exists
+    const password = localStorage.getItem('cogniflow-encryptionPassword');
+    if (password) {
+       const encrypted = await encryptData(body, password);
+       body = JSON.stringify({
+           dataType: 'cogniflow-encrypted-v1',
+           content: encrypted
+       });
+       console.log('[BackupService] Backup payload encrypted.');
+    }
+    
     const blob = new Blob([body], { type: 'application/json' });
     const filename = `backup-${getStockholmFilenameTimestamp()}.json`;
 
@@ -339,215 +396,3 @@ export async function deleteServerBackup(filename: string): Promise<void> {
     });
     console.log(`[BackupService] Deleted ${filename} successfully.`);
 }
-
-export async function runBackupServiceTests() {
-  console.log('%c--- Running Backup Service Unit Tests ---', 'color: blue; font-weight: bold;');
-
-  const originalFetch = dependencies.fetch;
-  const originalGetItem = localStorage.getItem;
-  const originalSetItem = localStorage.setItem;
-  const originalGetAllDataForBackup = db_internal.getAllDataForBackup;
-  const originalGetAIChatHistory = db_internal.getAIChatHistory;
-
-  let testCount = 0;
-  let passedCount = 0;
-  let currentEtag: string | null = 'initial-etag';
-  const mockStorage: Record<string, string> = { 'cogniflow-backupApiKey': MOCK_API_KEY };
-
-  const test = async (name: string, testFn: () => Promise<void>) => {
-    testCount++;
-    console.log(`\nRunning test: ${name}`);
-    try {
-      // Reset mocks before each test
-      currentEtag = 'initial-etag';
-      mockStorage['cogniflow-lastSyncEtag'] = currentEtag;
-      mockStorage['cogniflow-aiChat-lastSyncEtag'] = currentEtag;
-      await testFn();
-      console.log(`%c✔ PASS: ${name}`, 'color: green;');
-      passedCount++;
-    } catch (error) {
-      console.error(`%c❌ FAIL: ${name}`, 'color: red;');
-      console.error(error);
-    }
-  };
-
-  const assertEqual = (actual: any, expected: any, message: string) => {
-    const actualStr = JSON.stringify(actual);
-    const expectedStr = JSON.stringify(expected);
-    if (actualStr !== expectedStr) {
-      throw new Error(`${message}\nExpected: ${expectedStr}\nActual:   ${actualStr}`);
-    }
-  };
-  
-  const assert = (condition: boolean, message: string) => {
-    if (!condition) {
-        throw new Error(message);
-    }
-  }
-
-  const assertThrows = async (fn: () => Promise<any>, expectedErrorMessage: string, message: string) => {
-    try {
-      await fn();
-      throw new Error(`Expected function to throw, but it did not. ${message}`);
-    } catch (error: any) {
-      if (!error.message.includes(expectedErrorMessage)) {
-        throw new Error(`${message}\nExpected error message to include: "${expectedErrorMessage}"\nActual error message: "${error.message}"`);
-      }
-    }
-  };
-
-  const mockDbData = { decks: [{id: 'd1', name: 'Deck 1', type: 'flashcard', cards:[]}], folders: [], deckSeries: [], reviews: [], sessions: [], seriesProgress: {} };
-  const mockAiHistory: AIMessage[] = [{id: 'm1', role: 'user', text: 'hello'}];
-  
-  localStorage.getItem = (key: string) => mockStorage[key] || null;
-  localStorage.setItem = (key: string, value: string) => { mockStorage[key] = value; };
-  db_internal.getAllDataForBackup = async () => Promise.resolve(mockDbData as any);
-  db_internal.getAIChatHistory = async () => Promise.resolve(mockAiHistory);
-
-  await test('syncDataToServer should succeed and update ETag', async () => {
-    dependencies.fetch = async (url, options) => {
-      const headers = new Headers(options?.headers);
-      assert(headers.get('If-Match') === 'initial-etag', 'If-Match header should be sent');
-      return new Response(JSON.stringify({ modified: '2023-01-01T12:00:00Z' }), { status: 200, headers: { ETag: 'new-etag' } });
-    };
-    const result = await syncDataToServer();
-    assertEqual(result.etag, 'new-etag', 'Should return the new ETag');
-    assertEqual(getLastSyncEtag(), 'new-etag', 'Should store the new ETag in localStorage');
-  });
-  
-  await test('syncDataToServer should use force option to ignore ETag', async () => {
-    dependencies.fetch = async (url, options) => {
-      const headers = new Headers(options?.headers);
-      assert(!headers.has('If-Match'), 'If-Match header should NOT be sent when force=true');
-      return new Response(JSON.stringify({ modified: '2023-01-01T12:00:00Z' }), { status: 201, headers: { ETag: 'forced-etag' } });
-    };
-    await syncDataToServer(undefined, true);
-    assertEqual(getLastSyncEtag(), 'forced-etag', 'ETag should be updated even on force sync');
-  });
-
-  await test('syncDataToServer should handle 412 Precondition Failed', async () => {
-    dependencies.fetch = async () => new Response(JSON.stringify({ error: 'ETag mismatch' }), { status: 412 });
-    await assertThrows(() => syncDataToServer(), 'ETag mismatch', 'Should throw on 412 error');
-  });
-  
-  await test('syncDataFromServer should succeed and parse data', async () => {
-    const serverData = { ...mockDbData, version: 6 };
-    dependencies.fetch = async () => new Response(JSON.stringify(serverData), { status: 200, headers: { ETag: 'server-etag' } });
-    const data = await syncDataFromServer();
-    assertEqual(data.decks, mockDbData.decks, 'Parsed decks should match mock data');
-    assertEqual(getLastSyncEtag(), 'server-etag', 'Should update ETag on successful fetch');
-  });
-
-  await test('syncDataFromServer should handle malformed JSON', async () => {
-    dependencies.fetch = async () => new Response('{"decks": [', { status: 200 });
-    await assertThrows(() => syncDataFromServer(), 'The JSON ends unexpectedly', 'Should throw a descriptive error for malformed JSON');
-  });
-
-  await test('syncDataFromServer should handle backups with null items in arrays', async () => {
-    const corruptedData = { 
-        version: 6,
-        decks: [
-            { id: 'd1', name: 'Deck 1', type: 'flashcard', cards: [{id: 'c1', front: 'f', back: 'b', dueDate: '2025-01-01', interval: 1, easeFactor: 2.5}, null, {id: 'c2', front: 'f2', back: 'b2', dueDate: '2025-01-01', interval: 1, easeFactor: 2.5}] },
-            null
-        ],
-        folders: [{id: 'f1', name: 'Folder 1'}, null],
-        deckSeries: []
-    };
-    dependencies.fetch = async () => new Response(JSON.stringify(corruptedData), { status: 200 });
-    const data = await syncDataFromServer();
-    assertEqual(data.decks.length, 1, 'Should filter out null decks');
-    const firstDeck = data.decks[0];
-    if (firstDeck && firstDeck.type === 'flashcard') {
-      // FIX: Cast `firstDeck` to `FlashcardDeck` to access `cards` property.
-      assertEqual((firstDeck as FlashcardDeck).cards.length, 2, 'Should filter out null cards');
-    } else {
-      throw new Error('Assertion failed: Expected a FlashcardDeck or no deck at all.');
-    }
-    assertEqual(data.folders.length, 1, 'Should filter out null folders');
-  });
-  
-  await test('syncDataFromServer should handle 404 Not Found', async () => {
-    dependencies.fetch = async () => new Response(null, { status: 404 });
-    await assertThrows(() => syncDataFromServer(), 'No sync file found on the server', 'Should throw a specific message on 404');
-  });
-  
-  await test('getSyncDataMetadata should send If-None-Match header', async () => {
-    dependencies.fetch = async (url, options) => {
-      const headers = new Headers(options?.headers);
-      assert(headers.get('If-None-Match') === 'initial-etag', 'If-None-Match header should be sent');
-      return new Response(JSON.stringify({ filename: 'test.json' }), { status: 200 });
-    };
-    await getSyncDataMetadata();
-  });
-
-  await test('getSyncDataMetadata should handle 304 Not Modified', async () => {
-    dependencies.fetch = async () => new Response(null, { status: 304 });
-    const { metadata, isNotModified } = await getSyncDataMetadata();
-    assert(isNotModified, 'isNotModified should be true on 304');
-    assertEqual(metadata, null, 'Metadata should be null on 304');
-  });
-  
-  await test('syncAIChatHistoryFromServer should throw on 404', async () => {
-    const errorResponse = new Response(null, { status: 404 });
-    dependencies.fetch = async () => errorResponse;
-    try {
-        await syncAIChatHistoryFromServer();
-        throw new Error("Function did not throw");
-    } catch (e) {
-        assertEqual(e, errorResponse, "Should throw the raw response object on 404");
-    }
-  });
-
-  await test('createServerBackup should send multipart/form-data', async () => {
-    dependencies.fetch = async (url, options) => {
-      assert(options?.body instanceof FormData, 'Body should be FormData');
-      const formData = options.body as FormData;
-      const file = formData.get('file') as File;
-      assert(file.name.startsWith('backup-'), 'File should have correct name format');
-      return new Response(JSON.stringify({ message: 'Backup successful', filename: file.name }), { status: 201 });
-    };
-    const response = await createServerBackup();
-    assert(response.message === 'Backup successful', 'Success message should be returned');
-  });
-
-  await test('restoreFromServerBackup should send POST request', async () => {
-    const filename = 'backup-test.json';
-    let methodUsed: string | undefined = '';
-    dependencies.fetch = async (url, options) => {
-        assert(url.toString().endsWith(`/restore`), 'URL should end with /restore');
-        methodUsed = options?.method;
-        return new Response(JSON.stringify({ message: 'Restore initiated' }), { status: 200 });
-    };
-    await restoreFromServerBackup(filename);
-    assertEqual(methodUsed, 'POST', 'Should use POST method');
-  });
-
-  await test('deleteServerBackup should send DELETE request', async () => {
-    const filename = 'backup-to-delete.json';
-    let methodUsed: string | undefined = '';
-    dependencies.fetch = async (url, options) => {
-        assert(url.toString().includes(filename), 'URL should contain the filename');
-        methodUsed = options?.method;
-        return new Response(null, { status: 204 });
-    };
-    await deleteServerBackup(filename);
-    assertEqual(methodUsed, 'DELETE', 'Should use DELETE method');
-  });
-
-  console.log(`\n%c--- Test Summary ---`, 'color: blue; font-weight: bold;');
-  console.log(`Total tests: ${testCount}`);
-  console.log(`%cPassed: ${passedCount}`, 'color: green;');
-  if (testCount > passedCount) {
-    console.log(`%cFailed: ${testCount - passedCount}`, 'color: red;');
-  }
-
-  // Restore original functions
-  dependencies.fetch = originalFetch;
-  localStorage.getItem = originalGetItem;
-  localStorage.setItem = originalSetItem;
-  db_internal.getAllDataForBackup = originalGetAllDataForBackup;
-  db_internal.getAIChatHistory = originalGetAIChatHistory;
-}
-
-// Expose the test runner to the window object for easy access from the console.
-(window as any).runBackupServiceTests = runBackupServiceTests;

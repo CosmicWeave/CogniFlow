@@ -69,7 +69,7 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onCompare,
 
     try {
         const text = await file.text();
-        const data = parseAndValidateBackupFile(text);
+        const data = await parseAndValidateBackupFile(text);
         setParsedData(data);
         
         const comparisonResult = onCompare(data);
@@ -270,7 +270,7 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onCompare,
 
       return (
         <div className="p-6 space-y-4">
-            <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json" onChange={handleFileChange} />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".json,application/json,.zip" onChange={handleFileChange} />
             <label onDragOver={handleDragOver} onDrop={handleDrop} className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-background`}>
                 <Icon name="upload-cloud" className="w-10 h-10 text-text-muted mb-2"/>
                 <p className="text-sm text-text-muted">

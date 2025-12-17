@@ -1,3 +1,5 @@
+
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Question, QuizDeck, LearningDeck } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -22,6 +24,8 @@ interface QuestionListEditorProps {
   onGenerateAI?: () => void;
   isGeneratingAI: boolean;
   onRegenerateQuestion: (deck: QuizDeck | LearningDeck, question: Question) => Promise<void>;
+  onAutoTag?: () => void;
+  deckName?: string;
 }
 
 const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean } => {
@@ -51,13 +55,15 @@ const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean }
 };
 
 
-const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions, onQuestionsChange, onAddQuestion, onBulkAdd, onGenerateAI, isGeneratingAI, onRegenerateQuestion }) => {
+const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions, onQuestionsChange, onAddQuestion, onBulkAdd, onGenerateAI, isGeneratingAI, onRegenerateQuestion, onAutoTag, deckName }) => {
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
   const [isOpen, setIsOpen] = useState(true);
   const [menuOpenForQuestion, setMenuOpenForQuestion] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [draggedQuestionIndex, setDraggedQuestionIndex] = useState<number | null>(null);
+  const [isAutoTagging, setIsAutoTagging] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { aiFeaturesEnabled } = useSettings();
@@ -135,6 +141,40 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
     }
   };
 
+  const handleAutoTag = async () => {
+      if (onAutoTag) {
+          setIsAutoTagging(true);
+          try {
+              await onAutoTag();
+          } finally {
+              setIsAutoTagging(false);
+          }
+      }
+  };
+
+  // Drag and Drop Handlers
+  const handleDragStart = (index: number, e: React.DragEvent) => {
+      setDraggedQuestionIndex(index);
+      e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (index: number, e: React.DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (index: number, e: React.DragEvent) => {
+      e.preventDefault();
+      if (draggedQuestionIndex === null || draggedQuestionIndex === index) return;
+
+      const newQuestions = [...questions];
+      const [draggedItem] = newQuestions.splice(draggedQuestionIndex, 1);
+      newQuestions.splice(index, 0, draggedItem);
+      
+      onQuestionsChange(newQuestions);
+      setDraggedQuestionIndex(null);
+  };
+
   return (
     <div>
       <div className="border-b border-border">
@@ -154,11 +194,23 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
           <div className="p-6">
             {questions.length > 0 ? (
               <ul className="space-y-4">
-                {questions.map((question) => {
+                {questions.map((question, index) => {
                   const { text: dueDateText, isDue } = getDueDateInfo(question.dueDate);
                   const plainTextQuestion = stripHtml(question.questionText);
+                  const isDragging = draggedQuestionIndex === index;
+
                   return (
-                    <li key={question.id} className={`p-4 rounded-lg flex items-start justify-between transition-all ${question.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'}`}>
+                    <li 
+                        key={question.id} 
+                        className={`p-4 rounded-lg flex items-start justify-between transition-all border border-transparent ${question.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'} ${isDragging ? 'opacity-50 ring-2 ring-primary' : 'hover:border-border'}`}
+                        draggable
+                        onDragStart={(e) => handleDragStart(index, e)}
+                        onDragOver={(e) => handleDragOver(index, e)}
+                        onDrop={(e) => handleDrop(index, e)}
+                    >
+                        <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text">
+                            <Icon name="grip-vertical" className="w-5 h-5" />
+                        </div>
                         <div className="flex-1 min-w-0 mr-4">
                             <p className="text-base font-medium text-text break-words truncate" title={plainTextQuestion}>{plainTextQuestion}</p>
                             <div className="mt-3 space-y-2">
@@ -230,33 +282,59 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
                 })}
               </ul>
             ) : (
-              <div className="text-center text-text-muted py-8">
-                <Icon name="help-circle" className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>This deck has no questions yet.</p>
+              <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-border rounded-lg bg-background/50">
+                <Icon name="help-circle" className="w-12 h-12 text-text-muted mb-3" />
+                <p className="text-text font-medium mb-1">No questions yet</p>
+                <p className="text-sm text-text-muted text-center max-w-xs">Start adding questions to build your quiz.</p>
+                <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                    <Button variant="primary" onClick={(e) => openEditModal(null, e)}>
+                        <Icon name="plus" className="w-4 h-4 mr-2"/>
+                        Add Question
+                    </Button>
+                    {aiFeaturesEnabled && onGenerateAI && (
+                        <Button variant="ghost" onClick={onGenerateAI} disabled={isGeneratingAI}>
+                            <Icon name="zap" className="w-4 h-4 mr-2"/>
+                            Generate with AI
+                        </Button>
+                    )}
+                </div>
               </div>
-            )}
+            ) : null}
           </div>
-          <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
-                  <Icon name="plus" className="w-5 h-5 mr-2"/>
-                  Add New Question
-              </Button>
-              <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
-                  <Icon name="code" className="w-5 h-5 mr-2"/>
-                  Bulk Add via JSON
-              </Button>
-              {aiFeaturesEnabled && onGenerateAI && (
-                <Button 
-                    variant="ghost" 
-                    onClick={onGenerateAI} 
-                    className="flex-grow sm:flex-grow-0"
-                    disabled={isGeneratingAI}
-                >
-                    {isGeneratingAI ? <Spinner size="sm" /> : <Icon name="zap" className="w-5 h-5 mr-2"/>}
-                    {isGeneratingAI ? 'Generating...' : 'Generate with AI'}
+          {questions.length > 0 && (
+            <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
+                    <Icon name="plus" className="w-5 h-5 mr-2"/>
+                    Add New Question
                 </Button>
-              )}
-          </div>
+                <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
+                    <Icon name="code" className="w-5 h-5 mr-2"/>
+                    Bulk Add via JSON
+                </Button>
+                {aiFeaturesEnabled && onAutoTag && (
+                    <Button 
+                        variant="ghost" 
+                        onClick={handleAutoTag} 
+                        className="flex-grow sm:flex-grow-0"
+                        disabled={isAutoTagging}
+                    >
+                        {isAutoTagging ? <Spinner size="sm" /> : <Icon name="filter" className="w-5 h-5 mr-2"/>}
+                        {isAutoTagging ? 'Tagging...' : 'Auto-Tag'}
+                    </Button>
+                )}
+                {aiFeaturesEnabled && onGenerateAI && (
+                    <Button 
+                        variant="ghost" 
+                        onClick={onGenerateAI} 
+                        className="flex-grow sm:flex-grow-0"
+                        disabled={isGeneratingAI}
+                    >
+                        {isGeneratingAI ? <Spinner size="sm" /> : <Icon name="zap" className="w-5 h-5 mr-2"/>}
+                        {isGeneratingAI ? 'Generating...' : 'Generate with AI'}
+                    </Button>
+                )}
+            </div>
+          )}
         </div>
       )}
 
@@ -265,6 +343,7 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
             question={editingQuestion}
             onClose={handleCloseEditModal}
             onSave={handleSaveQuestion}
+            deckName={deckName}
           />
       )}
       {questionToDelete && (

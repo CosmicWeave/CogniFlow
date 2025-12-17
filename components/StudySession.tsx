@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 // FIX: Corrected import path for types
 import { Card, Question, ReviewRating, Deck, Reviewable, QuizDeck, LearningDeck, InfoCard, SessionState, DeckType, FlashcardDeck } from '../types';
 import { calculateNextReview, getEffectiveMasteryLevel } from '../services/srs.ts';
@@ -16,6 +17,13 @@ import { useSessionQueue } from '../hooks/useSessionQueue.ts';
 import SessionSummary from './SessionSummary.tsx';
 import SessionControls from './SessionControls.tsx';
 import Link from './ui/Link.tsx';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import { explainConcept } from '../services/aiService.ts';
+import ExplanationModal from './ExplanationModal.tsx';
+import Icon from './ui/Icon.tsx';
+import Spinner from './ui/Spinner.tsx';
+import { stripHtml } from '../services/utils.ts';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts.ts';
 
 interface StudySessionProps {
     deck: Deck;
@@ -40,10 +48,22 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const [totalSessionItems, setTotalSessionItems] = useState(0);
     const [itemsCompleted, setItemsCompleted] = useState(0);
 
-    const { hapticsEnabled } = useSettings();
+    // Explanation State
+    const [isExplanationModalOpen, setIsExplanationModalOpen] = useState(false);
+    const [explanationText, setExplanationText] = useState('');
+    const [isExplaining, setIsExplaining] = useState(false);
+
+    // Settings & Zen Mode State
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [textSize, setTextSize] = useState<'normal' | 'large' | 'huge'>('normal');
+    const [isZenMode, setIsZenMode] = useState(false);
+    const settingsRef = useRef<HTMLDivElement>(null);
+
+    const { hapticsEnabled, aiFeaturesEnabled, leechThreshold, leechAction } = useSettings();
     const { addToast } = useToast();
     const { deckSeries, seriesProgress } = useStore();
-    const series = seriesId ? deckSeries.find(s => s.id === seriesId) : null;
+    const dataHandlers = useData();
+    const series = seriesId ? deckSeries[seriesId] : null;
     
     const isSpecialSession = useMemo(() => deck.id === 'general-study-deck' || ['_cram', '_flip', '_reversed'].includes(sessionKeySuffix), [deck.id, sessionKeySuffix]);
     const sessionKey = `session_deck_${deck.id}${sessionKeySuffix}`;
@@ -52,11 +72,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const { sessionQueue, setSessionQueue, isSessionInitialized, initialIndex, readInfoCardIds, setReadInfoCardIds, unlockedQuestionIds, setUnlockedQuestionIds, initialItemsCompleted } = useSessionQueue(deck, sessionKey, isSpecialSession);
     
     useEffect(() => {
-        // When the current item we are actively studying changes (i.e., not just browsing history),
-        // reset the scroll position to the top of the page. This ensures that each new card,
-        // especially short ones following long ones, is fully visible without needing to scroll up manually.
-        // We use 'instant' behavior to make it feel like a fresh view is loading, avoiding a potentially
-        // disorienting smooth scroll animation between items.
         if (isSessionInitialized) {
             window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
         }
@@ -103,6 +118,21 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         }
     }, [sessionQueue, currentIndex, readInfoCardIds, unlockedQuestionIds, sessionKey, isSpecialSession, isSessionInitialized, addToast, itemsCompleted]);
 
+    // Click outside handler for settings dropdown
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+                setIsSettingsOpen(false);
+            }
+        };
+        if (isSettingsOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isSettingsOpen]);
+
     const displayedItem = useMemo(() => sessionQueue[displayIndex], [sessionQueue, displayIndex]);
     const isHistorical = displayIndex < currentIndex;
     const isCurrent = displayIndex === currentIndex;
@@ -125,7 +155,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             // Regular session
             const title = deck.name;
             const titleLink = `/decks/${deck.id}${seriesId ? `?seriesId=${seriesId}` : ''}`;
-            // subtitle is handled by the `series` prop check below, so we can leave it undefined here.
             return { title, subtitle: undefined, titleLink };
         }
     }, [displayedItem, deck.id, deck.name, seriesId, series]);
@@ -133,7 +162,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     const nextDeckId = useMemo(() => {
         if (!seriesId || itemsCompleted < totalSessionItems) return null;
-        const series = deckSeries.find(s => s.id === seriesId);
+        const series = deckSeries[seriesId];
         if (!series) return null;
         const flatDeckIds = (series.levels || []).flatMap(l => l.deckIds || []);
         const currentDeckIndex = flatDeckIds.indexOf(deck.id);
@@ -159,7 +188,6 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     }, [currentIndex, sessionQueue.length, isSpecialSession, sessionKey]);
 
     const handleReview = useCallback(async (rating: ReviewRating) => {
-        // FIX: Use a type guard on a Reviewable property to correctly narrow `displayedItem` and resolve TypeScript errors.
         if (!displayedItem || !isCurrent || isReviewing || !('interval' in displayedItem)) return;
 
         if (sessionKeySuffix === '_cram') {
@@ -173,9 +201,22 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         if (hapticsEnabled && 'vibrate' in navigator) navigator.vibrate(20);
 
         let updatedItem = calculateNextReview(displayedItem, rating);
-        if ((updatedItem.lapses || 0) >= 8 && !displayedItem.suspended) {
-            updatedItem = { ...updatedItem, suspended: true };
-            addToast("Item suspended due to repeated failures.", "info");
+        
+        // Leech Handling Logic
+        const threshold = leechThreshold || 8;
+        if ((updatedItem.lapses || 0) >= threshold && !displayedItem.suspended) {
+            if (leechAction === 'suspend') {
+                updatedItem = { ...updatedItem, suspended: true };
+                addToast("Item suspended (Leech).", "info");
+            } else if (leechAction === 'tag') {
+                const currentTags = (updatedItem as Question).tags || (updatedItem as Card).tags || [];
+                if (!currentTags.includes('leech')) {
+                    (updatedItem as any).tags = [...currentTags, 'leech'];
+                    addToast("Item tagged as Leech.", "info");
+                }
+            } else if (leechAction === 'warn') {
+                addToast("Warning: You are struggling with this item.", "warning");
+            }
         }
 
         if (getEffectiveMasteryLevel(displayedItem) <= 0.85 && (updatedItem.masteryLevel || 0) > 0.85) {
@@ -194,17 +235,13 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             setSessionQueue(prev => prev.map((item, index) => index === currentIndex ? updatedItem : item));
             setTimeout(() => { advanceToNext(); setIsReviewing(false); }, 800);
         }
-    }, [displayedItem, isCurrent, isReviewing, sessionKeySuffix, advanceToNext, hapticsEnabled, addToast, deck.id, onItemReviewed, seriesId, currentIndex, setSessionQueue]);
+    }, [displayedItem, isCurrent, isReviewing, sessionKeySuffix, advanceToNext, hapticsEnabled, addToast, deck.id, onItemReviewed, seriesId, currentIndex, setSessionQueue, leechThreshold, leechAction]);
 
     const handleSuspend = useCallback(async () => {
-        // FIX: Use a type guard on a Reviewable property to correctly narrow `displayedItem` and resolve TypeScript errors.
         if (!displayedItem || !isCurrent || isReviewing || !('interval' in displayedItem)) return;
 
-        // Explicitly type the item after the guard clause to ensure type safety.
         const itemToSuspend = displayedItem;
-        
         setIsReviewing(true);
-        
         const updatedItem = { ...itemToSuspend, suspended: true };
         
         setReviewedItems(prev => [...prev, { oldItem: itemToSuspend, newItem: updatedItem, rating: null }]);
@@ -249,16 +286,13 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             const newlyUnlockedQuestions = (deck as LearningDeck).questions
                 .filter(q => infoCard.unlocksQuestionIds.includes(q.id));
 
-            // Prevent adding questions that might already be in the queue (e.g., as orphan questions)
             const currentQueueIds = new Set(sessionQueue.map(item => item.id));
             const questionsToAdd = newlyUnlockedQuestions.filter(q => !currentQueueIds.has(q.id));
 
             if (questionsToAdd.length > 0) {
-                // Shuffle questions before injecting them
                 questionsToAdd.sort(() => Math.random() - 0.5);
                 setSessionQueue(prev => {
                     const nextQueue = [...prev];
-                    // Splice them in right after the current item
                     nextQueue.splice(currentIndex + 1, 0, ...questionsToAdd);
                     return nextQueue;
                 });
@@ -288,7 +322,112 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             }
         }
     }, [isQuiz, displayedItem, deck]);
+
+    const handleGenerateAudioForCard = useCallback(async (card: Card, side: 'front' | 'back') => {
+        const actualDeckId = (card as any).originalDeckId || deck.id;
+        const audio = await dataHandlers?.handleGenerateAudioForCard(actualDeckId, card, side);
+        
+        if (audio) {
+            setSessionQueue(prev => prev.map(item => {
+                if (item.id === card.id) {
+                    return {
+                        ...item,
+                        [side === 'front' ? 'frontAudio' : 'backAudio']: audio
+                    };
+                }
+                return item;
+            }));
+        }
+        return audio;
+    }, [deck.id, dataHandlers, setSessionQueue]);
+
+    const handleExplain = async () => {
+        if (!displayedItem) return;
+        
+        setIsExplaining(true);
+        try {
+            let concept = '';
+            let context = '';
+            
+            if ('questionText' in displayedItem) {
+                const q = displayedItem as Question;
+                const correctAnswer = q.options.find(o => o.id === q.correctAnswerId)?.text || '';
+                concept = `${q.questionText} Answer: ${correctAnswer}`;
+                context = `The user is studying a quiz about "${deck.name}".`;
+            } else if ('front' in displayedItem) {
+                const c = displayedItem as Card;
+                concept = `${c.front} = ${c.back}`;
+                context = `The user is studying flashcards about "${deck.name}".`;
+            }
+
+            const cleanConcept = stripHtml(concept);
+            
+            const explanation = await explainConcept(cleanConcept, context);
+            setExplanationText(explanation);
+            setIsExplanationModalOpen(true);
+        } catch (error) {
+            addToast("Failed to generate explanation.", "error");
+        } finally {
+            setIsExplaining(false);
+        }
+    };
+
+    // Keyboard Shortcuts Configuration
+    const shortcuts = useMemo(() => ({
+        'Space': (e: KeyboardEvent) => {
+            if (!isCurrent || isReviewing) return;
+            e.preventDefault();
+            if (!isQuiz && !isFlipped) {
+                handleFlip();
+            } else if (isInfoCard) {
+                handleReadInfoCard();
+            }
+        },
+        'Digit1': (e: KeyboardEvent) => {
+            if (!isCurrent || isReviewing) return;
+            const canRate = isFlipped || (isQuiz && isAnswered);
+            if (canRate) {
+                e.preventDefault();
+                handleReview(ReviewRating.Again);
+            }
+        },
+        'Digit2': (e: KeyboardEvent) => {
+            if (!isCurrent || isReviewing) return;
+            const canRate = isFlipped || (isQuiz && isAnswered);
+            if (canRate) {
+                e.preventDefault();
+                handleReview(ReviewRating.Hard);
+            }
+        },
+        'Digit3': (e: KeyboardEvent) => {
+            if (!isCurrent || isReviewing) return;
+            const canRate = isFlipped || (isQuiz && isAnswered);
+            if (canRate) {
+                e.preventDefault();
+                handleReview(ReviewRating.Good);
+            }
+        },
+        'Digit4': (e: KeyboardEvent) => {
+            if (!isCurrent || isReviewing) return;
+            const canRate = isFlipped || (isQuiz && isAnswered);
+            if (canRate) {
+                e.preventDefault();
+                handleReview(ReviewRating.Easy);
+            }
+        }
+    }), [isCurrent, isReviewing, isFlipped, isQuiz, isInfoCard, isAnswered, handleFlip, handleReadInfoCard, handleReview]);
+
+    useKeyboardShortcuts(shortcuts);
     
+    // Tailwind class mapping for text size
+    const contentTextSizeClass = useMemo(() => {
+        switch (textSize) {
+            case 'large': return 'text-lg md:text-xl';
+            case 'huge': return 'text-xl md:text-2xl';
+            case 'normal': default: return 'text-base md:text-lg';
+        }
+    }, [textSize]);
+
     if (!isSessionInitialized) {
         return <div className="text-center p-8">Loading session...</div>;
     }
@@ -317,80 +456,195 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         );
     }
     
-    return (
-        <div className="max-w-2xl mx-auto flex flex-col h-full animate-fade-in">
-            <div className="w-full">
-                <ProgressBar current={itemsCompleted} total={totalSessionItems} />
-            </div>
+    // Improved container styling - single column layout for all sizes
+    const containerClasses = isZenMode 
+        ? "fixed inset-0 z-[100] bg-background flex flex-col p-4 overflow-y-auto"
+        : "flex flex-col h-full animate-fade-in pb-20 relative mx-auto max-w-3xl px-4 lg:pb-12 lg:h-auto";
 
-            <div className="text-center mt-4 mb-2 px-4">
-                {deck.id !== 'general-study-deck' && series && (
-                    <div className="mb-1">
-                        <span className="text-xs text-text-muted mr-1">in</span>
-                        <Link href={`/series/${series.id}`} className="text-xs font-semibold text-text-muted hover:underline break-words">
-                            {series.name}
+    return (
+        <div className={containerClasses}>
+            {/* Main Content Area */}
+            <div className="flex-grow w-full flex flex-col relative z-10">
+                {/* Top Bar Area: Progress */}
+                {!isZenMode && (
+                    <div className="w-full relative flex items-start justify-between min-h-[1rem] mb-2 lg:mb-6">
+                        <div className="w-full mt-1">
+                            <ProgressBar current={itemsCompleted} total={totalSessionItems} />
+                        </div>
+                    </div>
+                )}
+
+                {/* Title & Subtitle (Hidden in Zen Mode) */}
+                {!isZenMode && (
+                    <div className="text-center mt-2 mb-2 px-4 relative lg:mb-6">
+                        {deck.id !== 'general-study-deck' && series && (
+                            <div className="mb-1">
+                                <span className="text-xs text-text-muted mr-1">in</span>
+                                <Link href={`/series/${series.id}`} className="text-xs font-semibold text-text-muted hover:underline break-words">
+                                    {series.name}
+                                </Link>
+                            </div>
+                        )}
+                        <Link href={titleLink} className="text-lg font-bold text-text hover:underline break-words">
+                            {title}
                         </Link>
                     </div>
                 )}
-                <Link href={titleLink} className="text-lg font-bold text-text hover:underline break-words">
-                    {title}
-                </Link>
-            </div>
 
-            <div className="flex-grow flex items-center justify-center pb-4">
-                <div className="w-full">
-                    {subtitle && <p className="text-center text-xs mb-2 text-text-muted uppercase tracking-wider font-semibold">{subtitle}</p>}
+                {/* Main Content Area */}
+                <div className={`flex-grow flex flex-col items-center justify-center pb-4 ${isZenMode ? 'w-full max-w-4xl mx-auto' : ''}`}>
+                    <div className="w-full relative">
+                        {!isZenMode && subtitle && <p className="text-center text-xs mb-2 text-text-muted uppercase tracking-wider font-semibold">{subtitle}</p>}
+                        
+                        {isInfoCard ? (
+                            <InfoCardDisplay 
+                                infoCard={displayedItem as InfoCard} 
+                                textSize={contentTextSizeClass}
+                            />
+                        ) : isQuiz ? (
+                            <QuizQuestion
+                                key={displayedItem!.id}
+                                question={displayedItem as Question}
+                                selectedAnswerId={isCurrent ? selectedAnswerId : (displayedItem as Question).userSelectedAnswerId || null}
+                                onSelectAnswer={handleSelectAnswer}
+                                onShowInfo={isLearningDeck ? handleShowInfo : undefined}
+                                textSize={contentTextSizeClass}
+                            />
+                        ) : (
+                            <Flashcard
+                                key={displayedItem!.id}
+                                card={displayedItem as Card}
+                                isFlipped={isFlipped}
+                                onGenerateAudio={handleGenerateAudioForCard}
+                                deckId={(displayedItem as any).originalDeckId || deck.id}
+                                onReview={handleReview}
+                                textSize={contentTextSizeClass}
+                            />
+                        )}
+                    </div>
                     
-                    {isInfoCard ? (
-                        <InfoCardDisplay infoCard={displayedItem as InfoCard} />
-                    ) : isQuiz ? (
-                        <QuizQuestion
-                            key={displayedItem!.id}
-                            question={displayedItem as Question}
-                            selectedAnswerId={isCurrent ? selectedAnswerId : (displayedItem as Question).userSelectedAnswerId || null}
-                            onSelectAnswer={handleSelectAnswer}
-                            onShowInfo={isLearningDeck ? handleShowInfo : undefined}
-                        />
-                    ) : (
-                        <Flashcard
-                            key={displayedItem!.id}
-                            card={displayedItem as Card}
-                            isFlipped={isFlipped}
-                        />
+                    {aiFeaturesEnabled && isCurrent && (isFlipped || (isQuiz && isAnswered)) && (
+                        <div className="mt-4 animate-fade-in">
+                            <Button 
+                                variant="secondary" 
+                                size="sm" 
+                                onClick={handleExplain} 
+                                disabled={isExplaining}
+                                className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50 border-transparent"
+                            >
+                                {isExplaining ? <Spinner size="sm" /> : <Icon name="bot" className="w-4 h-4 mr-2" />}
+                                {isExplaining ? 'Thinking...' : "Explain Like I'm 5"}
+                            </Button>
+                        </div>
                     )}
                 </div>
             </div>
 
-            <SessionControls
-                isCurrent={isCurrent}
-                isHistorical={isHistorical}
-                isFlipped={isFlipped}
-                isAnswered={isAnswered}
-                isReviewing={isReviewing}
-                isQuiz={isQuiz}
-                isInfoCard={isInfoCard}
-                isCramSession={sessionKeySuffix === '_cram'}
-                showNavArrows={totalSessionItems > 1}
-                displayIndex={displayIndex}
-                currentIndex={currentIndex}
-                queueLength={sessionQueue.length}
-                onReview={handleReview}
-                // FIX: Corrected a typo in the onSuspend prop, changing the value from 'onSuspend' to the correctly named 'handleSuspend' function.
-                onSuspend={handleSuspend}
-                onReadInfoCard={handleReadInfoCard}
-                onFlip={handleFlip}
-// FIX: Corrected a typo, changing the value from the undefined 'onReturnToCurrent' to the correctly named 'handleReturnToCurrent' function.
-                onReturnToCurrent={handleReturnToCurrent}
-                onNavigatePrevious={handleNavigatePrevious}
-                onNavigateNext={handleNavigateNext}
-                itemsCompleted={itemsCompleted}
-                totalSessionItems={totalSessionItems}
-            />
+            {/* Controls Area - Always below content */}
+            <div className={isZenMode ? "w-full max-w-2xl mx-auto pb-4" : "mt-6 w-full max-w-2xl mx-auto pb-4"}>
+                <SessionControls
+                    isCurrent={isCurrent}
+                    isHistorical={isHistorical}
+                    isFlipped={isFlipped}
+                    isAnswered={isAnswered}
+                    isReviewing={isReviewing}
+                    isQuiz={isQuiz}
+                    isInfoCard={isInfoCard}
+                    isCramSession={sessionKeySuffix === '_cram'}
+                    showNavArrows={totalSessionItems > 1}
+                    displayIndex={displayIndex}
+                    currentIndex={currentIndex}
+                    queueLength={sessionQueue.length}
+                    onReview={handleReview}
+                    onSuspend={handleSuspend}
+                    onReadInfoCard={handleReadInfoCard}
+                    onFlip={handleFlip}
+                    onReturnToCurrent={handleReturnToCurrent}
+                    onNavigatePrevious={handleNavigatePrevious}
+                    onNavigateNext={handleNavigateNext}
+                    itemsCompleted={itemsCompleted}
+                    totalSessionItems={totalSessionItems}
+                />
+                
+                {/* Footer Controls (Zen, Settings) */}
+                <div className="mt-6 flex justify-center items-center gap-4 relative z-20" ref={settingsRef}>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setIsZenMode(!isZenMode)} 
+                        className="text-text-muted hover:text-primary rounded-full p-2"
+                        title={isZenMode ? "Exit Zen Mode" : "Enter Zen Mode"}
+                    >
+                        <Icon name={isZenMode ? "minimize" : "maximize"} className="w-5 h-5" />
+                    </Button>
+                    
+                    <div className="relative">
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => setIsSettingsOpen(!isSettingsOpen)} 
+                            className="text-text-muted hover:text-primary rounded-full p-2"
+                            aria-label="Session Settings"
+                        >
+                            <Icon name="settings" className="w-5 h-5" />
+                        </Button>
+
+                        {isSettingsOpen && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-surface shadow-xl border border-border rounded-lg p-4 animate-fade-in text-left z-50">
+                                <h4 className="text-sm font-semibold text-text mb-3 border-b border-border pb-1">Session Settings</h4>
+                                
+                                <div className="mb-4">
+                                    <label className="flex items-center text-xs font-semibold text-text-muted mb-2">
+                                        <Icon name="type" className="w-3 h-3 mr-1" /> Text Size
+                                    </label>
+                                    <div className="flex bg-background rounded-md p-1 border border-border">
+                                        <button 
+                                            onClick={() => setTextSize('normal')} 
+                                            className={`flex-1 py-1 px-2 text-xs rounded transition-colors ${textSize === 'normal' ? 'bg-primary text-on-primary shadow-sm' : 'text-text hover:bg-border/50'}`}
+                                        >
+                                            A
+                                        </button>
+                                        <button 
+                                            onClick={() => setTextSize('large')} 
+                                            className={`flex-1 py-1 px-2 text-sm font-medium rounded transition-colors ${textSize === 'large' ? 'bg-primary text-on-primary shadow-sm' : 'text-text hover:bg-border/50'}`}
+                                        >
+                                            A+
+                                        </button>
+                                        <button 
+                                            onClick={() => setTextSize('huge')} 
+                                            className={`flex-1 py-1 px-2 text-base font-bold rounded transition-colors ${textSize === 'huge' ? 'bg-primary text-on-primary shadow-sm' : 'text-text hover:bg-border/50'}`}
+                                        >
+                                            A++
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="mb-4">
+                                    <label className="flex items-center text-xs font-semibold text-text-muted mb-2">
+                                        <Icon name="keyboard" className="w-3 h-3 mr-1" /> Shortcuts
+                                    </label>
+                                    <ul className="text-xs text-text space-y-1 bg-background p-2 rounded-md border border-border">
+                                        <li className="flex justify-between"><span>Flip / Next</span> <kbd className="font-mono bg-border px-1 rounded">Space</kbd></li>
+                                        <li className="flex justify-between"><span>Rate Answer</span> <kbd className="font-mono bg-border px-1 rounded">1 - 4</kbd></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
 
             <InfoModal
                 isOpen={isInfoModalOpen}
                 onClose={() => setIsInfoModalOpen(false)}
                 infoCards={infoForModal}
+            />
+            
+            <ExplanationModal
+                isOpen={isExplanationModalOpen}
+                onClose={() => setIsExplanationModalOpen(false)}
+                title={displayedItem && 'questionText' in displayedItem ? stripHtml((displayedItem as Question).questionText) : (displayedItem && 'front' in displayedItem ? stripHtml((displayedItem as Card).front) : 'Concept')}
+                explanation={explanationText}
             />
         </div>
     );

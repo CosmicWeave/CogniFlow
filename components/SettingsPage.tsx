@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
@@ -9,6 +10,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './
 import { useToast } from '../hooks/useToast.ts';
 import { getSyncLog, clearSyncLog } from '../services/syncLogService.ts';
 import { SyncLogEntry } from '../types';
+import ThemeBuilderModal from './ThemeBuilderModal.tsx';
+import { useData } from '../contexts/DataManagementContext.tsx';
 
 interface SettingsPageProps {
   onExport: () => void;
@@ -72,11 +75,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onRevertLastFetch,
 }) => {
   const settings = useSettings();
-  const { themeId, setThemeById } = useTheme();
+  const { themeId, setThemeById, addCustomTheme } = useTheme();
   const [hasRevertBackup, setHasRevertBackup] = useState(false);
   const [syncLog, setSyncLog] = useState<SyncLogEntry[]>([]);
+  const [isThemeBuilderOpen, setIsThemeBuilderOpen] = useState(false);
+  const [shiftDays, setShiftDays] = useState(1);
   const { addToast } = useToast();
+  const dataHandlers = useData();
   
+  // Local state for password input to allow typing without constant re-renders/commits
+  const [passwordInput, setPasswordInput] = useState(settings.encryptionPassword);
+
   useEffect(() => {
     if (localStorage.getItem('cogniflow-pre-fetch-backup')) {
         setHasRevertBackup(true);
@@ -90,12 +99,83 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     addToast('Sync log cleared.', 'success');
   };
   
+  const handlePasswordBlur = () => {
+      settings.setEncryptionPassword(passwordInput);
+      if (passwordInput && passwordInput !== settings.encryptionPassword) {
+          addToast('Encryption password saved.', 'success');
+      }
+  };
+
+  const handleShiftSchedule = () => {
+      if (dataHandlers?.handleShiftSchedule) {
+          dataHandlers.handleShiftSchedule(shiftDays);
+      }
+  };
+  
   return (
     <div className="max-w-3xl mx-auto animate-fade-in space-y-8">
       <h1 className="text-3xl font-bold text-text border-b border-border pb-4">Settings</h1>
 
-      <Accordion type="multiple" defaultValue={['appearance', 'general', 'cloud-sync', 'gdrive-backup', 'data-management', 'cache-management']} className="w-full space-y-4">
+      <Accordion type="multiple" defaultValue={['srs', 'appearance', 'general', 'cloud-sync', 'gdrive-backup', 'data-management', 'cache-management']} className="w-full space-y-4">
         
+        <AccordionItem value="srs" className="border border-border rounded-lg overflow-hidden">
+            <AccordionTrigger>
+                <h2 className="text-2xl font-semibold text-text">Spaced Repetition</h2>
+            </AccordionTrigger>
+            <AccordionContent className="bg-surface p-6 space-y-6">
+                <div>
+                    <h3 className="text-base font-semibold text-text mb-2">Leech Handling</h3>
+                    <p className="text-sm text-text-muted mb-4">"Leeches" are cards you repeatedly forget. Configure how the app handles them.</p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-text-muted mb-1">Leech Threshold (Lapses)</label>
+                            <input 
+                                type="number" 
+                                min="1" 
+                                max="99" 
+                                value={settings.leechThreshold} 
+                                onChange={(e) => settings.setLeechThreshold(Math.max(1, parseInt(e.target.value) || 8))}
+                                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-text-muted mb-1">Action on Leech</label>
+                            <select 
+                                value={settings.leechAction} 
+                                onChange={(e) => settings.setLeechAction(e.target.value as any)}
+                                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                            >
+                                <option value="suspend">Suspend Card</option>
+                                <option value="tag">Tag as "Leech"</option>
+                                <option value="warn">Just Warn Me</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-border">
+                    <h3 className="text-base font-semibold text-text mb-2">Vacation Mode / Schedule Shift</h3>
+                    <p className="text-sm text-text-muted mb-4">Push all due dates forward by a set number of days. Useful if you missed studying or plan to take a break.</p>
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-text-muted">Shift by:</label>
+                        <input 
+                            type="number" 
+                            min="1" 
+                            max="365"
+                            value={shiftDays}
+                            onChange={(e) => setShiftDays(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-20 p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                        />
+                        <span className="text-sm text-text-muted">days</span>
+                        <Button variant="secondary" onClick={handleShiftSchedule}>
+                            <Icon name="calendar" className="w-4 h-4 mr-2" /> Shift Schedule
+                        </Button>
+                    </div>
+                </div>
+            </AccordionContent>
+        </AccordionItem>
+
         <AccordionItem value="data-management" className="border border-border rounded-lg overflow-hidden">
           <AccordionTrigger>
              <h2 className="text-2xl font-semibold text-text">Data Management</h2>
@@ -139,6 +219,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   disabled={!settings.backupEnabled}
                 />
               </div>
+              
+              <div className="pt-2 border-t border-border mt-4">
+                 <h3 className="text-sm font-semibold text-text-muted mb-2">Encryption (Optional)</h3>
+                 <label htmlFor="encryption-password" className="block text-sm font-medium text-text-muted mb-1">
+                    Encryption Password
+                 </label>
+                 <div className="flex gap-2">
+                     <input
+                      id="encryption-password"
+                      type="password"
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      onBlur={handlePasswordBlur}
+                      className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                      disabled={!settings.backupEnabled}
+                      placeholder="Enter a password to encrypt your cloud backups"
+                    />
+                 </div>
+                 <p className="text-xs text-text-muted mt-1">If set, your data will be encrypted on your device before uploading. You MUST use the same password on all devices to decrypt your data.</p>
+              </div>
+
               <div className="pt-4 border-t border-border flex flex-col sm:flex-row gap-2 items-center justify-between">
                   <p className="text-sm text-text-muted">{isSyncing ? 'Syncing...' : lastSyncStatus}</p>
                   <div className="flex gap-2 flex-wrap justify-end">
@@ -201,7 +302,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <h2 className="text-2xl font-semibold text-text">Appearance</h2>
           </AccordionTrigger>
           <AccordionContent className="bg-surface p-6 space-y-6">
-            <ThemeToggle selectedTheme={themeId} onThemeChange={setThemeById} />
+            <ThemeToggle 
+                selectedTheme={themeId} 
+                onThemeChange={setThemeById} 
+                onOpenBuilder={() => setIsThemeBuilderOpen(true)}
+            />
+            
+            <div className="space-y-2">
+                <label className="block text-sm font-medium text-text-muted">Font Style</label>
+                <div className="flex bg-background rounded-md p-1 border border-border">
+                    {(['sans', 'serif', 'mono'] as const).map(font => (
+                        <button
+                            key={font}
+                            onClick={() => settings.setFontFamily(font)}
+                            className={`flex-1 py-1.5 px-3 text-sm rounded transition-colors ${settings.fontFamily === font ? 'bg-primary text-on-primary shadow-sm' : 'text-text hover:bg-border/50'}`}
+                        >
+                            <span className={`font-${font} capitalize`}>{font}</span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <ToggleSwitch
               label="Disable Animations"
               description="Reduces motion for a faster experience."
@@ -221,6 +342,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               description="Provides physical feedback on supported devices."
               checked={settings.hapticsEnabled}
               onChange={settings.setHapticsEnabled}
+            />
+            <ToggleSwitch
+              label="Daily Notifications"
+              description="Receive local reminders when you have cards due."
+              checked={settings.notificationsEnabled}
+              onChange={settings.setNotificationsEnabled}
             />
             <ToggleSwitch
               label="Enable AI Features"
@@ -307,6 +434,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </p>
         <Button variant="danger" onClick={onFactoryReset}><Icon name="broom" className="mr-2"/> Factory Reset</Button>
       </div>
+      
+      {isThemeBuilderOpen && (
+          <ThemeBuilderModal 
+            isOpen={isThemeBuilderOpen}
+            onClose={() => setIsThemeBuilderOpen(false)}
+            onSave={addCustomTheme}
+          />
+      )}
     </div>
   );
 };

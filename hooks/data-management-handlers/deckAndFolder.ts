@@ -1,20 +1,36 @@
+
 import { useCallback, useMemo } from 'react';
-import { Deck, Folder, QuizDeck, LearningDeck, InfoCard, Question } from '../../types.ts';
-import * as db from '../../services/db.ts';
+import { Deck, Folder, QuizDeck, LearningDeck, InfoCard, Question, DeckType, FlashcardDeck } from '../../types.ts';
+import storage from '../../services/storage.ts';
 import { useStore } from '../../store/store.ts';
-import { createNatureSampleDeck } from '../../services/sampleData.ts';
+import { createNatureSampleDeck, createSampleFlashcardDeck, createSampleLearningDeck, createSampleCourse } from '../../services/sampleData.ts';
 import { useToast } from '../useToast.ts';
 import * as exportService from '../../services/exportService.ts';
 
-// This has been refactored into a proper custom hook to follow the Rules of Hooks.
 export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any) => {
   const { dispatch } = useStore();
   const { addToast } = useToast();
 
-  const handleAddDecks = useCallback(async (decks: Deck[]) => {
-    dispatch({ type: 'ADD_DECKS', payload: decks });
+  const handleAddDecks = useCallback(async (newDecks: Deck[]) => {
+    // Name deduplication logic
+    const existingDecks = Object.values(useStore.getState().decks) as Deck[];
+    const existingNames = new Set(existingDecks.map(d => d.name));
+
+    const sanitizedDecks = newDecks.map(deck => {
+        let name = deck.name;
+        let counter = 1;
+        // If name exists, append (Copy X) until unique
+        while (existingNames.has(name)) {
+            name = `${deck.name} (Copy ${counter})`;
+            counter++;
+        }
+        existingNames.add(name); // Add to set so subsequent duplicates in this batch are also handled
+        return { ...deck, name };
+    });
+
+    dispatch({ type: 'ADD_DECKS', payload: sanitizedDecks });
     try {
-      await db.addDecks(decks);
+      await storage.addDecks(sanitizedDecks);
       triggerSync({ isManual: false });
     } catch (e) {
       addToast('Error saving new deck(s).', 'error');
@@ -26,7 +42,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     const updatedDeck = { ...deck, lastModified: Date.now() };
     dispatch({ type: 'UPDATE_DECK', payload: updatedDeck });
     try {
-      await db.updateDeck(updatedDeck);
+      await storage.updateDeck(updatedDeck);
       if (!options?.silent) {
         if (options?.toastMessage) {
           addToast(options.toastMessage, 'success');
@@ -43,7 +59,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     const updatedDecks = decks.map(d => ({ ...d, lastModified: Date.now() }));
     dispatch({ type: 'BULK_UPDATE_DECKS', payload: updatedDecks });
     try {
-      await db.bulkUpdateDecks(updatedDecks);
+      await storage.bulkUpdateDecks(updatedDecks);
       if (!options?.silent) {
         triggerSync({ isManual: false });
       }
@@ -53,7 +69,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   }, [dispatch, triggerSync, addToast]);
 
   const handleMoveDeck = useCallback(async (deckId: string, folderId: string | null) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId);
+    const deck = useStore.getState().decks[deckId];
     if (deck) {
       await handleUpdateDeck({ ...deck, folderId });
       addToast(`Deck moved.`, 'success');
@@ -61,7 +77,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   }, [handleUpdateDeck, addToast]);
 
   const handleDeleteDeck = useCallback(async (deckId: string) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId);
+    const deck = useStore.getState().decks[deckId];
     if (deck) {
       const updatedDeck = { ...deck, deletedAt: new Date().toISOString(), archived: false };
       await handleUpdateDeck(updatedDeck, { toastMessage: `Deck "${deck.name}" moved to trash.` });
@@ -69,7 +85,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   }, [handleUpdateDeck]);
   
   const handleRestoreDeck = useCallback(async (deckId: string) => {
-      const deck = useStore.getState().decks.find(d => d.id === deckId);
+      const deck = useStore.getState().decks[deckId];
       if (deck) {
           await handleUpdateDeck({ ...deck, deletedAt: null }, { toastMessage: `Deck "${deck.name}" restored.` });
       }
@@ -78,7 +94,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   const handleDeleteDeckPermanently = useCallback(async (deckId: string) => {
       dispatch({ type: 'DELETE_DECK', payload: deckId });
       try {
-          await db.deleteDeck(deckId);
+          await storage.deleteDeck(deckId);
           addToast("Deck permanently deleted.", "success");
           triggerSync({ isManual: false });
       } catch (e) {
@@ -91,7 +107,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
       const updatedFolder = { id: folderData.id, name: folderData.name };
       dispatch({ type: 'UPDATE_FOLDER', payload: updatedFolder });
       try {
-        await db.updateFolder(updatedFolder);
+        await storage.updateFolder(updatedFolder);
         addToast(`Folder renamed to "${updatedFolder.name}".`, 'success');
         triggerSync({ isManual: false });
       } catch(e) {
@@ -101,7 +117,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
       const newFolder: Folder = { id: crypto.randomUUID(), name: folderData.name };
       dispatch({ type: 'ADD_FOLDER', payload: newFolder });
       try {
-        await db.addFolder(newFolder);
+        await storage.addFolder(newFolder);
         addToast(`Folder "${newFolder.name}" created.`, 'success');
         triggerSync({ isManual: false });
       } catch(e) {
@@ -111,7 +127,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   }, [dispatch, addToast, triggerSync]);
 
   const handleDeleteFolder = useCallback(async (folderId: string) => {
-    const folder = useStore.getState().folders.find(f => f.id === folderId);
+    const folder = useStore.getState().folders[folderId];
     if (!folder) return;
 
     openConfirmModal({
@@ -120,10 +136,10 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
       onConfirm: async () => {
         dispatch({ type: 'DELETE_FOLDER', payload: folderId });
         try {
-          await db.deleteFolder(folderId);
-          const decksToUpdate = useStore.getState().decks.filter(d => d.folderId === folderId);
+          await storage.deleteFolder(folderId);
+          const decksToUpdate = (Object.values(useStore.getState().decks) as Deck[]).filter(d => d.folderId === folderId);
           if (decksToUpdate.length > 0) {
-              await db.bulkUpdateDecks(decksToUpdate.map(d => ({...d, folderId: null})));
+              await storage.bulkUpdateDecks(decksToUpdate.map(d => ({...d, folderId: null})));
           }
           addToast(`Folder "${folder.name}" deleted.`, 'success');
           triggerSync({ isManual: false });
@@ -135,7 +151,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   }, [dispatch, addToast, triggerSync, openConfirmModal]);
 
   const updateLastOpened = useCallback((deckId: string) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId);
+    const deck = useStore.getState().decks[deckId];
     if (deck && deck.id !== 'general-study-deck') {
       const now = new Date();
       const lastOpenedDate = deck.lastOpened ? new Date(deck.lastOpened) : new Date(0);
@@ -149,11 +165,35 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   const handleCreateSampleDeck = useCallback(() => {
     const sampleDeck = createNatureSampleDeck();
     handleAddDecks([sampleDeck]);
-    addToast(`Sample deck "${sampleDeck.name}" created.`, 'success');
+    addToast(`Sample quiz "${sampleDeck.name}" created.`, 'success');
+  }, [handleAddDecks, addToast]);
+
+  const handleCreateSampleQuizDeck = useCallback(() => {
+    const sampleDeck = createNatureSampleDeck();
+    handleAddDecks([sampleDeck]);
+    addToast(`Sample quiz "${sampleDeck.name}" created.`, 'success');
+  }, [handleAddDecks, addToast]);
+
+  const handleCreateSampleFlashcardDeck = useCallback(() => {
+    const sampleDeck = createSampleFlashcardDeck();
+    handleAddDecks([sampleDeck]);
+    addToast(`Sample flashcard deck "${sampleDeck.name}" created.`, 'success');
+  }, [handleAddDecks, addToast]);
+
+  const handleCreateSampleLearningDeck = useCallback(() => {
+    const sampleDeck = createSampleLearningDeck();
+    handleAddDecks([sampleDeck]);
+    addToast(`Sample learning deck "${sampleDeck.name}" created.`, 'success');
+  }, [handleAddDecks, addToast]);
+
+  const handleCreateSampleCourse = useCallback(() => {
+    const sampleDeck = createSampleCourse();
+    handleAddDecks([sampleDeck]);
+    addToast(`Sample course "${sampleDeck.name}" created.`, 'success');
   }, [handleAddDecks, addToast]);
 
   const handleSaveLearningBlock = useCallback(async (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId) as LearningDeck;
+    const deck = useStore.getState().decks[deckId] as LearningDeck;
     if (!deck) return;
     
     // update or add infoCard
@@ -173,7 +213,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   }, [handleUpdateDeck]);
 
   const handleDeleteLearningBlock = useCallback(async (deckId: string, infoCardId: string) => {
-    const deck = useStore.getState().decks.find(d => d.id === deckId) as LearningDeck;
+    const deck = useStore.getState().decks[deckId] as LearningDeck;
     if (!deck) return;
 
     const currentInfoCards = deck.infoCards || [];
@@ -188,11 +228,78 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
   const handleExportDeck = useCallback((deck: Deck) => {
     try {
         exportService.exportDeck(deck);
-        addToast(`Deck "${deck.name}" exported.`, 'success');
+        addToast(`Deck "${deck.name}" exported as JSON.`, 'success');
     } catch(e) {
         addToast(`Failed to export deck: ${(e as Error).message}`, 'error');
     }
   }, [addToast]);
+  
+  const handleExportDeckCSV = useCallback((deck: Deck) => {
+    try {
+        exportService.exportDeckToCSV(deck);
+        addToast(`Deck "${deck.name}" exported as CSV.`, 'success');
+    } catch(e) {
+        addToast(`Failed to export deck: ${(e as Error).message}`, 'error');
+    }
+  }, [addToast]);
+
+  const handleShiftSchedule = useCallback(async (days: number) => {
+      openConfirmModal({
+          title: 'Shift Schedule',
+          message: `Are you sure you want to shift all due dates forward by ${days} day(s)? This affects all active cards in all decks.`,
+          confirmText: 'Shift Schedule',
+          onConfirm: async () => {
+              const allDecks = Object.values(useStore.getState().decks) as Deck[];
+              const updatedDecks: Deck[] = [];
+              let shiftCount = 0;
+
+              allDecks.forEach(deck => {
+                  let deckChanged = false;
+                  let newDeck = { ...deck };
+
+                  if (deck.type === DeckType.Flashcard) {
+                      const flashcardDeck = deck as FlashcardDeck;
+                      const newCards = flashcardDeck.cards.map(c => {
+                          if (!c.suspended && c.dueDate) {
+                              const currentDue = new Date(c.dueDate);
+                              currentDue.setDate(currentDue.getDate() + days);
+                              shiftCount++;
+                              deckChanged = true;
+                              return { ...c, dueDate: currentDue.toISOString() };
+                          }
+                          return c;
+                      });
+                      if (deckChanged) newDeck = { ...flashcardDeck, cards: newCards };
+                  } else {
+                      const quizDeck = deck as QuizDeck | LearningDeck;
+                      const newQuestions = quizDeck.questions.map(q => {
+                          if (!q.suspended && q.dueDate) {
+                              const currentDue = new Date(q.dueDate);
+                              currentDue.setDate(currentDue.getDate() + days);
+                              shiftCount++;
+                              deckChanged = true;
+                              return { ...q, dueDate: currentDue.toISOString() };
+                          }
+                          return q;
+                      });
+                      if (deckChanged) newDeck = { ...quizDeck, questions: newQuestions };
+                  }
+
+                  if (deckChanged) {
+                      updatedDecks.push(newDeck);
+                  }
+              });
+
+              if (updatedDecks.length > 0) {
+                  await handleBulkUpdateDecks(updatedDecks);
+                  addToast(`Schedule shifted! ${shiftCount} items moved forward by ${days} days.`, 'success');
+              } else {
+                  addToast("No active items found to shift.", 'info');
+              }
+          }
+      });
+  }, [openConfirmModal, handleBulkUpdateDecks, addToast]);
+
 
   return useMemo(() => ({
     handleAddDecks,
@@ -206,13 +313,20 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     handleDeleteFolder,
     updateLastOpened,
     handleCreateSampleDeck,
+    handleCreateSampleQuizDeck,
+    handleCreateSampleFlashcardDeck,
+    handleCreateSampleLearningDeck,
+    handleCreateSampleCourse,
     handleSaveLearningBlock,
     handleDeleteLearningBlock,
     handleExportDeck,
+    handleExportDeckCSV,
+    handleShiftSchedule,
   }), [
     handleAddDecks, handleUpdateDeck, handleBulkUpdateDecks, handleMoveDeck, handleDeleteDeck, 
     handleRestoreDeck, handleDeleteDeckPermanently, handleSaveFolder, handleDeleteFolder, 
-    updateLastOpened, handleCreateSampleDeck, handleSaveLearningBlock, handleDeleteLearningBlock,
-    handleExportDeck
+    updateLastOpened, handleCreateSampleDeck, handleCreateSampleQuizDeck, handleCreateSampleFlashcardDeck,
+    handleCreateSampleLearningDeck, handleCreateSampleCourse, handleSaveLearningBlock, handleDeleteLearningBlock,
+    handleExportDeck, handleExportDeckCSV, handleShiftSchedule
   ]);
 };

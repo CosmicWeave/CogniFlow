@@ -2,6 +2,7 @@ import React from 'react';
 import { useStore } from '../store/store.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
 
 interface AIGenerationStatusIndicatorProps {
   onOpen: () => void;
@@ -10,11 +11,12 @@ interface AIGenerationStatusIndicatorProps {
 
 const AIGenerationStatusIndicator: React.FC<AIGenerationStatusIndicatorProps> = ({ onOpen, onCancel }) => {
     const { currentTask, queue } = useStore(state => state.aiGenerationStatus);
+    const { aiFeaturesEnabled } = useSettings();
     const isGenerating = currentTask !== null;
     const queueLength = queue?.length || 0;
     const totalTasks = (isGenerating ? 1 : 0) + queueLength;
 
-    if (totalTasks === 0) {
+    if (!aiFeaturesEnabled || totalTasks === 0) {
         return null;
     }
     

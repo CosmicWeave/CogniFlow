@@ -1,8 +1,9 @@
+
 import React from 'react';
 import { useModal } from '../contexts/ModalContext.tsx';
-import { useStore } from '../store/store.ts';
+import { useDecksList, useStore } from '../store/store.ts';
 import { useData } from '../contexts/DataManagementContext.tsx';
-import { GoogleDriveFile } from '../types.ts';
+import { GoogleDriveFile, Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types.ts';
 import { useRouter } from '../contexts/RouterContext.tsx';
 
 // Import all modals
@@ -22,6 +23,9 @@ import MergeConflictModal from './MergeConflictModal.tsx';
 import CommandPalette from './CommandPalette.tsx';
 import AddDeckToSeriesModal from './AddDeckToSeriesModal.tsx';
 import AIResponseFixModal from './AIResponseFixModal.tsx';
+import AIGenerationChatModal from './AIGenerationChatModal.tsx';
+import DeckAnalysisModal from './DeckAnalysisModal.tsx';
+import WorkloadSimulatorModal from './WorkloadSimulatorModal.tsx';
 
 interface ModalManagerProps {
     driveFiles: GoogleDriveFile[];
@@ -30,7 +34,8 @@ interface ModalManagerProps {
 const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
   const { modalType, modalPayload, closeModal, openModal } = useModal();
   const dataHandlers = useData();
-  const { decks, aiChatHistory } = useStore();
+  const { aiChatHistory } = useStore();
+  const decks = useDecksList();
   const { navigate } = useRouter();
 
   if (!modalType) {
@@ -38,6 +43,17 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
   }
 
   const payload = modalPayload || {};
+
+  // Helper to extract all items for the simulator
+  const getAllReviewables = () => {
+      return decks.reduce<any[]>((acc, deck) => {
+        if (deck.type === DeckType.Flashcard) {
+            return acc.concat((deck as FlashcardDeck).cards || []);
+        } else {
+            return acc.concat((deck as QuizDeck | LearningDeck).questions || []);
+        }
+    }, []);
+  };
 
   return (
     <>
@@ -47,14 +63,15 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
       {modalType === 'confirm' && <ConfirmModal isOpen={true} onClose={closeModal} {...payload} />}
       {modalType === 'folder' && <FolderModal isOpen={true} onClose={closeModal} onSave={dataHandlers.handleSaveFolder} folder={payload.folder === 'new' ? null : payload.folder} />}
       {modalType === 'series' && <EditSeriesModal isOpen={true} onClose={closeModal} onSave={dataHandlers.handleSaveSeries} series={payload.series === 'new' ? null : payload.series} />}
-      {modalType === 'aiGeneration' && <AIGenerationModal isOpen={true} onClose={closeModal} onGenerate={dataHandlers.handleGenerateWithAI} />}
+      {modalType === 'aiGeneration' && <AIGenerationModal isOpen={true} onClose={closeModal} onStartAIGeneration={dataHandlers.handleStartAIGeneration} initialTopic={payload.initialTopic} context={payload.context} />}
+      {modalType === 'aiGenerationChat' && <AIGenerationChatModal isOpen={true} onClose={closeModal} params={payload.params} />}
       {modalType === 'aiStatus' && <AIGenerationStatusModal isOpen={true} onClose={closeModal} onCancel={dataHandlers.handleCancelAIGeneration} />}
       {modalType === 'serverBackup' && <ServerBackupModal isOpen={true} onClose={closeModal} onRestore={dataHandlers.handleRestoreFromServerBackup} onDelete={dataHandlers.handleDeleteServerBackup} />}
       {modalType === 'droppedFile' && <DroppedFileConfirmModal isOpen={true} onClose={closeModal} onConfirm={dataHandlers.handleDroppedFileConfirm} analysis={payload.analysis} />}
       {modalType === 'aiChat' && <AIChatModal isOpen={true} onClose={closeModal} onExecuteAction={dataHandlers.handleExecuteAIAction} history={aiChatHistory} />}
       {modalType === 'restoreFromDrive' && <RestoreFromDriveModal isOpen={true} onClose={closeModal} onRestore={dataHandlers.handleRestoreFromDrive} files={driveFiles} />}
       {modalType === 'addDeckToSeries' && <AddDeckToSeriesModal isOpen={true} onClose={closeModal} onAddDeck={(newDeck) => dataHandlers.handleAddDeckToSeries(payload.seriesId, newDeck)} />}
-      {modalType === 'mergeConflict' && <MergeConflictModal isOpen={true} onClose={closeModal} onResolve={dataHandlers.handleMergeResolution} localData={payload.localData} remoteData={payload.remoteData} />}
+      {modalType === 'mergeConflict' && <MergeConflictModal isOpen={true} onClose={closeModal} onResolve={dataHandlers.handleMergeResolution} comparison={payload.comparison} remoteData={payload.remoteData} />}
       {modalType === 'commandPalette' && <CommandPalette 
           isOpen={true} 
           onClose={closeModal} 
@@ -64,9 +81,12 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
             { id: 'trash', label: 'View Trash', icon: 'trash-2', action: () => navigate('/trash') },
             { id: 'archive', label: 'View Archive', icon: 'archive', action: () => navigate('/archive') },
             { id: 'progress', label: 'View Progress', icon: 'trending-up', action: () => navigate('/progress') },
+            { id: 'simulate', label: 'Simulate Workload', icon: 'trending-up', action: () => openModal('workloadSimulator') },
           ]}
       />}
       {modalType === 'aiResponseFix' && <AIResponseFixModal isOpen={true} onClose={closeModal} {...payload} />}
+      {modalType === 'deckAnalysis' && <DeckAnalysisModal isOpen={true} onClose={closeModal} deck={payload.deck} onUpdateDeck={dataHandlers.handleUpdateDeck} />}
+      {modalType === 'workloadSimulator' && <WorkloadSimulatorModal isOpen={true} onClose={closeModal} items={getAllReviewables()} />}
     </>
   );
 };

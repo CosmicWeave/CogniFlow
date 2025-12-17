@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useState, useRef, useMemo } from 'react';
 import { Card } from '../types';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
@@ -12,7 +13,10 @@ interface CardListEditorProps {
   onCardsChange: (newCards: Card[]) => void;
   onAddCard: (newCardData: Pick<Card, 'front' | 'back' | 'css'>) => void;
   onBulkAdd: () => void;
+  deckName?: string;
 }
+
+const PAGE_SIZE = 50;
 
 const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean } => {
     const today = new Date();
@@ -41,13 +45,20 @@ const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean }
 };
 
 
-const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, onAddCard, onBulkAdd }) => {
+const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, onAddCard, onBulkAdd, deckName }) => {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [cardToDelete, setCardToDelete] = useState<Card | null>(null);
   const [isOpen, setIsOpen] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [draggedCardIndex, setDraggedCardIndex] = useState<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  const visibleCards = useMemo(() => cards.slice(0, visibleCount), [cards, visibleCount]);
+
+  const handleShowMore = () => {
+    setVisibleCount(prev => Math.min(prev + PAGE_SIZE, cards.length));
+  };
 
   const openEditModal = (card: Card | null, e?: React.MouseEvent<HTMLButtonElement>) => {
     setEditingCard(card);
@@ -86,6 +97,30 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
     onCardsChange(cards.map(c => c.id === cardId ? { ...c, suspended: false } : c));
   };
 
+  // Drag and Drop Handlers
+  const handleDragStart = (index: number, e: React.DragEvent) => {
+      setDraggedCardIndex(index);
+      e.dataTransfer.effectAllowed = "move";
+      // Transparent drag image hack or just default
+  };
+
+  const handleDragOver = (index: number, e: React.DragEvent) => {
+      e.preventDefault(); // Necessary to allow dropping
+      e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (index: number, e: React.DragEvent) => {
+      e.preventDefault();
+      if (draggedCardIndex === null || draggedCardIndex === index) return;
+
+      const newCards = [...cards];
+      const [draggedItem] = newCards.splice(draggedCardIndex, 1);
+      newCards.splice(index, 0, draggedItem);
+      
+      onCardsChange(newCards);
+      setDraggedCardIndex(null);
+  };
+
   return (
     <div>
       <div className="border-b border-border">
@@ -95,7 +130,7 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
           aria-expanded={isOpen}
           aria-controls="card-list-content"
         >
-          <h3 className="text-xl font-semibold text-text">Cards</h3>
+          <h3 className="text-xl font-semibold text-text">Cards ({cards.length})</h3>
           <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
         </button>
       </div>
@@ -104,58 +139,88 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
         <div id="card-list-content" className="animate-fade-in">
           <div className="p-6">
             {cards.length > 0 ? (
-              <ul className="space-y-4">
-                {cards.map((card) => {
-                    const { text: dueDateText, isDue } = getDueDateInfo(card.dueDate);
-                    return (
-                      <li key={card.id} className={`p-4 rounded-lg flex items-start justify-between transition-all ${card.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'}`}>
-                        <div className="flex-1 min-w-0 mr-4">
-                          <p className="text-sm font-medium text-text truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
-                          <p className="text-sm text-text-muted truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
-                           <div className="mt-3 space-y-2">
-                                <MasteryBar level={getEffectiveMasteryLevel(card)} />
-                                <div className="flex items-center gap-4 text-xs text-text-muted">
-                                    <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
-                                        <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex-shrink-0 flex items-center gap-2">
-                          {card.suspended ? (
-                            <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnsuspendCard(card.id)} title="Unsuspend this card">
-                                <Icon name="eye" className="w-4 h-4" />
+              <>
+                <ul className="space-y-4">
+                  {visibleCards.map((card, index) => {
+                      const { text: dueDateText, isDue } = getDueDateInfo(card.dueDate);
+                      const isDragging = draggedCardIndex === index;
+                      
+                      return (
+                        <li 
+                            key={card.id} 
+                            className={`p-4 rounded-lg flex items-start justify-between transition-all border border-transparent ${card.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'} ${isDragging ? 'opacity-50 ring-2 ring-primary' : 'hover:border-border'}`}
+                            draggable
+                            onDragStart={(e) => handleDragStart(index, e)}
+                            onDragOver={(e) => handleDragOver(index, e)}
+                            onDrop={(e) => handleDrop(index, e)}
+                        >
+                          <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text">
+                              <Icon name="grip-vertical" className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1 min-w-0 mr-4">
+                            <p className="text-sm font-medium text-text truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
+                            <p className="text-sm text-text-muted truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
+                             <div className="mt-3 space-y-2">
+                                  <MasteryBar level={getEffectiveMasteryLevel(card)} />
+                                  <div className="flex items-center gap-4 text-xs text-text-muted">
+                                      <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
+                                          <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
+                                      </span>
+                                  </div>
+                              </div>
+                          </div>
+                          <div className="flex-shrink-0 flex items-center gap-2">
+                            {card.suspended ? (
+                              <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnsuspendCard(card.id)} title="Unsuspend this card">
+                                  <Icon name="eye" className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button variant="ghost" className="p-2 h-auto" onClick={(e) => openEditModal(card, e)} title="Edit this card">
+                                <Icon name="edit" className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
+                              <Icon name="trash-2" className="w-4 h-4" />
                             </Button>
-                          ) : (
-                            <Button variant="ghost" className="p-2 h-auto" onClick={(e) => openEditModal(card, e)} title="Edit this card">
-                              <Icon name="edit" className="w-4 h-4" />
-                            </Button>
-                          )}
-                          <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
-                            <Icon name="trash-2" className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </li>
-                    )
-                })}
-              </ul>
+                          </div>
+                        </li>
+                      )
+                  })}
+                </ul>
+                {visibleCount < cards.length && (
+                    <div className="mt-4 text-center">
+                        <Button variant="secondary" onClick={handleShowMore}>
+                            Show More ({cards.length - visibleCount} remaining)
+                        </Button>
+                    </div>
+                )}
+              </>
             ) : (
-              <div className="text-center text-text-muted py-8">
-                <Icon name="laptop" className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>This deck has no cards yet.</p>
+              <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-border rounded-lg bg-background/50">
+                <Icon name="laptop" className="w-12 h-12 text-text-muted mb-3" />
+                <p className="text-text font-medium mb-1">No cards yet</p>
+                <p className="text-sm text-text-muted text-center max-w-xs">Start building your deck by adding your first flashcard.</p>
+                <div className="mt-4">
+                    <Button variant="primary" onClick={(e) => openEditModal(null, e)}>
+                        <Icon name="plus" className="w-4 h-4 mr-2"/>
+                        Create First Card
+                    </Button>
+                </div>
               </div>
             )}
           </div>
-          <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
-                  <Icon name="plus" className="w-5 h-5 mr-2"/>
-                  Add New Card
-              </Button>
-              <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
-                  <Icon name="code" className="w-5 h-5 mr-2"/>
-                  Bulk Add via JSON
-              </Button>
-          </div>
+          {cards.length > 0 && (
+            <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
+                    <Icon name="plus" className="w-5 h-5 mr-2"/>
+                    Add New Card
+                </Button>
+                <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
+                    <Icon name="code" className="w-5 h-5 mr-2"/>
+                    Bulk Add via JSON
+                </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -164,6 +229,7 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
             card={editingCard}
             onClose={handleCloseEditModal}
             onSave={handleSaveCard}
+            deckName={deckName}
           />
       )}
       {cardToDelete && (

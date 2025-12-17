@@ -1,4 +1,7 @@
+
 import React, { createContext, useState, ReactNode, useCallback } from 'react';
+
+export type LeechAction = 'suspend' | 'tag' | 'warn';
 
 interface SettingsContextType {
   disableAnimations: boolean;
@@ -11,17 +14,28 @@ interface SettingsContextType {
   setBackupEnabled: (enabled: boolean) => void;
   backupApiKey: string;
   setBackupApiKey: (key: string) => void;
+  encryptionPassword: string;
+  setEncryptionPassword: (password: string) => void;
   syncOnCellular: boolean;
   setSyncOnCellular: (enabled: boolean) => void;
+  fontFamily: 'sans' | 'serif' | 'mono';
+  setFontFamily: (font: 'sans' | 'serif' | 'mono') => void;
+  notificationsEnabled: boolean;
+  setNotificationsEnabled: (enabled: boolean) => void;
+  // SRS Settings
+  leechThreshold: number;
+  setLeechThreshold: (threshold: number) => void;
+  leechAction: LeechAction;
+  setLeechAction: (action: LeechAction) => void;
 }
 
 export const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-const getInitialState = (key: string, defaultValue: boolean): boolean => {
+const getInitialState = (key: string, defaultValue: any): any => {
     if (typeof window === 'undefined') return defaultValue;
     try {
         const item = window.localStorage.getItem(key);
-        return item ? JSON.parse(item) === true : defaultValue;
+        return item ? JSON.parse(item) : defaultValue;
     } catch (error) {
         console.error(`Error reading ${key} from localStorage`, error);
         return defaultValue;
@@ -61,7 +75,26 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         return 'qRt+gU/57GHKhxTZeRnRi+dfT274iSkKKq2UnTr9Bxs=';
     }
   });
+  const [encryptionPassword, setEncryptionPasswordState] = useState<string>(() => {
+      try {
+          return window.localStorage.getItem('cogniflow-encryptionPassword') || '';
+      } catch (e) {
+          return '';
+      }
+  });
   const [syncOnCellular, setSyncOnCellularState] = useState<boolean>(() => getInitialState('cogniflow-syncOnCellular', true));
+  const [fontFamily, setFontFamilyState] = useState<'sans' | 'serif' | 'mono'>(() => {
+      try {
+          return (window.localStorage.getItem('cogniflow-fontFamily') as 'sans' | 'serif' | 'mono') || 'sans';
+      } catch (e) {
+          return 'sans';
+      }
+  });
+  const [notificationsEnabled, setNotificationsEnabledState] = useState<boolean>(() => getInitialState('cogniflow-notificationsEnabled', false));
+  
+  // SRS Settings
+  const [leechThreshold, setLeechThresholdState] = useState<number>(() => getInitialState('cogniflow-leechThreshold', 8));
+  const [leechAction, setLeechActionState] = useState<LeechAction>(() => getInitialState('cogniflow-leechAction', 'suspend'));
 
 
   const setDisableAnimations = useCallback((disabled: boolean) => {
@@ -109,6 +142,19 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
+  const setEncryptionPassword = useCallback((password: string) => {
+      setEncryptionPasswordState(password);
+      try {
+          if (password) {
+              window.localStorage.setItem('cogniflow-encryptionPassword', password);
+          } else {
+              window.localStorage.removeItem('cogniflow-encryptionPassword');
+          }
+      } catch (error) {
+          console.error('Error writing encryption password to localStorage', error);
+      }
+  }, []);
+
   const setSyncOnCellular = useCallback((enabled: boolean) => {
     setSyncOnCellularState(enabled);
     try {
@@ -118,8 +164,64 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
+  const setFontFamily = useCallback((font: 'sans' | 'serif' | 'mono') => {
+      setFontFamilyState(font);
+      try {
+          window.localStorage.setItem('cogniflow-fontFamily', font);
+      } catch (error) {
+          console.error('Error writing fontFamily setting to localStorage', error);
+      }
+  }, []);
 
-  const value = { disableAnimations, setDisableAnimations, hapticsEnabled, setHapticsEnabled, aiFeaturesEnabled, setAiFeaturesEnabled, backupEnabled, setBackupEnabled, backupApiKey, setBackupApiKey, syncOnCellular, setSyncOnCellular };
+  const setNotificationsEnabled = useCallback((enabled: boolean) => {
+      setNotificationsEnabledState(enabled);
+      try {
+          window.localStorage.setItem('cogniflow-notificationsEnabled', JSON.stringify(enabled));
+          if (enabled && 'Notification' in window && Notification.permission !== 'granted') {
+              Notification.requestPermission().then(permission => {
+                  if (permission !== 'granted') {
+                      setNotificationsEnabledState(false);
+                      window.localStorage.setItem('cogniflow-notificationsEnabled', JSON.stringify(false));
+                  }
+              });
+          }
+      } catch (error) {
+          console.error('Error writing notifications setting to localStorage', error);
+      }
+  }, []);
+
+  const setLeechThreshold = useCallback((threshold: number) => {
+      setLeechThresholdState(threshold);
+      try {
+          window.localStorage.setItem('cogniflow-leechThreshold', JSON.stringify(threshold));
+      } catch (error) {
+          console.error('Error writing leechThreshold to localStorage', error);
+      }
+  }, []);
+
+  const setLeechAction = useCallback((action: LeechAction) => {
+      setLeechActionState(action);
+      try {
+          window.localStorage.setItem('cogniflow-leechAction', JSON.stringify(action));
+      } catch (error) {
+          console.error('Error writing leechAction to localStorage', error);
+      }
+  }, []);
+
+
+  const value = { 
+      disableAnimations, setDisableAnimations, 
+      hapticsEnabled, setHapticsEnabled, 
+      aiFeaturesEnabled, setAiFeaturesEnabled, 
+      backupEnabled, setBackupEnabled, 
+      backupApiKey, setBackupApiKey, 
+      encryptionPassword, setEncryptionPassword,
+      syncOnCellular, setSyncOnCellular, 
+      fontFamily, setFontFamily,
+      notificationsEnabled, setNotificationsEnabled,
+      leechThreshold, setLeechThreshold,
+      leechAction, setLeechAction
+  };
 
   return (
     <SettingsContext.Provider value={value}>

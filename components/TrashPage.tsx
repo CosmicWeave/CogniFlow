@@ -1,8 +1,9 @@
+
 import React, { useMemo } from 'react';
 import { Deck, DeckSeries } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
-import { useStore } from '../store/store.ts';
+import { useDecksList, useSeriesList } from '../store/store.ts';
 
 interface TrashPageProps {
   onRestoreDeck: (deckId: string) => void;
@@ -29,7 +30,8 @@ const TrashPage: React.FC<TrashPageProps> = ({
   onDeleteSeriesPermanently,
   openConfirmModal,
 }) => {
-  const { decks, deckSeries } = useStore();
+  const decks = useDecksList();
+  const deckSeries = useSeriesList();
 
   const trashedDecks = useMemo(() => decks.filter(d => d.deletedAt), [decks]);
   const trashedSeries = useMemo(() => deckSeries.filter(s => s.deletedAt), [deckSeries]);

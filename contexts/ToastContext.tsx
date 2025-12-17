@@ -1,7 +1,7 @@
 import React, { createContext, useState, useCallback, ReactNode } from 'react';
 import Toast from '../components/ui/Toast.tsx';
 
-type ToastType = 'success' | 'error' | 'info';
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 export interface ToastMessage {
   id: string;

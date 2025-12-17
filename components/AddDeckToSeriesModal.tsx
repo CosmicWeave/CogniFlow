@@ -59,6 +59,12 @@ const AddDeckToSeriesModal: React.FC<AddDeckToSeriesModalProps> = ({ isOpen, onC
             interval: 0,
             easeFactor: 2.5,
             suspended: false,
+            detailedExplanation: q.detailedExplanation || '',
+            options: q.options.map(o => ({
+                id: o.id || crypto.randomUUID(),
+                text: o.text,
+                explanation: o.explanation
+            }))
         }))
       };
 

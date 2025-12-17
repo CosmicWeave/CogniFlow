@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { Deck, DeckSeries, SeriesProgress, DeckType, Reviewable, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import Button from './ui/Button';
@@ -6,9 +7,11 @@ import Link from './ui/Link';
 import SeriesListItem from './SeriesListItem';
 // FIX: Changed to named import to match the updated export in DeckListItem.tsx.
 import { DeckListItem } from './DeckListItem';
-import { useStore } from '../store/store';
+import { useStore, useDecksList, useSeriesList } from '../store/store';
 import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs';
 import { useSettings } from '../hooks/useSettings';
+import { useInstallPrompt } from '../hooks/useInstallPrompt';
+import InstallBanner from './ui/InstallBanner';
 
 interface DashboardPageProps {
   totalDueQuestions: number;
@@ -25,6 +28,11 @@ interface DashboardPageProps {
   handleGenerateQuestionsForEmptyDecksInSeries?: (seriesId: string) => void;
   onCancelAIGeneration: () => void;
   onGenerateAI?: () => void;
+  onCreateSampleQuizDeck: () => void;
+  onCreateSampleFlashcardDeck: () => void;
+  onCreateSampleLearningDeck: () => void;
+  onCreateSampleSeries: () => void;
+  onCreateSampleCourse: () => void;
 }
 
 const DashboardPage: React.FC<DashboardPageProps> = ({
@@ -41,9 +49,21 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   handleGenerateContentForLearningDeck,
   handleGenerateQuestionsForEmptyDecksInSeries,
   onGenerateAI,
+  onCreateSampleQuizDeck,
+  onCreateSampleFlashcardDeck,
+  onCreateSampleLearningDeck,
+  onCreateSampleSeries,
+  onCreateSampleCourse
 }) => {
-  const { decks, deckSeries } = useStore();
+  const decks = useDecksList();
+  const deckSeries = useSeriesList();
   const { aiFeaturesEnabled } = useSettings();
+  const [installPrompt, handleInstall, showInstallBanner] = useInstallPrompt();
+
+  const handleDismissInstall = () => {
+      localStorage.setItem('cogniflow-install-dismissed', 'true');
+      window.location.reload(); 
+  };
 
   const { recentDecks, recentSeries, seriesData } = useMemo(() => {
     const seriesDeckIds = new Set<string>();
@@ -175,6 +195,31 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
             ))}
           </div>
         </section>
+      )}
+      
+      <section className="pt-8 border-t border-border">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">Quick Start Samples</h2>
+          <div className="flex flex-wrap gap-3">
+              <Button onClick={onCreateSampleQuizDeck} variant="secondary" size="sm">
+                  <Icon name="help-circle" className="w-4 h-4 mr-2" /> Quiz Deck
+              </Button>
+              <Button onClick={onCreateSampleFlashcardDeck} variant="secondary" size="sm">
+                  <Icon name="laptop" className="w-4 h-4 mr-2" /> Flashcard Deck
+              </Button>
+              <Button onClick={onCreateSampleCourse} variant="secondary" size="sm">
+                  <Icon name="file-text" className="w-4 h-4 mr-2" /> Sample Course
+              </Button>
+              <Button onClick={onCreateSampleLearningDeck} variant="secondary" size="sm">
+                  <Icon name="book-open" className="w-4 h-4 mr-2" /> Learning Deck
+              </Button>
+              <Button onClick={onCreateSampleSeries} variant="secondary" size="sm">
+                  <Icon name="layers" className="w-4 h-4 mr-2" /> Series
+              </Button>
+          </div>
+      </section>
+      
+      {showInstallBanner && installPrompt && (
+          <InstallBanner onInstall={handleInstall} onDismiss={handleDismissInstall} />
       )}
     </div>
   );

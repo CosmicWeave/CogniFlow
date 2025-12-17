@@ -2,12 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 // FIX: Fix module import for App component by removing the file extension.
 import App from './App';
-import ErrorBoundary from './components/ErrorBoundary.tsx';
-import { ThemeProvider } from './contexts/ThemeContext.tsx';
-import { ToastProvider } from './contexts/ToastContext.tsx';
-import { SettingsProvider } from './contexts/SettingsContext.tsx';
-import { RouterProvider } from './contexts/RouterContext.tsx';
-import { ModalProvider } from './contexts/ModalContext.tsx';
+import ErrorBoundary from './components/ErrorBoundary';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { ToastProvider } from './contexts/ToastContext';
+import { SettingsProvider } from './contexts/SettingsContext';
+import { RouterProvider } from './contexts/RouterContext';
+import { ModalProvider } from './contexts/ModalContext';
 
 // --- Global Error Handling ---
 function logError(type: string, error: any, extraInfo: object = {}) {

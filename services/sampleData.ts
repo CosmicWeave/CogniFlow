@@ -1,6 +1,5 @@
 
-
-import { QuizDeck, DeckType, Question, DeckSeries } from '../types.ts';
+import { QuizDeck, DeckType, Question, DeckSeries, FlashcardDeck, LearningDeck, InfoCard } from '../types.ts';
 import { INITIAL_EASE_FACTOR } from '../constants';
 
 const createQuestion = (
@@ -162,6 +161,172 @@ export const createNatureSampleDeck = (): QuizDeck => {
         description: 'A sample quiz deck to introduce you to CogniFlow. Test your knowledge about the natural world!',
         type: DeckType.Quiz,
         questions: sampleQuestions,
+        lastOpened: new Date().toISOString(),
+    };
+};
+
+export const createSampleFlashcardDeck = (): FlashcardDeck => {
+    return {
+        id: crypto.randomUUID(),
+        name: 'Sample: Spanish Basics',
+        description: 'Common Spanish words and phrases.',
+        type: DeckType.Flashcard,
+        cards: [
+            { id: crypto.randomUUID(), front: 'Hola', back: 'Hello', dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, masteryLevel: 0, lapses: 0 },
+            { id: crypto.randomUUID(), front: 'Gracias', back: 'Thank you', dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, masteryLevel: 0, lapses: 0 },
+            { id: crypto.randomUUID(), front: 'Por favor', back: 'Please', dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, masteryLevel: 0, lapses: 0 },
+            { id: crypto.randomUUID(), front: 'Buenos días', back: 'Good morning', dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, masteryLevel: 0, lapses: 0 },
+            { id: crypto.randomUUID(), front: 'Amigo', back: 'Friend', dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, masteryLevel: 0, lapses: 0 },
+        ],
+        lastOpened: new Date().toISOString(),
+    };
+};
+
+export const createSampleLearningDeck = (): LearningDeck => {
+    const infoCardId1 = crypto.randomUUID();
+    const infoCardId2 = crypto.randomUUID();
+    const q1Id = crypto.randomUUID();
+    const q2Id = crypto.randomUUID();
+
+    const infoCards: InfoCard[] = [
+        {
+            id: infoCardId1,
+            content: '<h3>The Water Cycle: Evaporation</h3><p><b>Evaporation</b> is the process by which water changes from a liquid to a gas or vapor. The sun provides the energy that drives the water cycle, heating water in oceans and lakes.</p>',
+            unlocksQuestionIds: [q1Id]
+        },
+        {
+            id: infoCardId2,
+            content: '<h3>The Water Cycle: Condensation</h3><p><b>Condensation</b> is the process by which water vapor in the air is changed into liquid water. Condensation is crucial to the water cycle because it is responsible for the formation of clouds.</p>',
+            unlocksQuestionIds: [q2Id]
+        }
+    ];
+
+    const questions: Question[] = [
+        {
+            id: q1Id,
+            questionType: 'multipleChoice',
+            questionText: 'What provides the energy for evaporation?',
+            options: [
+                { id: crypto.randomUUID(), text: 'The Sun', explanation: 'Correct! Solar energy heats the water.' },
+                { id: crypto.randomUUID(), text: 'The Wind', explanation: 'Wind helps move vapor, but the Sun provides the heat energy.' },
+                { id: crypto.randomUUID(), text: 'The Moon', explanation: 'The Moon affects tides, not evaporation.' }
+            ],
+            correctAnswerId: '', // Filled below
+            detailedExplanation: 'The sun heats the water, causing water molecules to move faster and escape as vapor.',
+            dueDate: new Date().toISOString(),
+            interval: 0,
+            easeFactor: INITIAL_EASE_FACTOR,
+            suspended: false,
+            masteryLevel: 0,
+            lapses: 0,
+            infoCardIds: [infoCardId1]
+        },
+        {
+            id: q2Id,
+            questionType: 'multipleChoice',
+            questionText: 'What forms when water vapor condenses?',
+            options: [
+                { id: crypto.randomUUID(), text: 'Clouds', explanation: 'Correct! Clouds are made of tiny liquid water droplets.' },
+                { id: crypto.randomUUID(), text: 'Wind', explanation: 'Wind is moving air.' },
+                { id: crypto.randomUUID(), text: 'Light', explanation: 'Light is energy.' }
+            ],
+            correctAnswerId: '', // Filled below
+            detailedExplanation: 'As water vapor cools higher in the atmosphere, it condenses into tiny droplets that form clouds.',
+            dueDate: new Date().toISOString(),
+            interval: 0,
+            easeFactor: INITIAL_EASE_FACTOR,
+            suspended: false,
+            masteryLevel: 0,
+            lapses: 0,
+            infoCardIds: [infoCardId2]
+        }
+    ];
+    
+    // Fix correct IDs
+    questions[0].correctAnswerId = questions[0].options[0].id;
+    questions[1].correctAnswerId = questions[1].options[0].id;
+
+    return {
+        id: crypto.randomUUID(),
+        name: 'Sample: The Water Cycle',
+        description: 'A guided learning deck explaining how water moves around the Earth.',
+        type: DeckType.Learning,
+        infoCards,
+        questions,
+        lastOpened: new Date().toISOString(),
+    };
+};
+
+export const createSampleCourse = (): LearningDeck => {
+    const infoId1 = crypto.randomUUID();
+    const infoId2 = crypto.randomUUID();
+    const q1Id = crypto.randomUUID();
+    const q2Id = crypto.randomUUID();
+
+    const infoCards: InfoCard[] = [
+        {
+            id: infoId1,
+            content: '<h3>Digital Photography: The Exposure Triangle</h3><p>Exposure is determined by three key elements, often called the "Exposure Triangle":</p><ul><li><b>Aperture:</b> The size of the lens opening (f-stop). Controls depth of field.</li><li><b>Shutter Speed:</b> How long the sensor is exposed to light. Controls motion blur.</li><li><b>ISO:</b> The sensor\'s sensitivity to light. Controls digital noise.</li></ul><p>Balancing these three is the key to a properly exposed image.</p>',
+            unlocksQuestionIds: [q1Id]
+        },
+        {
+            id: infoId2,
+            content: '<h3>Digital Photography: Composition</h3><p>Good composition guides the viewer\'s eye. One of the most fundamental rules is the <b>Rule of Thirds</b>.</p><p>Imagine breaking an image down into thirds (both horizontally and vertically) so that you have 9 parts. The rule suggests that you should place key elements of your scene along these lines or at their intersections.</p>',
+            unlocksQuestionIds: [q2Id]
+        }
+    ];
+
+    const questions: Question[] = [
+        {
+            id: q1Id,
+            questionType: 'multipleChoice',
+            questionText: 'Which element of the exposure triangle primarily controls depth of field (how much of the scene is in focus)?',
+            options: [
+                { id: crypto.randomUUID(), text: 'ISO', explanation: 'ISO controls sensitivity and noise.' },
+                { id: crypto.randomUUID(), text: 'Shutter Speed', explanation: 'Shutter speed controls motion blur.' },
+                { id: crypto.randomUUID(), text: 'Aperture', explanation: 'Correct! A wide aperture (low f-number) creates a shallow depth of field.' }
+            ],
+            correctAnswerId: '', // Filled below
+            detailedExplanation: 'Aperture refers to the opening of the lens\'s diaphragm through which light travels. Large openings (small f-numbers) create a shallow depth of field (blurry background), while small openings (large f-numbers) keep more in focus.',
+            dueDate: new Date().toISOString(),
+            interval: 0,
+            easeFactor: INITIAL_EASE_FACTOR,
+            suspended: false,
+            masteryLevel: 0,
+            lapses: 0,
+            infoCardIds: [infoId1]
+        },
+        {
+            id: q2Id,
+            questionType: 'multipleChoice',
+            questionText: 'According to the Rule of Thirds, where is the best place to put your main subject?',
+            options: [
+                { id: crypto.randomUUID(), text: 'Dead center', explanation: 'Centering is valid but can be static. The Rule of Thirds suggests off-center placement.' },
+                { id: crypto.randomUUID(), text: 'At the intersections of the grid lines', explanation: 'Correct! These "power points" create a more balanced and interesting image.' },
+                { id: crypto.randomUUID(), text: 'In the extreme corner', explanation: 'This can make the subject feel like it is falling out of the frame.' }
+            ],
+            correctAnswerId: '', // Filled below
+            detailedExplanation: 'The Rule of Thirds grid creates four intersection points. Placing your subject on one of these points generally creates a more energetic and interesting composition than simply centering the subject.',
+            dueDate: new Date().toISOString(),
+            interval: 0,
+            easeFactor: INITIAL_EASE_FACTOR,
+            suspended: false,
+            masteryLevel: 0,
+            lapses: 0,
+            infoCardIds: [infoId2]
+        }
+    ];
+    
+    questions[0].correctAnswerId = questions[0].options[2].id;
+    questions[1].correctAnswerId = questions[1].options[1].id;
+
+    return {
+        id: crypto.randomUUID(),
+        name: 'Sample Course: Photography Basics',
+        description: 'A mini-course covering exposure and composition fundamentals.',
+        type: DeckType.Learning,
+        infoCards,
+        questions,
         lastOpened: new Date().toISOString(),
     };
 };

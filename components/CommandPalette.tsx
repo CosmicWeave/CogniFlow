@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Deck, DeckSeries, Card, Question, QuizDeck, DeckType, LearningDeck } from '../types';
 import { useRouter } from '../contexts/RouterContext';
 import Icon, { IconName } from './ui/Icon';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import { useStore } from '../store/store';
+import { useDecksList, useSeriesList } from '../store/store';
 import { stripHtml } from '../services/utils';
 
 // Local types for items in the palette to decouple from main app types
@@ -65,7 +66,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, action
   const modalRef = useRef<HTMLDivElement>(null);
   const resultsContainerRef = useRef<HTMLUListElement>(null);
   const { navigate } = useRouter();
-  const { decks, deckSeries: series } = useStore();
+  const decks = useDecksList();
+  const series = useSeriesList();
 
   useFocusTrap(modalRef, isOpen);
 

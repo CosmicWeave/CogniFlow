@@ -1,44 +1,57 @@
-import React, { useMemo } from 'react';
+
+import React, { useMemo, Suspense, lazy } from 'react';
 import { useRouter } from '../contexts/RouterContext.tsx';
 import { Deck, Folder, DeckSeries, QuizDeck, DeckType, FlashcardDeck, Card, Question, LearningDeck, AppRouterProps } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
-import StudySession from './StudySession.tsx';
-import { SettingsPage } from './SettingsPage.tsx';
-import DeckDetailsPage from './DeckDetailsPage.tsx';
-import JsonInstructionsPage from './JsonInstructionsPage.tsx';
-import SeriesOverviewPage from './SeriesOverviewPage.tsx';
-import { ArchivePage } from './ArchivePage.tsx';
-import TrashPage from './TrashPage.tsx';
-import DashboardPage from './DashboardPage.tsx';
-import AllDecksPage from './AllDecksPage.tsx';
-import AllSeriesPage from './AllSeriesPage.tsx';
-import ProgressPage from './ProgressPage.tsx';
-import { useStore, useActiveSeriesList, useStandaloneDecks, useTotalDueCount } from '../store/store.ts';
+import { useStore, useActiveSeriesList, useStandaloneDecks, useTotalDueCount, useDecksList, useSeriesList } from '../store/store.ts';
 import { useSettings } from '../hooks/useSettings.ts';
 import { useData } from '../contexts/DataManagementContext.tsx';
 import Breadcrumbs, { BreadcrumbItem } from './ui/Breadcrumbs.tsx';
 import { useModal } from '../contexts/ModalContext.tsx';
+import PageTransition from './ui/PageTransition.tsx';
+import AppSkeleton from './AppSkeleton.tsx';
+
+// Lazy load page components
+const StudySession = lazy(() => import('./StudySession.tsx'));
+const ReaderSession = lazy(() => import('./ReaderSession.tsx'));
+const SettingsPage = lazy(() => import('./SettingsPage.tsx').then(module => ({ default: module.SettingsPage })));
+const DeckDetailsPage = lazy(() => import('./DeckDetailsPage.tsx'));
+const JsonInstructionsPage = lazy(() => import('./JsonInstructionsPage.tsx'));
+const SeriesOverviewPage = lazy(() => import('./SeriesOverviewPage.tsx'));
+const ArchivePage = lazy(() => import('./ArchivePage.tsx').then(module => ({ default: module.ArchivePage })));
+const TrashPage = lazy(() => import('./TrashPage.tsx'));
+const DashboardPage = lazy(() => import('./DashboardPage.tsx'));
+const AllDecksPage = lazy(() => import('./AllDecksPage.tsx'));
+const AllSeriesPage = lazy(() => import('./AllSeriesPage.tsx'));
+const ProgressPage = lazy(() => import('./ProgressPage.tsx'));
+const DeckPrintView = lazy(() => import('./DeckPrintView.tsx'));
 
 const AppRouter: React.FC<AppRouterProps> = (props) => {
-    const { path } = useRouter();
+    const { path, navigate } = useRouter();
     const { activeDeck, activeSeries, generalStudyDeck } = props;
     const { aiFeaturesEnabled } = useSettings();
     const dataHandlers = useData();
     const [pathname] = path.split('?');
-    const { deckSeries } = useStore();
     const { openModal } = useModal();
     const openConfirmModal = (p: any) => openModal('confirm', p);
     
+    // Selectors
+    const deckSeries = useSeriesList(); // Get array of series for finding by ID in breadcrumbs
     const standaloneDecks = useStandaloneDecks();
     const activeSeriesList = useActiveSeriesList();
     const totalDueQuestions = useTotalDueCount();
 
     const isStudySession = useMemo(() => {
-        return pathname.startsWith('/study/') || pathname.endsWith('/study') || pathname.endsWith('/cram') || pathname.endsWith('/study-reversed') || pathname.endsWith('/study-flip');
+        return pathname.startsWith('/study/') || pathname.endsWith('/study') || pathname.endsWith('/cram') || pathname.endsWith('/study-reversed') || pathname.endsWith('/study-flip') || pathname.endsWith('/read');
     }, [pathname]);
+    
+    // Check if it is a print view to hide standard layout elements if needed in parent
+    const isPrintView = pathname.endsWith('/print');
 
     const breadcrumbItems = useMemo(() => {
+        if (isPrintView) return []; // Hide breadcrumbs in print view logic (handled by CSS mostly, but cleaner here)
+
         const items: BreadcrumbItem[] = [{ label: 'Home', href: '/' }];
         const params = new URLSearchParams(window.location.hash.split('?')[1]);
 
@@ -46,7 +59,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             items.push({ label: 'Series' });
         } else if (pathname.startsWith('/series/') && activeSeries) {
             items.push({ label: 'Series', href: '/series' });
-            items.push({ label: activeSeries.name });
+            items.push({ label: activeSeries.name || 'Series' });
         } else if (pathname === '/decks') {
             items.push({ label: 'Decks' });
         } else if (pathname.startsWith('/decks/') && activeDeck) {
@@ -55,12 +68,12 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 const series = deckSeries.find(s => s.id === seriesId);
                 if (series) {
                     items.push({ label: 'Series', href: '/series' });
-                    items.push({ label: series.name, href: `/series/${series.id}` });
+                    items.push({ label: series.name || 'Series', href: `/series/${series.id}` });
                 }
             } else {
                  items.push({ label: 'Decks', href: '/decks' });
             }
-            items.push({ label: activeDeck.name });
+            items.push({ label: activeDeck.name || 'Deck' });
         } else if (pathname === '/settings') {
             items.push({ label: 'Settings' });
         } else if (pathname === '/trash') {
@@ -74,7 +87,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
 
         return items;
-    }, [pathname, activeDeck, activeSeries, deckSeries]);
+    }, [pathname, activeDeck, activeSeries, deckSeries, isPrintView]);
 
     const renderPage = () => {
         if (pathname === '/settings') {
@@ -147,6 +160,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onExportSeries={dataHandlers.handleExportSeries}
                 onDeleteDeck={dataHandlers.handleDeleteDeck}
                 handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck}
+                onGenerateDeckForLevel={dataHandlers.handleOpenAIGenerationForSeriesLevel}
+                onAutoExpandSeries={dataHandlers.handleOpenAIAutoExpandSeries}
             />;
         }
 
@@ -157,16 +172,43 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         
         if (pathname.startsWith('/decks/') && pathname.endsWith('/cram')) {
             if (!activeDeck) return null;
-            const items = ((activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck | LearningDeck).questions) || [])
+            const params = new URLSearchParams(window.location.hash.split('?')[1]);
+            const sortMode = params.get('sort') || 'random';
+            const limit = params.get('limit') || 'all';
+            
+            let items = ((activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck | LearningDeck).questions) || [])
                 .filter(item => !item.suspended);
             
-            const shuffledItems = [...items].sort(() => Math.random() - 0.5);
+            // Sorting Logic
+            if (sortMode === 'hardest') {
+                items.sort((a, b) => {
+                    const lapseDiff = (b.lapses || 0) - (a.lapses || 0);
+                    if (lapseDiff !== 0) return lapseDiff;
+                    return (a.easeFactor || 2.5) - (b.easeFactor || 2.5);
+                });
+            } else if (sortMode === 'newest') {
+                // Reverse array order as approximation for "newest"
+                items.reverse();
+            } else if (sortMode === 'oldest') {
+                // Default array order is usually oldest first
+            } else {
+                // Random
+                items.sort(() => Math.random() - 0.5);
+            }
+
+            // Limiting Logic
+            if (limit !== 'all') {
+                const limitNum = parseInt(limit, 10);
+                if (!isNaN(limitNum)) {
+                    items = items.slice(0, limitNum);
+                }
+            }
 
             const cramDeck: Deck = activeDeck.type === DeckType.Flashcard 
-                ? { ...activeDeck, name: `${activeDeck.name} (Cram)`, cards: shuffledItems as Card[] } 
-                : { ...activeDeck, name: `${activeDeck.name} (Cram)`, questions: shuffledItems as Question[] };
+                ? { ...activeDeck, name: `${activeDeck.name} (Cram)`, cards: items as Card[] } 
+                : { ...activeDeck, name: `${activeDeck.name} (Cram)`, questions: items as Question[] };
 
-            const seriesId = new URLSearchParams(window.location.hash.split('?')[1]).get('seriesId') || undefined;
+            const seriesId = params.get('seriesId') || undefined;
             return <StudySession key={`${activeDeck.id}-cram`} deck={cramDeck} seriesId={seriesId} onSessionEnd={dataHandlers.handleSessionEnd} onItemReviewed={dataHandlers.handleItemReviewed} onUpdateLastOpened={dataHandlers.updateLastOpened} sessionKeySuffix="_cram" onStudyNextDeck={dataHandlers.handleStudyNextDeckInSeries} />;
         }
 
@@ -199,6 +241,15 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             return activeDeck && <StudySession key={activeDeck.id} deck={activeDeck} seriesId={seriesId} onSessionEnd={dataHandlers.handleSessionEnd} onItemReviewed={dataHandlers.handleItemReviewed} onUpdateLastOpened={dataHandlers.updateLastOpened} onStudyNextDeck={dataHandlers.handleStudyNextDeckInSeries} />;
         }
 
+        if (pathname.startsWith('/decks/') && pathname.endsWith('/read')) {
+            if (!activeDeck || activeDeck.type !== DeckType.Learning) return null;
+            return <ReaderSession deck={activeDeck as LearningDeck} onExit={() => navigate(`/decks/${activeDeck.id}`)} onPractice={() => navigate(`/decks/${activeDeck.id}/study`)} />
+        }
+        
+        if (pathname.startsWith('/decks/') && pathname.endsWith('/print')) {
+            return activeDeck && <DeckPrintView deck={activeDeck} />;
+        }
+
         if (pathname.startsWith('/decks/')) {
             return activeDeck && <DeckDetailsPage 
                 key={activeDeck.id} 
@@ -216,6 +267,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onExportDeck={dataHandlers.handleExportDeck} 
                 onRegenerateQuestion={dataHandlers.handleRegenerateQuestion}
                 onExpandText={dataHandlers.handleExpandText}
+                onGenerateAI={() => dataHandlers.handleOpenAIGenerationForDeck(activeDeck)}
             />
         }
 
@@ -232,29 +284,81 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
 
         if (standaloneDecks.length > 0 || activeSeriesList.length > 0) {
-            return <DashboardPage onGenerateAI={() => dataHandlers.openModal('aiGeneration')} totalDueQuestions={totalDueQuestions} onStartGeneralStudy={dataHandlers.handleStartGeneralStudy} sessionsToResume={props.sessionsToResume} onUpdateLastOpened={dataHandlers.updateLastOpened} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} openConfirmModal={openConfirmModal} seriesProgress={useStore.getState().seriesProgress} onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
+            return <DashboardPage 
+                onGenerateAI={() => dataHandlers.openModal('aiGeneration')} 
+                totalDueQuestions={totalDueQuestions} 
+                onStartGeneralStudy={dataHandlers.handleStartGeneralStudy} 
+                sessionsToResume={props.sessionsToResume} 
+                onUpdateLastOpened={dataHandlers.updateLastOpened} 
+                onUpdateDeck={dataHandlers.handleUpdateDeck} 
+                onDeleteDeck={dataHandlers.handleDeleteDeck} 
+                openConfirmModal={openConfirmModal} 
+                seriesProgress={useStore.getState().seriesProgress} 
+                onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} 
+                handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} 
+                handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} 
+                handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries} 
+                onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} 
+                onCreateSampleQuizDeck={dataHandlers.handleCreateSampleQuizDeck}
+                onCreateSampleFlashcardDeck={dataHandlers.handleCreateSampleFlashcardDeck}
+                onCreateSampleLearningDeck={dataHandlers.handleCreateSampleLearningDeck}
+                onCreateSampleSeries={dataHandlers.handleCreateSampleSeries}
+                onCreateSampleCourse={dataHandlers.handleCreateSampleCourse}
+            />;
         }
         
         return (
-            <div className="text-center py-20">
+            <div className="text-center py-20 max-w-4xl mx-auto">
               <h2 className="text-3xl font-bold text-gray-600 dark:text-gray-400">Welcome to CogniFlow</h2>
               <p className="mt-4 text-gray-500 dark:text-gray-500">Get started by creating or importing content.</p>
+              
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 flex-wrap">
                 {aiFeaturesEnabled && <Button onClick={() => dataHandlers.openModal('aiGeneration')} variant="primary"><Icon name="zap" className="w-5 h-5 mr-2" />Generate with AI</Button>}
-                <Button onClick={() => dataHandlers.openModal('import')}><Icon name="plus" className="w-5 h-5 mr-2" />Create or Import Deck</Button>
-                <Button onClick={() => dataHandlers.openModal('restore')} variant="secondary"><Icon name="upload-cloud" className="w-5 h-5 mr-2" />Restore from Backup</Button>
-                <Button onClick={() => dataHandlers.openModal('series', { series: 'new' })} variant="secondary"><Icon name="layers" className="w-5 h-5 mr-2" />Create New Series</Button>
-                <Button onClick={dataHandlers.handleCreateSampleDeck} variant="ghost"><Icon name="laptop" className="w-5 h-5 mr-2" />Create Sample Deck</Button>
-                <Button onClick={dataHandlers.handleCreateSampleSeries} variant="ghost"><Icon name="zap" className="w-5 h-5 mr-2" />Create Sample Series</Button>
+                <Button onClick={() => dataHandlers.openModal('import')}><Icon name="plus" className="w-5 h-5 mr-2" />Create / Import</Button>
+                <Button onClick={() => dataHandlers.openModal('series', { series: 'new' })} variant="secondary"><Icon name="layers" className="w-5 h-5 mr-2" />New Series</Button>
+                <Button onClick={() => dataHandlers.openModal('restore')} variant="secondary"><Icon name="upload-cloud" className="w-5 h-5 mr-2" />Restore Backup</Button>
+              </div>
+
+              <div className="mt-12 border-t border-border pt-8">
+                  <h3 className="text-lg font-semibold text-text-muted mb-4">Or try a sample:</h3>
+                  <div className="flex flex-wrap justify-center gap-3">
+                      <Button onClick={dataHandlers.handleCreateSampleQuizDeck} variant="ghost" size="sm">
+                          <Icon name="help-circle" className="w-4 h-4 mr-2" /> Quiz Deck
+                      </Button>
+                      <Button onClick={dataHandlers.handleCreateSampleFlashcardDeck} variant="ghost" size="sm">
+                          <Icon name="laptop" className="w-4 h-4 mr-2" /> Flashcard Deck
+                      </Button>
+                      <Button onClick={dataHandlers.handleCreateSampleCourse} variant="ghost" size="sm">
+                          <Icon name="file-text" className="w-4 h-4 mr-2" /> Sample Course
+                      </Button>
+                      <Button onClick={dataHandlers.handleCreateSampleLearningDeck} variant="ghost" size="sm">
+                          <Icon name="book-open" className="w-4 h-4 mr-2" /> Learning Deck
+                      </Button>
+                      <Button onClick={dataHandlers.handleCreateSampleSeries} variant="ghost" size="sm">
+                          <Icon name="layers" className="w-4 h-4 mr-2" /> Series
+                      </Button>
+                  </div>
               </div>
             </div>
         );
     };
 
+    if (isStudySession || isPrintView) {
+        return (
+            <Suspense fallback={<AppSkeleton />}>
+                {renderPage()}
+            </Suspense>
+        );
+    }
+
     return (
         <>
-            {!isStudySession && <Breadcrumbs items={breadcrumbItems} />}
-            {renderPage()}
+            <Breadcrumbs items={breadcrumbItems} />
+            <PageTransition key={pathname}>
+                <Suspense fallback={<AppSkeleton />}>
+                    {renderPage()}
+                </Suspense>
+            </PageTransition>
         </>
     );
 };

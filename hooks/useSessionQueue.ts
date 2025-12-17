@@ -1,6 +1,8 @@
+
 import { useState, useEffect } from 'react';
 import { Deck, Card, Question, InfoCard, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import { getSessionState, deleteSessionState } from '../services/db';
+import { useStore } from '../store/store';
 
 export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession: boolean) => {
     const [sessionQueue, setSessionQueue] = useState<(Card | Question | InfoCard)[]>([]);
@@ -9,6 +11,7 @@ export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession
     const [unlockedQuestionIds, setUnlockedQuestionIds] = useState<Set<string>>(new Set());
     const [initialIndex, setInitialIndex] = useState(0);
     const [initialItemsCompleted, setInitialItemsCompleted] = useState(0);
+    const { learningProgress } = useStore();
 
     useEffect(() => {
         const initializeSession = async () => {
@@ -32,10 +35,6 @@ export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession
                     setSessionQueue(savedSession.reviewQueue);
                     setInitialIndex(savedSession.currentIndex);
                     setInitialItemsCompleted(savedSession.itemsCompleted ?? savedSession.currentIndex);
-                    if (isLearningDeck) {
-                        setReadInfoCardIds(new Set(savedSession.readInfoCardIds || []));
-                        setUnlockedQuestionIds(new Set(savedSession.unlockedQuestionIds || []));
-                    }
                     sessionResumed = true;
                 } else if (savedSession) {
                     await deleteSessionState(sessionKey);
@@ -50,24 +49,17 @@ export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession
 
                 if (isLearningDeck) {
                     const learningDeck = deck as LearningDeck;
-                    const allInfoCards = learningDeck.infoCards || [];
+                    const progress = learningProgress[deck.id];
+                    const unlockedSet = new Set(progress?.unlockedQuestionIds || []);
                     
-                    // Find all question IDs that can be unlocked by any info card in the deck
-                    const allUnlockableQuestionIds = new Set(
-                        allInfoCards.flatMap(ic => ic.unlocksQuestionIds || [])
-                    );
-                    
-                    // Find due questions that are NOT unlocked by any info card
-                    const dueOrphanQuestions = (learningDeck.questions || []).filter(
+                    // Filter questions: must be unlocked AND due
+                    const dueQuestions = (learningDeck.questions || []).filter(
                         q => !q.suspended && 
                              new Date(q.dueDate) <= today &&
-                             !allUnlockableQuestionIds.has(q.id)
-                    );
+                             unlockedSet.has(q.id)
+                    ).sort(() => Math.random() - 0.5);
 
-                    // Initial queue has all info cards, plus any due questions that don't need unlocking
-                    setSessionQueue([...allInfoCards, ...dueOrphanQuestions]);
-                    setReadInfoCardIds(new Set());
-                    setUnlockedQuestionIds(new Set());
+                    setSessionQueue(dueQuestions);
                 } else {
                     const itemsToReview = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : (deck as QuizDeck).questions) || [];
                     const dueItems = itemsToReview
@@ -82,7 +74,7 @@ export const useSessionQueue = (deck: Deck, sessionKey: string, isSpecialSession
         };
 
         initializeSession();
-    }, [deck, sessionKey, isSpecialSession, isSessionInitialized]);
+    }, [deck, sessionKey, isSpecialSession, isSessionInitialized, learningProgress]);
 
     return {
         sessionQueue,

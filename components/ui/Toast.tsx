@@ -11,6 +11,7 @@ const toastIcons: Record<ToastMessage['type'], React.ReactNode> = {
   success: <Icon name="check-circle" className="w-6 h-6 text-green-500" />,
   error: <Icon name="x-circle" className="w-6 h-6 text-red-500" />,
   info: <Icon name="info" className="w-6 h-6 text-blue-500" />,
+  warning: <Icon name="info" className="w-6 h-6 text-yellow-500" />,
 };
 
 const Toast: React.FC<ToastProps> = ({ message, onDismiss }) => {

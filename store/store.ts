@@ -1,14 +1,6 @@
-import { create } from 'zustand';
-import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData, SeriesLevel, Reviewable, Card, Question } from '../types';
 
-export interface AIGenerationTask {
-  id: string;
-  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck' | 'generateFullSeriesFromScaffold';
-  payload: any;
-  statusText: string;
-  deckId?: string;
-  seriesId?: string;
-}
+import { create } from 'zustand';
+import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData, SeriesLevel, Reviewable, Card, Question, AIGenerationTask, DeckLearningProgress } from '../types';
 
 export interface AIGenerationStatus {
   isGenerating: boolean;
@@ -21,10 +13,11 @@ export interface AIGenerationStatus {
 
 
 export type AppState = {
-  decks: Deck[];
-  folders: Folder[];
-  deckSeries: DeckSeries[];
+  decks: Record<string, Deck>;
+  folders: Record<string, Folder>;
+  deckSeries: Record<string, DeckSeries>;
   seriesProgress: SeriesProgress;
+  learningProgress: Record<string, DeckLearningProgress>; // Track read progress for learning decks
   isLoading: boolean;
   lastModified: number | null;
   aiGenerationStatus: AIGenerationStatus;
@@ -34,6 +27,8 @@ export type AppState = {
 export type AppAction =
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_SERIES_PROGRESS'; payload: SeriesProgress }
+  | { type: 'SET_LEARNING_PROGRESS'; payload: Record<string, DeckLearningProgress> }
+  | { type: 'UPDATE_LEARNING_PROGRESS'; payload: DeckLearningProgress }
   | { type: 'LOAD_DATA'; payload: { decks: Deck[]; folders: Folder[]; deckSeries: DeckSeries[] } }
   | { type: 'ADD_DECKS'; payload: Deck[] }
   | { type: 'DELETE_DECK'; payload: string }
@@ -64,9 +59,34 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload }; // No data change, don't update lastModified
     case 'SET_SERIES_PROGRESS':
-      return { ...state, seriesProgress: action.payload }; // Technically not a structural change, so we don't mark as modified for sync
-    case 'LOAD_DATA':
-      return { ...state, ...action.payload, isLoading: false, lastModified: null }; // Reset dirty flag on fresh load
+      return { ...state, seriesProgress: action.payload }; 
+    case 'SET_LEARNING_PROGRESS':
+      return { ...state, learningProgress: action.payload };
+    case 'UPDATE_LEARNING_PROGRESS':
+      return { 
+          ...state, 
+          learningProgress: { 
+              ...state.learningProgress, 
+              [action.payload.deckId]: action.payload 
+          } 
+      };
+    case 'LOAD_DATA': {
+      const decksRecord: Record<string, Deck> = {};
+      action.payload.decks.forEach(d => decksRecord[d.id] = d);
+      const foldersRecord: Record<string, Folder> = {};
+      action.payload.folders.forEach(f => foldersRecord[f.id] = f);
+      const seriesRecord: Record<string, DeckSeries> = {};
+      action.payload.deckSeries.forEach(s => seriesRecord[s.id] = s);
+      
+      return { 
+          ...state, 
+          decks: decksRecord, 
+          folders: foldersRecord, 
+          deckSeries: seriesRecord, 
+          isLoading: false, 
+          lastModified: null 
+      }; // Reset dirty flag on fresh load
+    }
     
     case 'SET_AI_GENERATION_STATUS':
       return {
@@ -88,6 +108,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state.aiGenerationStatus, 
         queue: newQueue, 
         currentTask: { ...task, abortController },
+        isGenerating: true, // Explicitly set to true
       } };
     }
     case 'UPDATE_CURRENT_AI_TASK_STATUS': {
@@ -103,6 +124,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, aiGenerationStatus: { 
         ...state.aiGenerationStatus, 
         currentTask: null,
+        isGenerating: false, // Explicitly set to false
       } };
     case 'CANCEL_AI_TASK':
         if (action.payload?.taskId) {
@@ -112,11 +134,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
         } else {
             // Cancel the current task
             state.aiGenerationStatus.currentTask?.abortController.abort();
-            // The task will error out, and the queue processor will call FINISH_CURRENT_AI_TASK.
-            // We optimistically clear it here for a faster UI response.
             return { ...state, aiGenerationStatus: { 
               ...state.aiGenerationStatus, 
               currentTask: null,
+              isGenerating: false,
             } };
         }
 
@@ -124,95 +145,115 @@ function appReducer(state: AppState, action: AppAction): AppState {
         return { ...state, aiChatHistory: action.payload };
 
     case 'ADD_DECKS': {
-      const decksMap = new Map(state.decks.map(d => [d.id, d]));
-      action.payload.forEach(deck => decksMap.set(deck.id, deck));
-      return { ...modifiedState, decks: Array.from(decksMap.values()) };
+      const newDecks = { ...state.decks };
+      action.payload.forEach(deck => newDecks[deck.id] = deck);
+      return { ...modifiedState, decks: newDecks };
     }
     case 'RESTORE_DATA': {
       const { decks, folders, deckSeries } = action.payload;
-      const decksMap = new Map(state.decks.map(d => [d.id, d]));
-      decks.forEach(deck => decksMap.set(deck.id, deck));
-
-      const foldersMap = new Map(state.folders.map(f => [f.id, f]));
-      folders.forEach(folder => foldersMap.set(folder.id, folder));
+      const decksRecord: Record<string, Deck> = {};
+      decks.forEach(d => decksRecord[d.id] = d);
+      const foldersRecord: Record<string, Folder> = {};
+      folders.forEach(f => foldersRecord[f.id] = f);
+      const seriesRecord: Record<string, DeckSeries> = {};
+      deckSeries.forEach(s => seriesRecord[s.id] = s);
       
-      const seriesMap = new Map(state.deckSeries.map(s => [s.id, s]));
-      deckSeries.forEach(series => seriesMap.set(series.id, series));
-      
-      return { ...modifiedState, decks: Array.from(decksMap.values()), folders: Array.from(foldersMap.values()), deckSeries: Array.from(seriesMap.values()) };
+      return { 
+          ...modifiedState, 
+          decks: decksRecord, 
+          folders: foldersRecord, 
+          deckSeries: seriesRecord 
+      };
     }
-    case 'DELETE_DECK':
-      return {
-          ...modifiedState,
-          decks: state.decks.filter(d => d.id !== action.payload),
-          deckSeries: state.deckSeries.map(s => {
-              if (!s.levels) {
-                  return s;
-              }
-              return {
+    case 'DELETE_DECK': {
+      const newDecks = { ...state.decks };
+      delete newDecks[action.payload];
+      
+      // Update series references
+      const newSeries = { ...state.deckSeries };
+      Object.keys(newSeries).forEach(seriesId => {
+          const s = newSeries[seriesId];
+          if (s.levels) {
+              newSeries[seriesId] = {
                   ...s,
-                  levels: (s.levels || []).filter((l): l is SeriesLevel => !!l).map(level => ({
+                  levels: s.levels.map(level => ({
                       ...level,
                       deckIds: (level.deckIds || []).filter(id => id !== action.payload)
                   }))
               };
-          })
+          }
+      });
+
+      return {
+          ...modifiedState,
+          decks: newDecks,
+          deckSeries: newSeries
       };
+    }
     case 'UPDATE_DECK':
-      return { ...modifiedState, decks: state.decks.map(d => d.id === action.payload.id ? action.payload : d) };
+      return { ...modifiedState, decks: { ...state.decks, [action.payload.id]: action.payload } };
     case 'BULK_UPDATE_DECKS': {
-       const updatedDecksMap = new Map(state.decks.map(d => [d.id, d]));
-       action.payload.forEach(deck => updatedDecksMap.set(deck.id, deck));
-       return { ...modifiedState, decks: Array.from(updatedDecksMap.values()) };
+       const newDecks = { ...state.decks };
+       action.payload.forEach(deck => newDecks[deck.id] = deck);
+       return { ...modifiedState, decks: newDecks };
     }
     case 'ADD_FOLDER':
-        return { ...modifiedState, folders: [...state.folders, action.payload] };
+        return { ...modifiedState, folders: { ...state.folders, [action.payload.id]: action.payload } };
     case 'ADD_FOLDERS': {
-      const foldersMap = new Map(state.folders.map(f => [f.id, f]));
-      action.payload.forEach(folder => foldersMap.set(folder.id, folder));
-      return { ...modifiedState, folders: Array.from(foldersMap.values()) };
+      const newFolders = { ...state.folders };
+      action.payload.forEach(folder => newFolders[folder.id] = folder);
+      return { ...modifiedState, folders: newFolders };
     }
     case 'UPDATE_FOLDER':
-        return { ...modifiedState, folders: state.folders.map(f => f.id === action.payload.id ? action.payload : f) };
-    case 'DELETE_FOLDER':
-        return {
-            ...modifiedState,
-            folders: state.folders.filter(f => f.id !== action.payload),
-            decks: state.decks.map(d => d.folderId === action.payload ? { ...d, folderId: null } : d)
-        };
-    case 'ADD_SERIES': {
-        const seriesMap = new Map(state.deckSeries.map(s => [s.id, s]));
-        seriesMap.set(action.payload.id, action.payload);
-        return { ...modifiedState, deckSeries: Array.from(seriesMap.values()) };
-    }
-    case 'ADD_SERIES_WITH_DECKS': {
-        const { series, decks } = action.payload;
-        const decksMap = new Map(state.decks.map(d => [d.id, d]));
-        decks.forEach(deck => decksMap.set(deck.id, deck));
+        return { ...modifiedState, folders: { ...state.folders, [action.payload.id]: action.payload } };
+    case 'DELETE_FOLDER': {
+        const newFolders = { ...state.folders };
+        delete newFolders[action.payload];
         
-        const seriesMap = new Map(state.deckSeries.map(s => [s.id, s]));
-        seriesMap.set(series.id, series);
+        const newDecks = { ...state.decks };
+        Object.values(newDecks).forEach(d => {
+            if (d.folderId === action.payload) {
+                newDecks[d.id] = { ...d, folderId: null };
+            }
+        });
 
         return {
             ...modifiedState,
-            decks: Array.from(decksMap.values()),
-            deckSeries: Array.from(seriesMap.values())
+            folders: newFolders,
+            decks: newDecks
+        };
+    }
+    case 'ADD_SERIES':
+        return { ...modifiedState, deckSeries: { ...state.deckSeries, [action.payload.id]: action.payload } };
+    case 'ADD_SERIES_WITH_DECKS': {
+        const { series, decks } = action.payload;
+        const newDecks = { ...state.decks };
+        decks.forEach(deck => newDecks[deck.id] = deck);
+        
+        return {
+            ...modifiedState,
+            decks: newDecks,
+            deckSeries: { ...state.deckSeries, [series.id]: series }
         };
     }
     case 'UPDATE_SERIES':
-        return { ...modifiedState, deckSeries: state.deckSeries.map(s => s.id === action.payload.id ? action.payload : s) };
-    case 'DELETE_SERIES':
-        return { ...modifiedState, deckSeries: state.deckSeries.filter(s => s.id !== action.payload) };
+        return { ...modifiedState, deckSeries: { ...state.deckSeries, [action.payload.id]: action.payload } };
+    case 'DELETE_SERIES': {
+        const newSeries = { ...state.deckSeries };
+        delete newSeries[action.payload];
+        return { ...modifiedState, deckSeries: newSeries };
+    }
     default:
       return state;
   }
 }
 
 const initialState: AppState = {
-  decks: [],
-  folders: [],
-  deckSeries: [],
+  decks: {},
+  folders: {},
+  deckSeries: {},
   seriesProgress: new Map<string, Set<string>>(),
+  learningProgress: {},
   isLoading: true,
   lastModified: null,
   aiGenerationStatus: {
@@ -247,21 +288,26 @@ const getDueItemsCountForDeck = (deck: Deck): number => {
     return items.filter(item => !item.suspended && new Date(item.dueDate).getTime() <= today.getTime()).length;
 };
 
+// Convenience selectors to return Arrays for rendering lists
+export const useDecksList = () => useStore(state => Object.values(state.decks));
+export const useFoldersList = () => useStore(state => Object.values(state.folders));
+export const useSeriesList = () => useStore(state => Object.values(state.deckSeries));
+
 export const useActiveSeriesList = () => useStore(state => 
-    state.deckSeries.filter(s => !s.archived && !s.deletedAt)
+    (Object.values(state.deckSeries) as DeckSeries[]).filter(s => !s.archived && !s.deletedAt)
 );
 
 export const useStandaloneDecks = () => useStore(state => {
     const seriesDeckIds = new Set<string>();
-    state.deckSeries.forEach(series => {
+    (Object.values(state.deckSeries) as DeckSeries[]).forEach(series => {
         (series.levels || []).forEach(level => (level?.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId)));
     });
-    return state.decks.filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
+    return (Object.values(state.decks) as Deck[]).filter(d => !d.archived && !d.deletedAt && !seriesDeckIds.has(d.id));
 });
 
 export const useTotalDueCount = () => useStore(state => {
     const unlockedSeriesDeckIds = new Set<string>();
-    state.deckSeries.forEach(series => {
+    (Object.values(state.deckSeries) as DeckSeries[]).forEach(series => {
         if (!series.archived && !series.deletedAt) {
             const completedCount = state.seriesProgress.get(series.id)?.size || 0;
             let deckCount = 0;
@@ -274,10 +320,23 @@ export const useTotalDueCount = () => useStore(state => {
         }
     });
 
-    return state.decks.reduce((total, deck) => {
+    return (Object.values(state.decks) as Deck[]).reduce((total, deck) => {
         if (deck.archived || deck.deletedAt) return total;
         
-        const isSeriesDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && state.deckSeries.some(s => (s.levels || []).some(l => l.deckIds?.includes(deck.id)));
+        // For learning decks, check persistent unlocked state if available
+        if (deck.type === DeckType.Learning) {
+            const progress = state.learningProgress[deck.id];
+            if (progress && progress.unlockedQuestionIds) {
+                const unlockedSet = new Set(progress.unlockedQuestionIds);
+                const learningDeck = deck as LearningDeck;
+                const dueCount = (learningDeck.questions || []).filter(q => 
+                    unlockedSet.has(q.id) && !q.suspended && new Date(q.dueDate).getTime() <= new Date().setHours(23, 59, 59, 999)
+                ).length;
+                return total + dueCount;
+            }
+        }
+
+        const isSeriesDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && (Object.values(state.deckSeries) as DeckSeries[]).some(s => (s.levels || []).some(l => l.deckIds?.includes(deck.id)));
         if (isSeriesDeck && !unlockedSeriesDeckIds.has(deck.id)) {
             return total;
         }

@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Link from './ui/Link.tsx';
@@ -23,47 +24,77 @@ interface DeckListItemProps {
   openConfirmModal: (props: any) => void;
   handleGenerateQuestionsForDeck?: (deck: QuizDeck) => void;
   handleGenerateContentForLearningDeck?: (deck: LearningDeck) => void;
+  onRemoveFromSeries?: () => void;
 }
 
-// FIX: Changed to named export to resolve module resolution issues across multiple files.
-export const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck }) => {
+export const DeckListItem: React.FC<DeckListItemProps> = React.memo(({ deck, sessionsToResume, onUpdateLastOpened, draggedDeckId, onDragStart, onDragEnd, onUpdateDeck, onDeleteDeck, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onRemoveFromSeries }) => {
     const { navigate } = useRouter();
-    const { aiGenerationStatus } = useStore();
+    
+    // Optimize store selection to prevent re-renders on global state changes.
+    // We only care if there is a task for THIS specific deck.
+    const relevantTask = useStore(useCallback(state => {
+        const { currentTask, queue } = state.aiGenerationStatus;
+        if (currentTask?.deckId === deck.id) {
+            return currentTask;
+        }
+        return (queue || []).find(task => task.deckId === deck.id);
+    }, [deck.id]));
+
+    // Get learning progress for this deck
+    const learningProgress = useStore(state => state.learningProgress[deck.id]);
+
     const { aiFeaturesEnabled } = useSettings();
     
-    const dueCount = getDueItemsCount(deck);
-    const canResume = sessionsToResume.has(deck.id);
-    const items = (deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
-                  deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
-                  (deck as FlashcardDeck).cards) || [];
+    // Calculate Due Count and Items based on Deck Type
+    const { dueCount, items, unlockedCount, totalQuestions } = useMemo(() => {
+        let items = (deck.type === DeckType.Quiz ? (deck as QuizDeck).questions : 
+                    deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
+                    (deck as FlashcardDeck).cards) || [];
+        
+        let due = 0;
+        let unlocked = 0;
+        let total = items.length;
+
+        if (deck.type === DeckType.Learning) {
+            const unlockedSet = new Set(learningProgress?.unlockedQuestionIds || []);
+            unlocked = (deck as LearningDeck).questions?.filter(q => unlockedSet.has(q.id)).length || 0;
+            // For Learning Decks, only count unlocked AND due items
+            due = (deck as LearningDeck).questions?.filter(q => 
+                !q.suspended && 
+                unlockedSet.has(q.id) && 
+                new Date(q.dueDate) <= new Date()
+            ).length || 0;
+        } else {
+            // For other decks, use standard calculation
+            due = getDueItemsCount(deck);
+        }
+
+        return { dueCount: due, items, unlockedCount: unlocked, totalQuestions: total };
+    }, [deck, learningProgress]);
 
     const itemCount = items?.length || 0;
     
     let itemLabel: string;
     let iconName: IconName;
-    if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
-        itemLabel = itemCount === 1 ? 'question' : 'questions';
+    
+    if (deck.icon) {
+        iconName = deck.icon as IconName;
+    } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
         iconName = deck.type === DeckType.Learning ? 'book-open' : 'help-circle';
     } else {
-        itemLabel = itemCount === 1 ? 'card' : 'cards';
         iconName = 'laptop';
+    }
+    
+    if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
+        itemLabel = itemCount === 1 ? 'question' : 'questions';
+    } else {
+        itemLabel = itemCount === 1 ? 'card' : 'cards';
     }
 
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    const relevantTask = useMemo(() => {
-        const { currentTask, queue } = aiGenerationStatus;
-        if (currentTask?.deckId === deck.id) {
-            return currentTask;
-        }
-        const deckQueue = Array.isArray(queue) ? queue : [];
-        return deckQueue.find(task => task.deckId === deck.id);
-    }, [aiGenerationStatus, deck.id]);
-
     const isTaskRunningForThisDeck = !!relevantTask;
-    const isAnyTaskRunning = aiGenerationStatus.currentTask !== null || (aiGenerationStatus.queue?.length || 0) > 0;
-
     const isActionableEmptyDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && itemCount === 0;
 
     useEffect(() => {
@@ -88,18 +119,20 @@ export const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResu
         return totalMastery / activeItems.length;
     }, [items]);
     
+    const canResume = sessionsToResume.has(deck.id);
+
     const studyButtonText = useMemo(() => {
         if (deck.locked) return "Locked";
-        if (isActionableEmptyDeck && !isAnyTaskRunning) return "Generate";
+        if (isActionableEmptyDeck && !isTaskRunningForThisDeck) return "Generate";
         if (canResume) return "Resume";
         return `Study (${dueCount})`;
-    }, [deck.locked, isActionableEmptyDeck, isAnyTaskRunning, canResume, dueCount]);
+    }, [deck.locked, isActionableEmptyDeck, isTaskRunningForThisDeck, canResume, dueCount]);
 
     const handlePrimaryAction = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         if (deck.locked) return;
-        if (isActionableEmptyDeck && !isAnyTaskRunning) {
+        if (isActionableEmptyDeck && !isTaskRunningForThisDeck) {
             if (deck.type === DeckType.Quiz && handleGenerateQuestionsForDeck) {
                 handleGenerateQuestionsForDeck(deck as QuizDeck);
             } else if (deck.type === DeckType.Learning && handleGenerateContentForLearningDeck) {
@@ -129,7 +162,7 @@ export const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResu
                 <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0 mr-4">
                         <div className="flex items-center mb-1">
-                            <Icon name={iconName} className="w-5 h-5 mr-2 text-text-muted flex-shrink-0" />
+                            <Icon name={iconName} className={`w-5 h-5 mr-2 flex-shrink-0 ${deck.icon ? 'text-primary' : 'text-text-muted'}`} />
                             <h3 className="text-xl font-bold text-text break-words">{deck.name}</h3>
                         </div>
                         {deck.description && (
@@ -138,6 +171,12 @@ export const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResu
                                 title={stripHtml(deck.description)}
                                 dangerouslySetInnerHTML={{ __html: deck.description }}
                             />
+                        )}
+                        {deck.type === DeckType.Learning && (
+                            <p className="text-xs text-text-muted mt-2 font-medium">
+                                <Icon name="unlock" className="w-3 h-3 inline mr-1" />
+                                {unlockedCount} / {totalQuestions} questions unlocked
+                            </p>
                         )}
                     </div>
                     <div ref={menuRef} className="relative flex-shrink-0 -mr-2">
@@ -151,6 +190,9 @@ export const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResu
                         </Button>
                         {isMenuOpen && (
                              <div className="absolute right-0 mt-2 w-48 bg-surface rounded-md shadow-lg py-1 z-10 ring-1 ring-black ring-opacity-5 animate-fade-in" style={{ animationDuration: '150ms' }}>
+                                 {onRemoveFromSeries && (
+                                     <button onClick={(e) => { e.preventDefault(); onRemoveFromSeries(); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20"><Icon name="x-circle" className="w-4 h-4 mr-3" /> Remove from Series</button>
+                                 )}
                                  <button onClick={(e) => { e.preventDefault(); onUpdateDeck({...deck, archived: true}, { toastMessage: `Deck "${deck.name}" archived.` }); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20"><Icon name="archive" className="w-4 h-4 mr-3" /> Archive</button>
                                  <button onClick={(e) => { e.preventDefault(); onDeleteDeck(deck.id); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"><Icon name="trash-2" className="w-4 h-4 mr-3" /> Move to Trash</button>
                             </div>
@@ -172,18 +214,31 @@ export const DeckListItem: React.FC<DeckListItemProps> = ({ deck, sessionsToResu
                             <span className="text-sm font-semibold text-text-muted">{relevantTask.statusText || 'Generating...'}</span>
                         </div>
                     ) : (
-                         <Button
-                            variant={(isActionableEmptyDeck && aiFeaturesEnabled) ? 'primary' : 'secondary'}
-                            size="sm"
-                            onClick={handlePrimaryAction}
-                            disabled={deck.locked || (itemCount === 0 && !isActionableEmptyDeck)}
-                        >
-                            <Icon name={deck.locked ? 'lock' : (isActionableEmptyDeck ? 'zap' : 'laptop')} className="w-4 h-4 mr-2"/>
-                            {studyButtonText}
-                        </Button>
+                        <div className="flex gap-2">
+                            {deck.type === DeckType.Learning && (
+                                <Link 
+                                    href={`/decks/${deck.id}/read`}
+                                    passAs={Button}
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <Icon name="book-open" className="w-4 h-4 mr-2" /> Read
+                                </Link>
+                            )}
+                            <Button
+                                variant={(isActionableEmptyDeck && aiFeaturesEnabled) ? 'primary' : 'secondary'}
+                                size="sm"
+                                onClick={handlePrimaryAction}
+                                disabled={deck.locked || (itemCount === 0 && !isActionableEmptyDeck)}
+                            >
+                                <Icon name={deck.locked ? 'lock' : (isActionableEmptyDeck ? 'zap' : 'laptop')} className="w-4 h-4 mr-2"/>
+                                {studyButtonText}
+                            </Button>
+                        </div>
                     )}
                 </div>
             </div>
         </Link>
     );
-};
+});

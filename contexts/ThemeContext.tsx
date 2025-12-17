@@ -1,16 +1,20 @@
+
 import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
 
 export type ThemeId = 
   | 'system' | 'light' | 'dark' | 'rose' | 'matcha' | 'latte' 
-  | 'sky' | 'sunrise' | 'lavender' | 'terracotta' | 'alabaster' | 'espresso' | 'midnight';
+  | 'sky' | 'sunrise' | 'lavender' | 'terracotta' | 'alabaster' | 'espresso' | 'midnight'
+  | string; // Allow custom strings
 
 const THEME_STORAGE_KEY = 'cogniflow-themeId';
+const CUSTOM_THEMES_STORAGE_KEY = 'cogniflow-custom-themes';
 
 interface ColorPalette {
   background: string;
   surface: string;
   primary: string;
   text: string;
+  onPrimary?: string; // Optional, usually calculated or static
 }
 
 export interface Theme {
@@ -21,6 +25,7 @@ export interface Theme {
   metaColorDark?: string; // Only for system
   palette: ColorPalette;
   paletteDark?: ColorPalette; // Only for system
+  isCustom?: boolean;
 }
 
 export const themes: readonly Theme[] = [
@@ -44,13 +49,23 @@ interface ThemeContextType {
   themeId: ThemeId;
   setThemeById: (id: ThemeId) => void;
   currentTheme: Theme;
+  customThemes: Theme[];
+  addCustomTheme: (theme: Theme) => void;
+  deleteCustomTheme: (id: string) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const applyTheme = (themeId: ThemeId) => {
+const applyTheme = (themeId: ThemeId, customThemes: Theme[] = []) => {
   let theme = themes.find(t => t.id === themeId);
-  if (!theme) theme = themes[0]; // Default to 'system'
+  
+  // If not a built-in theme, check custom themes
+  if (!theme) {
+    theme = customThemes.find(t => t.id === themeId);
+  }
+  
+  // Default to system if still not found
+  if (!theme) theme = themes[0]; 
 
   const root = window.document.documentElement;
   const themeColorMeta = document.querySelector('meta[name="theme-color"]');
@@ -70,31 +85,82 @@ const applyTheme = (themeId: ThemeId) => {
   themes.forEach(t => {
     if (t.id !== 'system') root.classList.remove(`theme-${t.id}`);
   });
+  // Also remove custom themes (they might reuse IDs or just not have a class if dynamically applied)
+  customThemes.forEach(t => root.classList.remove(`theme-${t.id}`));
+  
   // Also remove old bugged classes just in case
   root.classList.remove('theme-dark', 'theme-light');
 
-  // Add specific theme class if not system
-  if (theme.id !== 'system') {
-    root.classList.add(`theme-${theme.id}`);
-  }
-  
   root.classList.toggle('dark', isDark);
 
   if (themeColorMeta && metaColor) {
     themeColorMeta.setAttribute('content', metaColor);
   }
+
+  // For custom themes, we need to set CSS variables directly on the root element
+  if (theme.isCustom) {
+      // Clear specific built-in theme classes to avoid conflict
+      root.classList.add(`theme-${theme.id}`); // Mostly for tracking, styles applied below
+      
+      const p = theme.palette;
+      root.style.setProperty('--color-background', p.background);
+      root.style.setProperty('--color-surface', p.surface);
+      root.style.setProperty('--color-primary', p.primary);
+      root.style.setProperty('--color-text', p.text);
+      // Derive hover/border/muted slightly if not explicitly provided (simplified for custom themes)
+      // For a robust implementation we might want to generate these or let user pick.
+      // For now, we reuse primary for hover or just let it cascade if we didn't set it?
+      // No, we must set them or they fall back to :root defaults which might look weird.
+      root.style.setProperty('--color-primary-hover', p.primary); // Simplified
+      root.style.setProperty('--color-text-muted', p.text); // Simplified, rely on opacity in Tailwind if possible, or just same color
+      root.style.setProperty('--color-border', p.surface); // Simplified
+      if (p.onPrimary) {
+          root.style.setProperty('--color-on-primary', p.onPrimary);
+      } else {
+          root.style.setProperty('--color-on-primary', '255 255 255');
+      }
+  } else {
+      // For built-in themes, remove inline styles so CSS classes take over
+      root.style.removeProperty('--color-background');
+      root.style.removeProperty('--color-surface');
+      root.style.removeProperty('--color-primary');
+      root.style.removeProperty('--color-text');
+      root.style.removeProperty('--color-primary-hover');
+      root.style.removeProperty('--color-text-muted');
+      root.style.removeProperty('--color-border');
+      root.style.removeProperty('--color-on-primary');
+
+      if (theme.id !== 'system') {
+        root.classList.add(`theme-${theme.id}`);
+      }
+  }
 };
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Load custom themes first
+  const [customThemes, setCustomThemes] = useState<Theme[]>(() => {
+      try {
+          const saved = localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY);
+          return saved ? JSON.parse(saved) : [];
+      } catch (e) {
+          return [];
+      }
+  });
+
   const [themeId, setThemeId] = useState<ThemeId>(() => {
     try {
       const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeId;
-      return themes.some(t => t.id === savedTheme) ? savedTheme : 'system';
+      return themes.some(t => t.id === savedTheme) || customThemes.some(t => t.id === savedTheme) ? savedTheme : 'system';
     } catch (e) {
       console.error("Could not access localStorage. Defaulting to 'system'.", e);
       return 'system';
     }
   });
+
+  // Persist custom themes whenever they change
+  useEffect(() => {
+      localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
+  }, [customThemes]);
 
   useEffect(() => {
     try {
@@ -102,8 +168,8 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     } catch (e) {
        console.error("Could not set theme in localStorage.", e);
     }
-    applyTheme(themeId);
-  }, [themeId]);
+    applyTheme(themeId, customThemes);
+  }, [themeId, customThemes]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -114,21 +180,33 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       } catch (e) { /* silent fail */ }
 
       if (currentThemeId === 'system') {
-        applyTheme('system');
+        applyTheme('system', customThemes);
       }
     };
     mediaQuery.addEventListener('change', handleSystemChange);
     return () => mediaQuery.removeEventListener('change', handleSystemChange);
-  }, []);
+  }, [customThemes]);
 
   const setThemeById = useCallback((id: ThemeId) => {
     setThemeId(id);
   }, []);
 
-  const currentTheme = themes.find(t => t.id === themeId) || themes[0];
+  const addCustomTheme = useCallback((theme: Theme) => {
+      setCustomThemes(prev => [...prev, theme]);
+      setThemeId(theme.id); // Auto-select new theme
+  }, []);
+
+  const deleteCustomTheme = useCallback((id: string) => {
+      setCustomThemes(prev => prev.filter(t => t.id !== id));
+      if (themeId === id) {
+          setThemeId('system');
+      }
+  }, [themeId]);
+
+  const currentTheme = themes.find(t => t.id === themeId) || customThemes.find(t => t.id === themeId) || themes[0];
 
   return (
-    <ThemeContext.Provider value={{ themeId, setThemeById, currentTheme }}>
+    <ThemeContext.Provider value={{ themeId, setThemeById, currentTheme, customThemes, addCustomTheme, deleteCustomTheme }}>
       {children}
     </ThemeContext.Provider>
   );

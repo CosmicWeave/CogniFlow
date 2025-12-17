@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
 import Button from './ui/Button.tsx';
 import Link from './ui/Link.tsx';
-import Icon from './ui/Icon.tsx';
+import Icon, { IconName, ALL_ICONS } from './ui/Icon.tsx';
 import { INITIAL_EASE_FACTOR } from '../constants.ts';
 import CardListEditor from './CardListEditor.tsx';
 import QuestionListEditor from './QuestionListEditor.tsx';
@@ -23,6 +24,9 @@ import LearningItemListEditor from './LearningItemListEditor.tsx';
 import LearningBlockDetailModal from './LearningBlockDetailModal.tsx';
 import { LearningBlockData } from './EditLearningBlockModal.tsx';
 import TruncatedText from './ui/TruncatedText.tsx';
+import StatsSkeleton from './StatsSkeleton.tsx';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import CramOptionsModal, { CramOptions } from './CramOptionsModal.tsx';
 
 interface DeckDetailsPageProps {
   deck: Deck;
@@ -39,6 +43,7 @@ interface DeckDetailsPageProps {
   onExportDeck: (deck: Deck) => void;
   onRegenerateQuestion: (deck: QuizDeck | LearningDeck, question: Question) => Promise<void>;
   onExpandText: (topic: string, originalContent: string, selectedText: string) => Promise<string | null>;
+  onGenerateAI: (deck: Deck) => void;
 }
 
 const calculateProgressStats = (items: Reviewable[]) => {
@@ -110,7 +115,7 @@ const StatisticsTabContent = ({ deck }: { deck: Deck }) => {
 
 
     if (isLoading) {
-        return <div className="flex justify-center items-center p-8"><Spinner /></div>;
+        return <StatsSkeleton />;
     }
 
     if (reviewHistory.length === 0) {
@@ -156,19 +161,22 @@ const StatisticsTabContent = ({ deck }: { deck: Deck }) => {
     );
 };
 
-const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock, onExportDeck, onRegenerateQuestion, onExpandText }) => {
+const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock, onExportDeck, onRegenerateQuestion, onExpandText, onGenerateAI }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
   const [editedFolderId, setEditedFolderId] = useState(deck.folderId || '');
+  const [editedIcon, setEditedIcon] = useState(deck.icon);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
+  const [isCramModalOpen, setIsCramModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isBlockDetailModalOpen, setIsBlockDetailModalOpen] = useState(false);
   const [selectedBlock, setSelectedBlock] = useState<LearningBlockData | null>(null);
   const { navigate } = useRouter();
   const { addToast } = useToast();
   const { aiFeaturesEnabled } = useSettings();
-  const { folders, aiGenerationStatus } = useStore();
+  const { folders, aiGenerationStatus, learningProgress } = useStore();
+  const dataHandlers = useData();
   
   const allItems = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
                    deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
@@ -195,15 +203,21 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     }
   }, [deck.archived, deck.deletedAt, navigate]);
 
+  useEffect(() => {
+      if (!isEditing) {
+          setEditedName(deck.name);
+          setEditedDescription(deck.description || '');
+          setEditedFolderId(deck.folderId || '');
+          setEditedIcon(deck.icon);
+      }
+  }, [deck, isEditing]);
+
   const handleSaveChanges = () => {
-    onUpdateDeck({ ...deck, name: editedName, description: editedDescription, folderId: editedFolderId || null });
+    onUpdateDeck({ ...deck, name: editedName, description: editedDescription, folderId: editedFolderId || null, icon: editedIcon });
     setIsEditing(false);
   };
 
   const handleCancelEdit = () => {
-    setEditedName(deck.name);
-    setEditedDescription(deck.description || '');
-    setEditedFolderId(deck.folderId || '');
     setIsEditing(false);
   };
   
@@ -233,11 +247,39 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     setIsBlockDetailModalOpen(true);
   };
 
+  const handleReorderLearningBlocks = (newInfoCards: InfoCard[]) => {
+    const updatedDeck = { ...(deck as LearningDeck), infoCards: newInfoCards };
+    onUpdateDeck(updatedDeck, { silent: true });
+  };
+
+  const handleStartCram = (options: CramOptions) => {
+      onUpdateLastOpened(deck.id);
+      navigate(`/decks/${deck.id}/cram?sort=${options.sort}&limit=${options.limit}`);
+  };
+
   const activeItems = allItems.filter(item => !item.suspended);
   const suspendedCount = allItems.length - activeItems.length;
   const progressStats = calculateProgressStats(activeItems);
-  const dueCount = getDueItemsCount(deck);
+  
+  // Calculate unlocked due count for learning decks
+  const progress = learningProgress[deck.id];
+  const unlockedSet = new Set(progress?.unlockedQuestionIds || []);
+  const dueCount = deck.type === DeckType.Learning 
+      ? (deck as LearningDeck).questions.filter(q => unlockedSet.has(q.id) && !q.suspended && new Date(q.dueDate) <= new Date()).length
+      : getDueItemsCount(deck);
+
   const canResume = sessionsToResume.has(deck.id);
+
+  // Learning Deck Progress
+  const readCardCount = progress?.readInfoCardIds?.length || 0;
+  const totalInfoCards = (deck as LearningDeck).infoCards?.length || 0;
+  const hasUnreadContent = deck.type === DeckType.Learning && readCardCount < totalInfoCards;
+  
+  // Unlock stats
+  const unlockedQuestionsCount = (deck.type === DeckType.Learning) 
+      ? (deck as LearningDeck).questions.filter(q => unlockedSet.has(q.id)).length
+      : 0;
+  const totalQuestionsCount = (deck.type === DeckType.Learning) ? (deck as LearningDeck).questions.length : 0;
 
   const effectiveMastery = useMemo(() => {
     if (activeItems.length === 0) return 0;
@@ -267,6 +309,9 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
 
         allItems.forEach(item => {
             if (item.suspended) return;
+            // Only count if unlocked for learning decks
+            if (deck.type === DeckType.Learning && !unlockedSet.has(item.id)) return;
+
             const dueDate = new Date(item.dueDate);
             dueDate.setHours(0, 0, 0, 0);
             if (dueDate.getTime() === dateTimestamp) {
@@ -280,12 +325,14 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         count: counts[index],
         date: dates[index],
     }));
-  }, [allItems]);
+  }, [allItems, deck.type, unlockedSet]);
   
   const studyButtonText = useMemo(() => {
     if (allItems.length === 0) return "No Items to Study";
     if (deck.locked) return "Deck is Locked";
-    if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) return canResume ? 'Resume Quiz' : `Start Quiz (${dueCount} due)`;
+    
+    // Custom logic for Learning Decks is handled in the render
+    if (deck.type === DeckType.Quiz) return canResume ? 'Resume Quiz' : `Start Quiz (${dueCount} due)`;
     return canResume ? 'Resume Study' : `Study Cards (${dueCount} due)`;
   }, [deck.type, canResume, dueCount, deck.locked, allItems.length]);
 
@@ -298,7 +345,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   
   const tabClasses = (tabName: Tab) => `px-4 py-2 text-sm font-medium transition-colors ${activeTab === tabName ? 'border-b-2 border-primary text-text' : 'text-text-muted hover:text-text'}`;
   
-  const isEmptyActionableDeck = (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && allItems.length === 0;
+  const isDeckEmpty = allItems.length === 0 && (deck.type !== DeckType.Learning || (deck as LearningDeck).infoCards.length === 0);
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
@@ -317,11 +364,33 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                 autoFocus
               />
             </div>
+            
+            <div>
+                <label className="block text-sm font-medium text-text-muted mb-1">Deck Icon</label>
+                <div className="flex gap-2">
+                    <select 
+                        value={editedIcon || ''} 
+                        onChange={(e) => setEditedIcon(e.target.value as IconName)} 
+                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                    >
+                        <option value="">Default</option>
+                        {ALL_ICONS.map(icon => (
+                            <option key={icon} value={icon}>{icon}</option>
+                        ))}
+                    </select>
+                    {aiFeaturesEnabled && (
+                        <Button variant="secondary" onClick={() => dataHandlers?.handleSuggestDeckIcon(deck)} title="Suggest Icon with AI">
+                            <Icon name="zap" className="w-4 h-4 mr-1"/> Auto
+                        </Button>
+                    )}
+                </div>
+            </div>
+
             <div>
               <label htmlFor="deck-folder" className="block text-sm font-medium text-text-muted mb-1">Folder</label>
               <select id="deck-folder" value={editedFolderId} onChange={(e) => setEditedFolderId(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
                 <option value="">No folder</option>
-                {folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                {(Object.values(folders) as Folder[]).map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
               </select>
             </div>
             
@@ -343,19 +412,37 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
           </div>
         ) : (
           <div>
-            <div className="min-w-0">
-                <h2 className="text-3xl font-bold mb-2 text-text break-words">{deck.name}</h2>
-                  {deck.folderId && (
-                      <div className="flex items-center text-sm text-text-muted mb-2">
-                          <Icon name="folder" className="w-4 h-4 mr-2" />
-                          <span>{folders.find(f => f.id === deck.folderId)?.name || '...'}</span>
-                      </div>
-                  )}
+            <div className="min-w-0 flex items-start gap-3">
+                <div className="p-3 bg-primary/10 rounded-lg hidden sm:block">
+                    <Icon name={(deck.icon as IconName) || (deck.type === 'flashcard' ? 'laptop' : (deck.type === 'learning' ? 'book-open' : 'help-circle'))} className="w-8 h-8 text-primary" />
+                </div>
+                <div className="flex-grow">
+                    <h2 className="text-3xl font-bold mb-2 text-text break-words">{deck.name}</h2>
+                    {deck.folderId && (
+                        <div className="flex items-center text-sm text-text-muted mb-2">
+                            <Icon name="folder" className="w-4 h-4 mr-2" />
+                            <span>{folders[deck.folderId]?.name || '...'}</span>
+                        </div>
+                    )}
+                </div>
             </div>
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4 mt-2">
                 <Button variant="ghost" onClick={() => setIsEditing(true)}><Icon name="edit" className="mr-2"/> Edit</Button>
+                {aiFeaturesEnabled && !isDeckEmpty && (
+                    <Button variant="ghost" onClick={() => dataHandlers?.handleOpenDeckAnalysis(deck)}>
+                        <Icon name="zap" className="mr-2" /> Analyze & Improve
+                    </Button>
+                )}
                 <Button variant="ghost" onClick={() => onUpdateDeck({ ...deck, archived: true })}><Icon name="archive" className="mr-2"/> Archive</Button>
-                <Button variant="ghost" onClick={() => onExportDeck(deck)}><Icon name="download" className="mr-2"/> Export</Button>
+                <div className="flex gap-1">
+                    <Link href={`/decks/${deck.id}/print`} passAs={Button} variant="ghost" title="Print/Export PDF">
+                        <Icon name="printer" className="mr-2"/> Print
+                    </Link>
+                    <Button variant="ghost" onClick={() => onExportDeck(deck)} title="Export JSON"><Icon name="download" className="mr-2"/> Export</Button>
+                    {deck.type === 'flashcard' && (
+                        <Button variant="ghost" onClick={() => dataHandlers?.handleExportDeckCSV(deck)} title="Export CSV">CSV</Button>
+                    )}
+                </div>
             </div>
             {deck.description && <TruncatedText html={deck.description} className="text-text-muted prose dark:prose-invert max-w-none" />}
           </div>
@@ -379,6 +466,9 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                             <div className="space-y-1">
                                 {deck.type === DeckType.Learning && <p className="text-sm text-text-muted">Info Cards: <strong className="text-text">{(deck as LearningDeck).infoCards?.length || 0}</strong></p>}
                                 <p className="text-sm text-text-muted">Active {deck.type === DeckType.Learning ? 'Questions' : 'Items'}: <strong className="text-text">{activeItems.length}</strong></p>
+                                {deck.type === DeckType.Learning && (
+                                    <p className="text-sm text-text-muted">Questions Unlocked: <strong className="text-text">{unlockedQuestionsCount} / {totalQuestionsCount}</strong></p>
+                                )}
                                 <p className="text-sm text-text-muted">Items Due Today: <strong className={dueCount > 0 ? 'text-primary' : 'text-text'}>{dueCount}</strong></p>
                                 {suspendedCount > 0 && <p className="text-sm text-yellow-600 dark:text-yellow-400">Suspended Items: <strong>{suspendedCount}</strong></p>}
                             </div>
@@ -402,7 +492,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                     </div>
                 </div>
                 <div className="border-t border-border pt-6 flex flex-wrap items-center justify-center gap-4">
-                  {isEmptyActionableDeck && aiFeaturesEnabled ? (
+                  {isDeckEmpty && aiFeaturesEnabled ? (
                     isGeneratingThisDeck ? (
                         <div className="flex items-center justify-center w-full sm:w-auto text-lg py-3 px-6 font-semibold bg-background rounded-md">
                             <Spinner size="sm" />
@@ -418,21 +508,63 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                                     handleGenerateQuestionsForDeck(deck as QuizDeck);
                                 } else if (deck.type === DeckType.Learning) {
                                     handleGenerateContentForLearningDeck(deck as LearningDeck);
+                                } else {
+                                    // For flashcards, offer generation
+                                    onGenerateAI(deck);
                                 }
                             }}
                         >
                             <Icon name="zap" className="w-5 h-5 mr-2" />
-                            {deck.type === DeckType.Quiz ? 'Generate Questions' : 'Generate Content'}
+                            {deck.type === DeckType.Flashcard ? 'Generate with AI' : (deck.type === DeckType.Quiz ? 'Generate Questions' : 'Generate Content')}
                         </Button>
                     )
+                  ) : isDeckEmpty && !aiFeaturesEnabled ? (
+                    <Button 
+                        variant="primary" 
+                        size="lg" 
+                        className="font-semibold w-full sm:w-auto"
+                        onClick={() => setActiveTab('items')}
+                    >
+                        <Icon name="plus" className="w-5 h-5 mr-2" />
+                        Create {deck.type === DeckType.Flashcard ? 'Flashcards' : 'Items'}
+                    </Button>
                   ) : (
-                    <Link href={`/decks/${deck.id}/study`} passAs={Button} variant="primary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={(dueCount === 0 && !canResume) || !!deck.locked || allItems.length === 0} className="font-semibold w-full sm:w-auto">
-                        <Icon name={deck.locked ? 'lock' : (canResume ? 'zap' : 'laptop')} className="w-5 h-5 mr-2" /> {studyButtonText}
-                    </Link>
+                    <>
+                        {deck.type === DeckType.Learning && (
+                            <Link 
+                                href={`/decks/${deck.id}/read`}
+                                passAs={Button}
+                                variant={hasUnreadContent ? 'primary' : 'secondary'}
+                                size="lg"
+                                className="font-semibold w-full sm:w-auto"
+                            >
+                                <Icon name="book-open" className="w-5 h-5 mr-2" />
+                                {readCardCount === 0 ? 'Start Reading' : (hasUnreadContent ? 'Continue Reading' : 'Review Content')}
+                            </Link>
+                        )}
+                        <Link 
+                            href={`/decks/${deck.id}/study`} 
+                            passAs={Button} 
+                            variant={(deck.type !== DeckType.Learning || !hasUnreadContent) ? 'primary' : 'secondary'} 
+                            size="lg" 
+                            onClick={() => onUpdateLastOpened(deck.id)} 
+                            disabled={(dueCount === 0 && !canResume) || !!deck.locked || allItems.length === 0} 
+                            className="font-semibold w-full sm:w-auto"
+                        >
+                            <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> {deck.type === DeckType.Learning ? `Practice (${dueCount})` : studyButtonText}
+                        </Link>
+                    </>
                   )}
-                  <Link href={`/decks/${deck.id}/cram`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={allItems.length === 0} className="font-semibold w-full sm:w-auto" title="Review all cards in random order, without affecting your SRS schedule.">
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => setIsCramModalOpen(true)}
+                    disabled={allItems.length === 0}
+                    className="font-semibold w-full sm:w-auto"
+                    title="Review all cards in random order or by difficulty."
+                  >
                     <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> Cram
-                  </Link>
+                  </Button>
                   {deck.type === DeckType.Flashcard && activeItems.length > 0 && (
                      <Link href={`/decks/${deck.id}/study-reversed`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={!!deck.locked} className="font-semibold w-full sm:w-auto" title="Study cards from back to front.">
                         <Icon name="repeat" className="w-5 h-5 mr-2" /> Study Reversed
@@ -449,7 +581,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         {activeTab === 'items' && (
             <div className="bg-surface rounded-lg shadow-md border border-border animate-fade-in">
              {deck.type === DeckType.Flashcard ? (
-                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} />
+                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} deckName={deck.name} />
              ) : deck.type === DeckType.Quiz ? (
                 <QuestionListEditor
                     deck={deck as QuizDeck}
@@ -478,6 +610,8 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                     onGenerateAI={() => handleGenerateQuestionsForDeck(deck as QuizDeck)}
                     isGeneratingAI={isGeneratingThisDeck}
                     onRegenerateQuestion={onRegenerateQuestion}
+                    onAutoTag={() => dataHandlers?.handleAutoTagQuestions(deck as QuizDeck)}
+                    deckName={deck.name}
                 />
              ) : deck.type === DeckType.Learning ? (
                 <LearningItemListEditor
@@ -485,6 +619,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                     onSaveBlock={(data) => onSaveLearningBlock(deck.id, data)}
                     onDeleteBlock={(infoCardId) => onDeleteLearningBlock(deck.id, infoCardId)}
                     onBlockClick={handleBlockClick}
+                    onReorderBlocks={handleReorderLearningBlocks}
                 />
              ) : (
                 <div className="p-6 text-center text-text-muted"><p>Unsupported deck type.</p></div>
@@ -510,6 +645,14 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
             deckName={deck.name}
             onExpandText={onExpandText}
         />
+      )}
+      {isCramModalOpen && (
+          <CramOptionsModal 
+            isOpen={isCramModalOpen} 
+            onClose={() => setIsCramModalOpen(false)} 
+            onStart={handleStartCram}
+            totalItems={allItems.length}
+          />
       )}
     </div>
   );

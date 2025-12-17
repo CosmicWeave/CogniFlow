@@ -1,6 +1,8 @@
+
+
 import { useCallback, useMemo } from 'react';
 import { Deck, DeckSeries, QuizDeck, DeckType, LearningDeck } from '../../types.ts';
-import * as db from '../../services/db.ts';
+import storage from '../../services/storage.ts';
 import { useStore } from '../../store/store.ts';
 import { createSampleSeries } from '../../services/sampleData.ts';
 import { useToast } from '../useToast.ts';
@@ -8,15 +10,15 @@ import { useRouter } from '../../contexts/RouterContext.tsx';
 import * as exportService from '../../services/exportService.ts';
 
 export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDeck }: any) => {
-  const { dispatch, decks: allDecks } = useStore();
+  const { dispatch } = useStore();
   const { addToast } = useToast();
   const { navigate } = useRouter();
 
   const handleAddSeriesWithDecks = useCallback(async (series: DeckSeries, decks: Deck[]) => {
     dispatch({ type: 'ADD_SERIES_WITH_DECKS', payload: { series, decks } });
     try {
-      await db.addDeckSeries([series]);
-      await db.addDecks(decks);
+      await storage.addDeckSeries([series]);
+      await storage.addDecks(decks);
       addToast(`Series "${series.name}" created with ${decks.length} deck(s).`, 'success');
       navigate(`/series/${series.id}`);
       triggerSync({ isManual: false });
@@ -29,7 +31,7 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
     const updatedSeries = { ...series, lastModified: Date.now() };
     dispatch({ type: 'UPDATE_SERIES', payload: updatedSeries });
     try {
-      await db.updateDeckSeries(updatedSeries);
+      await storage.updateDeckSeries(updatedSeries);
       if (!options?.silent) {
           if (options?.toastMessage) {
             addToast(options.toastMessage, 'success');
@@ -42,13 +44,13 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
   }, [dispatch, addToast, triggerSync]);
   
   const handleDeleteSeries = useCallback(async (seriesId: string) => {
-    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+    const series = useStore.getState().deckSeries[seriesId];
     if (series) {
       const updatedSeries = { ...series, deletedAt: new Date().toISOString(), archived: false };
       handleUpdateSeries(updatedSeries, { toastMessage: `Series "${series.name}" moved to trash.` });
       
       const seriesDeckIds = new Set((series.levels || []).flatMap(l => l?.deckIds || []));
-      const decksToTrash = useStore.getState().decks.filter(d => seriesDeckIds.has(d.id));
+      const decksToTrash = (Object.values(useStore.getState().decks) as Deck[]).filter(d => seriesDeckIds.has(d.id));
       for (const deck of decksToTrash) {
           handleUpdateDeck({ ...deck, deletedAt: new Date().toISOString(), archived: false }, { silent: true });
       }
@@ -56,12 +58,12 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
   }, [handleUpdateSeries, handleUpdateDeck]);
   
   const handleRestoreSeries = useCallback(async (seriesId: string) => {
-    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+    const series = useStore.getState().deckSeries[seriesId];
     if (series) {
         handleUpdateSeries({ ...series, deletedAt: null }, { toastMessage: `Series "${series.name}" restored.` });
         
         const seriesDeckIds = new Set((series.levels || []).flatMap(l => l?.deckIds || []));
-        const decksToRestore = useStore.getState().decks.filter(d => seriesDeckIds.has(d.id));
+        const decksToRestore = (Object.values(useStore.getState().decks) as Deck[]).filter(d => seriesDeckIds.has(d.id));
         for (const deck of decksToRestore) {
             if (deck.deletedAt) {
                 handleUpdateDeck({ ...deck, deletedAt: null }, { silent: true });
@@ -71,11 +73,11 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
   }, [handleUpdateSeries, handleUpdateDeck]);
   
   const handleDeleteSeriesPermanently = useCallback(async (seriesId: string) => {
-    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+    const series = useStore.getState().deckSeries[seriesId];
     if (!series) return;
 
     const seriesDeckIds = new Set((series.levels || []).flatMap(l => l?.deckIds || []));
-    const decksToDelete = useStore.getState().decks.filter(d => seriesDeckIds.has(d.id));
+    const decksToDelete = (Object.values(useStore.getState().decks) as Deck[]).filter(d => seriesDeckIds.has(d.id));
     
     dispatch({ type: 'DELETE_SERIES', payload: seriesId });
     for(const deck of decksToDelete) {
@@ -83,9 +85,9 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
     }
 
     try {
-        await db.deleteDeckSeries(seriesId);
+        await storage.deleteDeckSeries(seriesId);
         for(const deck of decksToDelete) {
-            await db.deleteDeck(deck.id);
+            await storage.deleteDeck(deck.id);
         }
         addToast("Series and its decks permanently deleted.", "success");
         triggerSync({ isManual: false });
@@ -97,7 +99,7 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
 
   const handleSaveSeries = useCallback(async (data: { id: string | null; name: string; description: string; scaffold?: any; }) => {
     if (data.id) { // Existing series
-      const seriesToUpdate = useStore.getState().deckSeries.find(s => s.id === data.id);
+      const seriesToUpdate = useStore.getState().deckSeries[data.id];
       if (seriesToUpdate) {
         handleUpdateSeries({ ...seriesToUpdate, name: data.name, description: data.description });
       }
@@ -129,7 +131,7 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
             };
             dispatch({ type: 'ADD_SERIES', payload: newSeries });
             try {
-                await db.addDeckSeries([newSeries]);
+                await storage.addDeckSeries([newSeries]);
                 addToast(`Series "${newSeries.name}" created.`, 'success');
                 navigate(`/series/${newSeries.id}`);
             } catch (e) {
@@ -145,7 +147,7 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
   }, [handleAddSeriesWithDecks]);
 
   const updateLastOpenedSeries = useCallback((seriesId: string) => {
-    const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+    const series = useStore.getState().deckSeries[seriesId];
     if (series) {
       const now = new Date();
       const lastOpenedDate = new Date(series.lastOpened || 0);
@@ -156,7 +158,7 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
   }, [handleUpdateSeries]);
   
   const handleAddDeckToSeries = useCallback(async (seriesId: string, newDeck: QuizDeck) => {
-      const series = useStore.getState().deckSeries.find(s => s.id === seriesId);
+      const series = useStore.getState().deckSeries[seriesId];
       if (!series) {
           addToast("Could not find the series to add the deck to.", "error");
           return;
@@ -177,12 +179,13 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
 
   const handleExportSeries = useCallback((series: DeckSeries) => {
     try {
+        const allDecks = Object.values(useStore.getState().decks) as Deck[];
         exportService.exportSeries(series, allDecks);
         addToast(`Series "${series.name}" exported.`, 'success');
     } catch(e) {
         addToast(`Failed to export series: ${(e as Error).message}`, 'error');
     }
-  }, [allDecks, addToast]);
+  }, [addToast]);
 
 
   return useMemo(() => ({

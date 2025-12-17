@@ -1,10 +1,11 @@
+
 // FIX: Corrected import path for types
-import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, AppSettings } from '../types';
+import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, AppSettings, DeckLearningProgress } from '../types';
 import { broadcastDataChange } from './syncService.ts';
 import { getStockholmFilenameTimestamp } from './time.ts';
 
 const DB_NAME = 'CogniFlowDB';
-const DB_VERSION = 8; // Incremented version
+const DB_VERSION = 9; // Incremented version
 const DECK_STORE_NAME = 'decks';
 const FOLDER_STORE_NAME = 'folders';
 const SERIES_STORE_NAME = 'deckSeries';
@@ -12,6 +13,7 @@ const SESSION_STORE_NAME = 'sessions';
 const REVIEW_STORE_NAME = 'reviews';
 const AI_CHAT_STORE_NAME = 'ai_chat';
 const SERIES_PROGRESS_STORE_NAME = 'seriesProgress';
+const LEARNING_PROGRESS_STORE_NAME = 'learningProgress';
 
 const createSpamProtectedLogger = (name: string, threshold = 20, timeWindow = 5000) => {
     let logCount = 0;
@@ -62,13 +64,16 @@ function initDB(): Promise<IDBDatabase> {
 
   dbPromise = new Promise((resolve, reject) => {
     dbLogger.log(`Initializing IndexedDB: ${DB_NAME} v${DB_VERSION}...`);
-    if (!window.indexedDB) {
-        const errorMsg = "IndexedDB is not supported by this browser.";
+    // Use global indexedDB to be compatible with both Window and Worker scopes
+    const idb = typeof indexedDB !== 'undefined' ? indexedDB : (typeof window !== 'undefined' ? window.indexedDB : undefined);
+
+    if (!idb) {
+        const errorMsg = "IndexedDB is not supported in this environment.";
         dbLogger.error(`${errorMsg}`);
         return reject(new Error(errorMsg));
     }
       
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = idb.open(DB_NAME, DB_VERSION);
 
     request.onblocked = (event) => {
         const errorMsg = 'Database upgrade is required, but it is blocked by another open tab of this application. Please close all other tabs and reload.';
@@ -88,6 +93,14 @@ function initDB(): Promise<IDBDatabase> {
 
     request.onsuccess = () => {
       const db = request.result;
+      
+      // Handle database version changes (e.g. open in another tab with newer version)
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+        console.warn('Database version changed in another tab. Closing connection to prevent blocking.');
+      };
+
       dbLogger.log('IndexedDB connection successful.');
       db.onclose = () => {
         dbPromise = null;
@@ -113,8 +126,12 @@ function initDB(): Promise<IDBDatabase> {
       switch(event.oldVersion) {
         case 0:
             dbLogger.log('v1: Creating initial object stores (decks, folders).');
-            db.createObjectStore(DECK_STORE_NAME, { keyPath: 'id' });
-            db.createObjectStore(FOLDER_STORE_NAME, { keyPath: 'id' });
+            if (!db.objectStoreNames.contains(DECK_STORE_NAME)) {
+                db.createObjectStore(DECK_STORE_NAME, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(FOLDER_STORE_NAME)) {
+                db.createObjectStore(FOLDER_STORE_NAME, { keyPath: 'id' });
+            }
         // fall through
         case 1:
         case 2:
@@ -153,6 +170,12 @@ function initDB(): Promise<IDBDatabase> {
             dbLogger.log(`v8: Creating object store: ${SERIES_PROGRESS_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SERIES_PROGRESS_STORE_NAME)) {
                 db.createObjectStore(SERIES_PROGRESS_STORE_NAME, { keyPath: 'id' });
+            }
+        // fall through
+        case 8:
+            dbLogger.log(`v9: Creating object store: ${LEARNING_PROGRESS_STORE_NAME}`);
+            if (!db.objectStoreNames.contains(LEARNING_PROGRESS_STORE_NAME)) {
+                db.createObjectStore(LEARNING_PROGRESS_STORE_NAME, { keyPath: 'deckId' });
             }
         // fall through
         default:
@@ -576,6 +599,60 @@ export const clearDecks = () => clearObjectStore(DECK_STORE_NAME);
 export const clearFolders = () => clearObjectStore(FOLDER_STORE_NAME);
 export const clearSeries = () => clearObjectStore(SERIES_STORE_NAME);
 
+// Learning Progress Functions
+export async function saveLearningProgress(progress: DeckLearningProgress): Promise<void> {
+    const db = await initDB();
+    return new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(LEARNING_PROGRESS_STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(LEARNING_PROGRESS_STORE_NAME);
+        const request = store.put(progress);
+        request.onsuccess = () => resolve();
+        request.onerror = () => {
+            dbLogger.error('Failed to save learning progress.', request.error);
+            reject(new Error('Failed to save learning progress.'));
+        }
+    });
+}
+
+export async function getAllLearningProgress(): Promise<Record<string, DeckLearningProgress>> {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(LEARNING_PROGRESS_STORE_NAME, 'readonly');
+        const store = transaction.objectStore(LEARNING_PROGRESS_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => {
+            const result: Record<string, DeckLearningProgress> = {};
+            const items = Array.isArray(request.result) ? request.result : [];
+            (items as DeckLearningProgress[]).forEach(item => {
+                result[item.deckId] = item;
+            });
+            resolve(result);
+        };
+        request.onerror = () => {
+            dbLogger.error('Failed to get learning progress.', request.error);
+            reject(new Error('Failed to get learning progress.'));
+        }
+    });
+}
+
+export async function bulkAddLearningProgress(progress: Record<string, DeckLearningProgress>): Promise<void> {
+    if (Object.keys(progress).length === 0) return;
+    const db = await initDB();
+    return new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(LEARNING_PROGRESS_STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(LEARNING_PROGRESS_STORE_NAME);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => {
+            dbLogger.error('Transaction error adding learning progress.', transaction.error);
+            reject(new Error('Transaction error adding learning progress.'));
+        }
+        Object.values(progress).forEach((item) => {
+            store.put(item);
+        });
+    });
+}
+
+
 export async function getAllDataForBackup(): Promise<{
   decks: Deck[],
   folders: Folder[],
@@ -583,10 +660,15 @@ export async function getAllDataForBackup(): Promise<{
   reviews: ReviewLog[],
   sessions: SessionState[],
   seriesProgress: Record<string, string[]>,
+  learningProgress: Record<string, DeckLearningProgress>,
 }> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
-    const storeNames = [DECK_STORE_NAME, FOLDER_STORE_NAME, SERIES_STORE_NAME, REVIEW_STORE_NAME, SESSION_STORE_NAME, SERIES_PROGRESS_STORE_NAME];
+    const storeNames = [
+        DECK_STORE_NAME, FOLDER_STORE_NAME, SERIES_STORE_NAME, 
+        REVIEW_STORE_NAME, SESSION_STORE_NAME, SERIES_PROGRESS_STORE_NAME,
+        LEARNING_PROGRESS_STORE_NAME
+    ];
     const transaction = db.transaction(storeNames, 'readonly');
     
     const requests = {
@@ -596,6 +678,7 @@ export async function getAllDataForBackup(): Promise<{
       reviews: transaction.objectStore(REVIEW_STORE_NAME).getAll(),
       sessions: transaction.objectStore(SESSION_STORE_NAME).getAll(),
       seriesProgress: transaction.objectStore(SERIES_PROGRESS_STORE_NAME).getAll(),
+      learningProgress: transaction.objectStore(LEARNING_PROGRESS_STORE_NAME).getAll(),
     };
     
     transaction.oncomplete = () => {
@@ -605,6 +688,12 @@ export async function getAllDataForBackup(): Promise<{
           progressResult[item.id] = item.completedDeckIds;
       });
 
+      const learningResult: Record<string, DeckLearningProgress> = {};
+      const learningItems = Array.isArray(requests.learningProgress.result) ? requests.learningProgress.result : [];
+      (learningItems as DeckLearningProgress[]).forEach(item => {
+          learningResult[item.deckId] = item;
+      });
+
       resolve({
         decks: Array.isArray(requests.decks.result) ? requests.decks.result as Deck[] : [],
         folders: Array.isArray(requests.folders.result) ? requests.folders.result as Folder[] : [],
@@ -612,6 +701,7 @@ export async function getAllDataForBackup(): Promise<{
         reviews: Array.isArray(requests.reviews.result) ? requests.reviews.result as ReviewLog[] : [],
         sessions: Array.isArray(requests.sessions.result) ? requests.sessions.result as SessionState[] : [],
         seriesProgress: progressResult,
+        learningProgress: learningResult,
       });
     };
     
@@ -881,7 +971,10 @@ export async function bulkAddSeriesProgress(progress: Record<string, string[]>):
 
 
 export async function exportAllData(): Promise<string | null> {
-    const { decks, folders, deckSeries, reviews, sessions, seriesProgress } = await getAllDataForBackup();
+    // Only available in window scope
+    if (typeof window === 'undefined') return null;
+
+    const { decks, folders, deckSeries, reviews, sessions, seriesProgress, learningProgress } = await getAllDataForBackup();
     
     if (decks.length === 0 && folders.length === 0 && deckSeries.length === 0) {
         throw new Error("There is no data to export.");
@@ -893,7 +986,7 @@ export async function exportAllData(): Promise<string | null> {
     
     // Gather settings from localStorage
     const settings: AppSettings = {};
-    const keys: (keyof AppSettings)[] = ['themeId', 'disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'backupApiKey', 'syncOnCellular'];
+    const keys: (keyof AppSettings)[] = ['themeId', 'disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'backupApiKey', 'syncOnCellular', 'notificationsEnabled', 'leechThreshold', 'leechAction'];
     const lsKeys: Record<keyof AppSettings, string> = {
         themeId: 'cogniflow-themeId',
         disableAnimations: 'cogniflow-disableAnimations',
@@ -902,6 +995,9 @@ export async function exportAllData(): Promise<string | null> {
         backupEnabled: 'cogniflow-backupEnabled',
         backupApiKey: 'cogniflow-backupApiKey',
         syncOnCellular: 'cogniflow-syncOnCellular',
+        notificationsEnabled: 'cogniflow-notificationsEnabled',
+        leechThreshold: 'cogniflow-leechThreshold',
+        leechAction: 'cogniflow-leechAction',
     };
     keys.forEach(key => {
         const lsKey = lsKeys[key];
@@ -909,8 +1005,10 @@ export async function exportAllData(): Promise<string | null> {
         if (value !== null) {
             try {
                 // some are booleans stored as strings
-                if (['disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'syncOnCellular'].includes(key)) {
+                if (['disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'syncOnCellular', 'notificationsEnabled'].includes(key)) {
                     (settings as any)[key] = JSON.parse(value);
+                } else if (['leechThreshold'].includes(key)) {
+                    (settings as any)[key] = Number(value);
                 } else {
                     (settings as any)[key] = value;
                 }
@@ -921,7 +1019,7 @@ export async function exportAllData(): Promise<string | null> {
     });
 
     const exportData: FullBackupData = {
-        version: 7,
+        version: 9, // Incremented to support Learning Progress
         decks,
         folders,
         deckSeries,
@@ -929,6 +1027,7 @@ export async function exportAllData(): Promise<string | null> {
         sessions,
         aiChatHistory,
         seriesProgress,
+        learningProgress,
         settings,
     };
 
@@ -960,12 +1059,12 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
         dbLogger.log(`Starting atomic restore from backup version ${data.version}.`);
-        dbLogger.log(`Backup contains: ${data.decks?.length || 0} decks, ${data.folders?.length || 0} folders, ${data.deckSeries?.length || 0} series, ${data.reviews?.length || 0} reviews, ${data.sessions?.length || 0} sessions, ${Object.keys(data.seriesProgress || {}).length} series progresses, and ${data.aiChatHistory?.length || 0} chat messages.`);
+        dbLogger.log(`Backup contains: ${data.decks?.length || 0} decks, ${data.folders?.length || 0} folders, ${data.deckSeries?.length || 0} series, ${data.reviews?.length || 0} reviews, ${data.sessions?.length || 0} sessions, ${Object.keys(data.seriesProgress || {}).length} series progresses, ${Object.keys(data.learningProgress || {}).length} learning progresses, and ${data.aiChatHistory?.length || 0} chat messages.`);
         
         const storeNames = [
             DECK_STORE_NAME, FOLDER_STORE_NAME, SERIES_STORE_NAME, 
             REVIEW_STORE_NAME, SESSION_STORE_NAME, AI_CHAT_STORE_NAME, 
-            SERIES_PROGRESS_STORE_NAME
+            SERIES_PROGRESS_STORE_NAME, LEARNING_PROGRESS_STORE_NAME
         ];
         
         const transaction = db.transaction(storeNames, 'readwrite');
@@ -997,6 +1096,8 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
             aiChatStore.clear();
             const seriesProgressStore = transaction.objectStore(SERIES_PROGRESS_STORE_NAME);
             seriesProgressStore.clear();
+            const learningProgressStore = transaction.objectStore(LEARNING_PROGRESS_STORE_NAME);
+            learningProgressStore.clear();
             dbLogger.log('All stores cleared.');
 
             // 2. Add new data from backup
@@ -1015,6 +1116,9 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
             Object.entries(data.seriesProgress || {}).forEach(([seriesId, completedDeckIds]) => {
                 seriesProgressStore.put({ id: seriesId, completedDeckIds });
             });
+            Object.values(data.learningProgress || {}).forEach((item) => {
+                learningProgressStore.put(item);
+            });
             dbLogger.log('Finished queueing restore operations.');
             
         } catch (e) {
@@ -1027,8 +1131,13 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
 
 export async function factoryReset(): Promise<void> {
   if (dbPromise) {
-    const db = await dbPromise;
-    db.close();
+    try {
+        const db = await dbPromise;
+        db.close();
+    } catch (e) {
+        // Ignore error if opening failed, we want to delete anyway
+        console.warn("Could not close existing DB connection (it might have failed to open):", e);
+    }
     dbPromise = null;
   }
 

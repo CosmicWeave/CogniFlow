@@ -1,465 +1,333 @@
-import { useCallback, useMemo, useState } from 'react';
-import * as db from '../../services/db';
+import { useCallback } from 'react';
 import * as backupService from '../../services/backupService';
-import { useToast } from '../useToast';
+import * as db from '../../services/db';
 import { useStore } from '../../store/store';
-import { useOnlineStatus } from '../useOnlineStatus';
-import { Deck, DeckSeries, FullBackupData, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable } from '../../types';
-import { getDueItemsCount } from '../../services/srs';
-import { getEffectiveMasteryLevel } from '../../services/srs';
-import { addSyncLog } from '../../services/syncLogService';
+import { FullBackupData, BackupComparison, Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable } from '../../types';
+import { broadcastDataChange } from '../../services/syncService';
+import { mergeData, MergeResolutionStrategy } from '../../services/mergeService';
+import { getDueItemsCount, getEffectiveMasteryLevel } from '../../services/srs';
 
-export const useBackupHandlers = ({
-  addToast,
-  openModal,
-  closeModal,
-  dispatch,
-  isSyncing,
-  setIsSyncing,
-  setLastSyncStatus,
-  backupEnabled,
-  backupApiKey,
-  syncOnCellular
+export const useBackupHandlers = ({ 
+    addToast, 
+    openModal, 
+    closeModal, 
+    dispatch, 
+    setLastSyncStatus, 
+    setIsSyncing, 
+    backupEnabled
 }: any) => {
-  const { isOnline, isMetered } = useOnlineStatus();
-  const [serverUpdateInfo, setServerUpdateInfo] = useState<{ modified: string; size: number } | null>(null);
+    // Helper to calculate comparison stats
+    const calculateStats = (items: Reviewable[]) => {
+        if (!items || items.length === 0) return 0;
+        return items.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / items.length;
+    };
 
+    const handleCompareBackup = useCallback((backupData: FullBackupData): BackupComparison => {
+        const currentDecks = useStore.getState().decks;
+        const currentSeries = useStore.getState().deckSeries;
+        
+        const newDecks: Deck[] = [];
+        const newSeries: DeckSeries[] = [];
+        const changedDecks: any[] = [];
+        const changedSeries: any[] = [];
+        const dueCounts = new Map<string, number>();
+        const masteryLevels = new Map<string, number>();
 
-  const handleExportData = useCallback(async () => {
-    try {
-      const filename = await db.exportAllData();
-      if (filename) {
-        addToast(`Successfully exported all data to ${filename}`, 'success');
-      }
-    } catch (e) {
-      addToast((e as Error).message, 'error');
-    }
-  }, [addToast]);
+        // Check Decks
+        backupData.decks.forEach(backupDeck => {
+            const localDeck = currentDecks[backupDeck.id];
+            if (!localDeck) {
+                newDecks.push(backupDeck);
+                dueCounts.set(backupDeck.id, getDueItemsCount(backupDeck));
+            } else if (localDeck.lastModified !== backupDeck.lastModified) {
+                // Determine what changed
+                // Deep check for content (cards/questions)
+                const localItems = (localDeck.type === DeckType.Flashcard ? (localDeck as FlashcardDeck).cards : (localDeck.type === DeckType.Learning ? (localDeck as LearningDeck).questions : (localDeck as QuizDeck).questions)) || [];
+                const backupItems = (backupDeck.type === DeckType.Flashcard ? (backupDeck as FlashcardDeck).cards : (backupDeck.type === DeckType.Learning ? (backupDeck as LearningDeck).questions : (backupDeck as QuizDeck).questions)) || [];
+                
+                const diff = {
+                    content: localItems.length !== backupItems.length, // Naive check
+                    dueCount: getDueItemsCount(localDeck) !== getDueItemsCount(backupDeck),
+                    mastery: false // calculated below
+                };
 
-  const onRestoreData = useCallback(async (data: FullBackupData) => {
-    try {
-      await db.performAtomicRestore(data);
-      if (data.settings) {
-        // Restore settings to localStorage
-        Object.entries(data.settings).forEach(([key, value]) => {
-          if (value !== null && value !== undefined) {
-            localStorage.setItem(`cogniflow-${key}`, typeof value === 'string' ? value : JSON.stringify(value));
-          }
-        });
-      }
-      addToast('Restore complete! The app will now reload.', 'success');
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (e) {
-      addToast(`Restore failed: ${(e as Error).message}`, 'error');
-    }
-  }, [addToast]);
-
-  const fetchAndRestoreFromServer = useCallback(async (isForce = false, createRevertBackup = true, dataToRestore?: FullBackupData) => {
-    setIsSyncing(true);
-    if (createRevertBackup) {
-      try {
-        const backupData = await db.getAllDataForBackup();
-        localStorage.setItem('cogniflow-pre-fetch-backup', JSON.stringify(backupData));
-        addToast('Created a temporary local backup before fetching.', 'info');
-      } catch (e) {
-        addToast('Could not create pre-fetch backup. Aborting.', 'error');
-        setIsSyncing(false);
-        return;
-      }
-    }
-    try {
-      const data = dataToRestore || await backupService.syncDataFromServer();
-      await onRestoreData(data);
-      addSyncLog(`Success: Downloaded and restored data from server.`, 'success');
-      localStorage.setItem('cogniflow-lastSyncTimestamp', new Date().toISOString());
-      setLastSyncStatus(`Last sync: ${new Date().toLocaleString()}`);
-      addToast('Data restored from server.', 'success');
-    } catch (e) {
-      const message = (e as Error).message;
-      addSyncLog(`Failure: Could not restore from server. Error: ${message}`, 'error');
-      setLastSyncStatus(`Sync failed: ${message}`);
-      addToast(`Sync failed: ${message}`, 'error');
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [setIsSyncing, setLastSyncStatus, addToast, onRestoreData]);
-  
-  const handleCompareBackup = useCallback((backupData: FullBackupData) => {
-    const { decks: localDecks, deckSeries: localSeries } = useStore.getState();
-    const backupDecks = new Map(backupData.decks.map(d => [d.id, d]));
-    const backupSeries = new Map(backupData.deckSeries.map(s => [s.id, s]));
-
-    const newDecks: Deck[] = [];
-    const changedDecks: any[] = [];
-    localDecks.forEach(localDeck => {
-      const backupDeck = backupDecks.get(localDeck.id);
-      if (backupDeck) {
-        const diff = { content: false, dueCount: false, mastery: false };
-        const localContent = localDeck.type === DeckType.Flashcard ? (localDeck as FlashcardDeck).cards : (localDeck as QuizDeck | LearningDeck).questions;
-        const backupContent = backupDeck.type === DeckType.Flashcard ? (backupDeck as FlashcardDeck).cards : (backupDeck as QuizDeck | LearningDeck).questions;
-        if (JSON.stringify(localContent || []) !== JSON.stringify(backupContent || [])) {
-            diff.content = true;
-        }
-
-        if (localDeck.lastModified && backupDeck.lastModified && backupDeck.lastModified > localDeck.lastModified) {
-            diff.dueCount = true;
-            diff.mastery = true;
-        }
-        if (diff.content || diff.dueCount || diff.mastery) {
-          changedDecks.push({ local: localDeck, backup: backupDeck, diff });
-        }
-      }
-    });
-    for (const backupDeck of backupData.decks as Deck[]) {
-      if (!localDecks.some(d => d.id === backupDeck.id)) newDecks.push(backupDeck);
-    }
-
-    const newSeries: DeckSeries[] = [];
-    const changedSeries: any[] = [];
-    localSeries.forEach(localS => {
-        const backupS = backupSeries.get(localS.id);
-        if (backupS) {
-            const diff = { structure: false, completion: false, mastery: false };
-            if (JSON.stringify(localS.levels) !== JSON.stringify(backupS.levels)) diff.structure = true;
-            if (localS.lastModified && backupS.lastModified && backupS.lastModified > localS.lastModified) {
-                diff.completion = true;
-                diff.mastery = true;
+                changedDecks.push({ local: localDeck, backup: backupDeck, diff });
+                
+                dueCounts.set(`local-${localDeck.id}`, getDueItemsCount(localDeck));
+                dueCounts.set(backupDeck.id, getDueItemsCount(backupDeck));
+                
+                // Calculate Mastery
+                const localReviewables = localItems as Reviewable[];
+                const backupReviewables = backupItems as Reviewable[];
+                
+                const localMastery = calculateStats(localReviewables);
+                const backupMastery = calculateStats(backupReviewables);
+                
+                masteryLevels.set(`local-${localDeck.id}`, localMastery);
+                masteryLevels.set(backupDeck.id, backupMastery);
+                
+                diff.mastery = Math.abs(localMastery - backupMastery) > 0.01;
             }
-            if(diff.structure || diff.completion || diff.mastery) {
+        });
+
+        // Check Series
+        backupData.deckSeries.forEach(backupS => {
+            const localS = currentSeries[backupS.id];
+            if (!localS) {
+                newSeries.push(backupS);
+            } else if (localS.lastModified !== backupS.lastModified) {
+                const diff = {
+                    structure: JSON.stringify(localS.levels) !== JSON.stringify(backupS.levels),
+                    completion: false, // simplified
+                    mastery: false
+                };
                 changedSeries.push({ local: localS, backup: backupS, diff });
             }
+        });
+
+        return { newDecks, newSeries, changedDecks, changedSeries, dueCounts, masteryLevels };
+    }, []);
+
+    const triggerSync = useCallback(async (options: { isManual?: boolean, force?: boolean } = {}) => {
+        if (!backupEnabled) {
+            if (options.isManual) addToast("Backup is disabled in settings.", "info");
+            return;
         }
-    });
-    for (const backupS of backupData.deckSeries as DeckSeries[]) {
-      if (!localSeries.some(s => s.id === backupS.id)) newSeries.push(backupS);
-    }
-    
-    const allDecks = [...localDecks, ...newDecks, ...changedDecks.map(d=>d.backup)];
-    const dueCounts = new Map<string, number>();
-    allDecks.forEach(d => {
-        dueCounts.set(d.id, getDueItemsCount(d));
-        const localDeck = localDecks.find(ld => ld.id === d.id);
-        if (localDeck) dueCounts.set(`local-${d.id}`, getDueItemsCount(localDeck));
-    });
-
-    const masteryLevels = new Map<string, number>();
-    const allItems = (deck: Deck): Reviewable[] => (deck.type === 'flashcard' ? (deck as any).cards : (deck as any).questions) || [];
-    allDecks.forEach(d => {
-        const items = allItems(d).filter(i => !i.suspended);
-        const mastery = items.length > 0 ? items.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / items.length : 0;
-        masteryLevels.set(d.id, mastery);
-        const localDeck = localDecks.find(ld => ld.id === d.id);
-        if (localDeck) {
-            const localItems = allItems(localDeck).filter(i => !i.suspended);
-            const localMastery = localItems.length > 0 ? localItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / localItems.length : 0;
-            masteryLevels.set(`local-${d.id}`, localMastery);
-        }
-    });
-
-    for(const series of [...localSeries, ...newSeries, ...changedSeries.map(s => s.backup)] as DeckSeries[]) {
-        const seriesDecks = (series.levels || []).flatMap(l => l.deckIds).map(id => allDecks.find(d => d.id === id)).filter(Boolean);
-        const allSeriesItems = seriesDecks.flatMap(d => allItems(d!)).filter(i => !i.suspended);
-        const mastery = allSeriesItems.length > 0 ? allSeriesItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allSeriesItems.length : 0;
-        masteryLevels.set(series.id, mastery);
-        const localS = localSeries.find(ls => ls.id === series.id);
-        if(localS){
-            const localSeriesDecks = (localS.levels || []).flatMap(l => l.deckIds).map(id => localDecks.find(d => d.id === id)).filter(Boolean);
-            const allLocalSeriesItems = localSeriesDecks.flatMap(d => allItems(d!)).filter(i => !i.suspended);
-            const localMastery = allLocalSeriesItems.length > 0 ? allLocalSeriesItems.reduce((sum, item) => sum + getEffectiveMasteryLevel(item), 0) / allLocalSeriesItems.length : 0;
-            masteryLevels.set(`local-${series.id}`, localMastery);
-        }
-    }
-
-
-    return { newDecks, newSeries, changedDecks, changedSeries, dueCounts, masteryLevels };
-  }, []);
-
-  const handleMergeResolution = useCallback(async (resolution: 'local' | 'remote', remoteData: FullBackupData) => {
-    if (resolution === 'local') {
-        localStorage.setItem('cogniflow-post-merge-sync', 'true');
-        addSyncLog('Conflict resolved by choosing local data. Will force upload on next reload.', 'info');
-        addToast('Keeping local data. It will be uploaded after reloading.', 'info');
-        setTimeout(() => window.location.reload(), 1500);
-    } else { // remote
-        addSyncLog('Conflict resolved by choosing remote data. Overwriting local data.', 'info');
-        await fetchAndRestoreFromServer(true, false, remoteData); // Pass remoteData to avoid re-fetching
-    }
-    closeModal();
-  }, [addToast, closeModal, fetchAndRestoreFromServer]);
-
-  const triggerSync = useCallback(async ({ isManual }: { isManual: boolean }) => {
-    if (!isOnline) {
-      if (isManual) addToast('Sync failed: You are offline.', 'error');
-      addSyncLog('Sync failed: Offline.', 'error');
-      return;
-    }
-    if (!backupEnabled || !backupApiKey) {
-      if (isManual) addToast('Sync is disabled or API key is not set.', 'info');
-      return;
-    }
-    if (isMetered && !syncOnCellular) {
-      if (isManual) addToast('Sync paused on metered connection. Enable "Sync on Cellular" in settings.', 'info');
-      return;
-    }
-    if (isSyncing) return;
-  
-    setIsSyncing(true);
-    setLastSyncStatus('Syncing...');
-  
-    try {
-      const { metadata, isNotModified } = await backupService.getSyncDataMetadata();
-      const { lastModified } = useStore.getState();
-      const lastSyncTimestamp = localStorage.getItem('cogniflow-lastSyncTimestamp');
-  
-      const localHasChanges = lastModified !== null && (!lastSyncTimestamp || lastModified > new Date(lastSyncTimestamp).getTime());
-      const remoteHasChanges = metadata && (!lastSyncTimestamp || new Date(metadata.modified).getTime() > new Date(lastSyncTimestamp).getTime());
-  
-      if (isNotModified && !localHasChanges) {
-        setLastSyncStatus(`Up to date. (${new Date().toLocaleTimeString()})`);
-        addSyncLog('Sync skipped: Data is up to date.', 'info');
-        if (isManual) addToast('Already up to date.', 'success');
-      } else if (remoteHasChanges) {
-        if (localHasChanges) {
-          addSyncLog('Conflict detected. Manual resolution required.', 'warning');
-          const remoteBackupData = await backupService.syncDataFromServer();
-          const comparisonResult = handleCompareBackup(remoteBackupData);
-          openModal('mergeConflict', {
-              comparison: comparisonResult,
-              remoteData: remoteBackupData,
-              onResolve: (resolution: 'local' | 'remote') => handleMergeResolution(resolution, remoteBackupData)
-          });
-        } else {
-          if (isManual) {
-            openModal('confirm', {
-              title: 'Download from Server?',
-              message: `Newer data was found on the server from ${new Date(metadata.modified).toLocaleString()}. Your local data has no changes. Would you like to download it?`,
-              onConfirm: () => fetchAndRestoreFromServer(true, true),
-              confirmText: 'Download'
-            });
-          } else {
-            setServerUpdateInfo({ modified: metadata.modified, size: metadata.size });
-          }
-        }
-      } else if (localHasChanges) {
-        const { timestamp, etag } = await backupService.syncDataToServer();
-        addSyncLog('Success: Uploaded local changes.', 'success');
-        localStorage.setItem('cogniflow-lastSyncTimestamp', timestamp);
-        setLastSyncStatus(`Last sync: ${new Date().toLocaleString()}`);
-        if (isManual) addToast('Local changes synced to server.', 'success');
-      } else {
-        setLastSyncStatus(`Up to date. (${new Date().toLocaleTimeString()})`);
-        addSyncLog('Sync skipped: Data is up to date.', 'info');
-        if (isManual) addToast('Already up to date.', 'success');
-      }
-    } catch (e: any) {
-      const message = e.isNetworkError ? e.message : (e.status === 401 ? 'Unauthorized. Check API Key.' : (e.message || 'An unknown error occurred.'));
-      setLastSyncStatus(`Sync failed: ${message}`);
-      addSyncLog(`Failure: ${message}`, 'error');
-      if (isManual) addToast(`Sync failed: ${message}`, 'error');
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [isOnline, backupEnabled, backupApiKey, syncOnCellular, isMetered, isSyncing, addToast, setIsSyncing, setLastSyncStatus, openModal, closeModal, fetchAndRestoreFromServer, handleCompareBackup, handleMergeResolution]);
-
-  const handleSync = useCallback(async ({ isManual, force = false }: { isManual: boolean, force?: boolean }) => {
-    if (isSyncing) {
-        addToast('Sync already in progress.', 'info');
-        return;
-    }
-    const { lastModified } = useStore.getState();
-    const lastSyncTimestamp = localStorage.getItem('cogniflow-lastSyncTimestamp');
-    const localHasChanges = lastModified !== null && (!lastSyncTimestamp || lastModified > new Date(lastSyncTimestamp).getTime());
-
-    if (localHasChanges && !force) {
-        await triggerSync({ isManual: false });
-    } else {
-        await triggerSync({ isManual });
-    }
-  }, [isOnline, backupEnabled, backupApiKey, syncOnCellular, isMetered, isSyncing, triggerSync, addToast, setIsSyncing, setLastSyncStatus, openModal]);
-  
-  const handleManualSync = useCallback(() => {
-    handleSync({ isManual: true });
-  }, [handleSync]);
-
-  const handleForceFetchFromServer = useCallback(() => {
-    openModal('confirm', {
-      title: 'Force Fetch from Server?',
-      message: 'This will overwrite your local data with the version from the server. Any local changes made since the last sync will be lost. This action cannot be undone.',
-      onConfirm: () => fetchAndRestoreFromServer(true),
-      confirmText: 'Overwrite Local Data'
-    });
-  }, [openModal, fetchAndRestoreFromServer]);
-
-  const handleForceUploadToServer = useCallback(() => {
-    openModal('confirm', {
-      title: 'Force Upload to Server?',
-      message: 'This will overwrite the server data with your current local version. Any changes on the server since the last sync will be lost. This action cannot be undone.',
-      onConfirm: async () => {
+        
         setIsSyncing(true);
+        setLastSyncStatus('Syncing...');
+        
         try {
-          const { timestamp } = await backupService.syncDataToServer(undefined, true);
-          localStorage.setItem('cogniflow-lastSyncTimestamp', timestamp);
-          addSyncLog('Success: Forced upload of local data to server.', 'success');
-          addToast('Successfully uploaded local data to server.', 'success');
-        } catch (e) {
-          addSyncLog(`Failure: Forced upload failed. Error: ${(e as Error).message}`, 'error');
-          addToast(`Upload failed: ${(e as Error).message}`, 'error');
-        } finally {
-          setIsSyncing(false);
-        }
-      },
-      confirmText: 'Overwrite Server Data'
-    });
-  }, [openModal, addToast, setIsSyncing]);
-
-  const handleFactoryReset = useCallback(() => {
-    openModal('confirm', {
-      title: 'Factory Reset',
-      message: 'This will permanently delete all your local data, settings, and database. This action cannot be undone and the app will reload. Are you sure?',
-      onConfirm: async () => {
-        try {
-          await db.factoryReset();
-          localStorage.clear();
-          addToast('Factory reset complete. App will now reload.', 'success');
-          setTimeout(() => window.location.reload(), 1500);
-        } catch (e) {
-          addToast(`Factory reset failed: ${(e as Error).message}`, 'error');
-        }
-      },
-    });
-  }, [openModal, addToast]);
-
-  const handleCreateServerBackup = useCallback(async () => {
-    try {
-        const { filename } = await backupService.createServerBackup();
-        addToast(`Manual backup "${filename}" created on server.`, 'success');
-    } catch (e) {
-        addToast(`Failed to create backup: ${(e as Error).message}`, 'error');
-    }
-  }, [addToast]);
-
-  const handleRestoreFromServerBackup = useCallback(async (filename: string) => {
-    openModal('confirm', {
-        title: 'Restore Live Sync?',
-        message: `This will replace the current live sync file on the server with the contents of "${filename}". Are you sure?`,
-        onConfirm: async () => {
-            try {
-                await backupService.restoreFromServerBackup(filename);
-                addToast('Live sync file restored. It will be downloaded on next sync or app reload.', 'success');
-            } catch (e) {
-                addToast(`Restore failed: ${(e as Error).message}`, 'error');
+            const { timestamp } = await backupService.syncDataToServer(undefined, options.force);
+            const date = new Date(timestamp);
+            setLastSyncStatus(`Synced: ${date.toLocaleTimeString()}`);
+            if (options.isManual) {
+                addToast('Sync successful.', 'success');
             }
-        },
-        confirmText: 'Restore Sync File'
-    });
-  }, [addToast, openModal]);
-
-  const handleDeleteServerBackup = useCallback(async (filename: string) => {
-    openModal('confirm', {
-        title: 'Delete Server Backup?',
-        message: `Are you sure you want to permanently delete "${filename}" from the server? This action cannot be undone.`,
-        onConfirm: async () => {
-            try {
-                await backupService.deleteServerBackup(filename);
-                return Promise.resolve();
-            } catch (e) {
-                addToast(`Failed to delete backup: ${(e as Error).message}`, 'error');
-                return Promise.reject();
-            }
-        },
-        confirmText: 'Delete Permanently'
-    });
-  }, [addToast, openModal]);
-
-  const handleRevertLastFetch = useCallback(() => {
-    openModal('confirm', {
-        title: 'Revert Last Fetch?',
-        message: 'This will restore your local data to the state it was in right before the last fetch/sync from the server. Are you sure?',
-        onConfirm: async () => {
-            const backupJson = localStorage.getItem('cogniflow-pre-fetch-backup');
-            if (backupJson) {
+        } catch (e: any) {
+            console.error("Sync failed", e);
+            if (e.status === 412 || e.status === 409) {
+                // Conflict
+                setLastSyncStatus('Sync Conflict');
                 try {
-                    const backupData = JSON.parse(backupJson);
-                    await onRestoreData(backupData);
-                    localStorage.removeItem('cogniflow-pre-fetch-backup');
-                } catch (e) {
-                    addToast('Failed to parse or restore pre-fetch backup.', 'error');
+                    const serverData = await backupService.syncDataFromServer();
+                    
+                    const comparison = handleCompareBackup(serverData);
+                    
+                    // Open merge conflict modal
+                    openModal('mergeConflict', { comparison, remoteData: serverData });
+                } catch (readError) {
+                    addToast("Sync failed and could not read server data for resolution.", "error");
                 }
             } else {
-                addToast('No pre-fetch backup found to revert to.', 'error');
+                setLastSyncStatus('Sync Failed');
+                if (options.isManual) {
+                    addToast(`Sync failed: ${e.message}`, 'error');
+                }
             }
+        } finally {
+            setIsSyncing(false);
         }
-    });
-  }, [onRestoreData, openModal, addToast]);
+    }, [backupEnabled, addToast, setIsSyncing, setLastSyncStatus, handleCompareBackup, openModal]);
 
-  const handleRestoreSelectedItems = useCallback(async ({ selectedIds, backupData }: { selectedIds: Set<string>; backupData: FullBackupData; }) => {
-    const decksToRestore = backupData.decks.filter(d => selectedIds.has(d.id));
-    const seriesToRestore = backupData.deckSeries.filter(s => selectedIds.has(s.id));
-    const allSeriesDeckIds = new Set(seriesToRestore.flatMap(s => s.levels.flatMap(l => l.deckIds)));
-    const standaloneDecksToRestore = decksToRestore.filter(d => !allSeriesDeckIds.has(d.id));
+    const onRestoreDataWithSync = useCallback(async (data: FullBackupData) => {
+        try {
+            await db.performAtomicRestore(data);
+            dispatch({ type: 'RESTORE_DATA', payload: data });
+            if (data.aiChatHistory) dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: data.aiChatHistory });
+            addToast('Data restored successfully.', 'success');
+            // Force push to server to overwrite with restored data if backup enabled
+            if (backupEnabled) {
+                triggerSync({ isManual: false, force: true });
+            }
+        } catch (e) {
+            console.error(e);
+            addToast('Failed to restore data.', 'error');
+        }
+    }, [dispatch, addToast, triggerSync, backupEnabled]);
 
-    try {
-      if (standaloneDecksToRestore.length > 0) {
-        dispatch({ type: 'ADD_DECKS', payload: standaloneDecksToRestore });
-        await db.addDecks(standaloneDecksToRestore);
-      }
-      if (seriesToRestore.length > 0) {
-        seriesToRestore.forEach(s => {
-          const decksInSeries = backupData.decks.filter(d => (s.levels || []).some(l => l.deckIds.includes(d.id)));
-          dispatch({ type: 'ADD_SERIES_WITH_DECKS', payload: { series: s, decks: decksInSeries } });
+    const handleManualSync = useCallback(() => {
+        triggerSync({ isManual: true });
+    }, [triggerSync]);
+
+    const handleForceFetchFromServer = useCallback(async () => {
+        setIsSyncing(true);
+        try {
+            // Save current state as "pre-fetch" backup in case user wants to revert
+            const currentData = await db.getAllDataForBackup();
+            localStorage.setItem('cogniflow-pre-fetch-backup', JSON.stringify(currentData));
+            
+            const serverData = await backupService.syncDataFromServer();
+            
+            // Just restore locally without syncing back immediately, as fetching implies pulling state down
+            await db.performAtomicRestore(serverData);
+            dispatch({ type: 'RESTORE_DATA', payload: serverData });
+            if (serverData.aiChatHistory) dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: serverData.aiChatHistory });
+            
+            addToast('Force fetch successful.', 'success');
+            setLastSyncStatus(`Fetched: ${new Date().toLocaleTimeString()}`);
+        } catch (e) {
+            addToast(`Force fetch failed: ${(e as Error).message}`, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [dispatch, setIsSyncing, addToast, setLastSyncStatus]);
+
+    const handleRevertLastFetch = useCallback(async () => {
+        const backupStr = localStorage.getItem('cogniflow-pre-fetch-backup');
+        if (!backupStr) {
+            addToast("No backup found to revert to.", "error");
+            return;
+        }
+        try {
+            const backupData = JSON.parse(backupStr);
+            await onRestoreDataWithSync(backupData);
+            addToast("Reverted to state before last fetch.", "success");
+        } catch (e) {
+            addToast("Failed to revert.", "error");
+        }
+    }, [onRestoreDataWithSync, addToast]);
+
+    const handleForceUploadToServer = useCallback(async () => {
+        setIsSyncing(true);
+        try {
+            await backupService.syncDataToServer(undefined, true); // Force overwrite
+            addToast("Force upload successful.", "success");
+            setLastSyncStatus(`Synced: ${new Date().toLocaleTimeString()}`);
+        } catch (e) {
+            addToast(`Force upload failed: ${(e as Error).message}`, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [setIsSyncing, addToast, setLastSyncStatus]);
+
+    const handleCreateServerBackup = useCallback(async () => {
+        setIsSyncing(true);
+        try {
+            const result = await backupService.createServerBackup();
+            addToast(`Backup created: ${result.filename}`, 'success');
+        } catch (e) {
+            addToast(`Backup failed: ${(e as Error).message}`, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [setIsSyncing, addToast]);
+
+    const handleRestoreFromServerBackup = useCallback(async (filename: string) => {
+        setIsSyncing(true);
+        try {
+            await backupService.restoreFromServerBackup(filename);
+            // Now fetch the data (which is now the live sync data)
+            const serverData = await backupService.syncDataFromServer();
+            
+            await db.performAtomicRestore(serverData);
+            dispatch({ type: 'RESTORE_DATA', payload: serverData });
+            if (serverData.aiChatHistory) dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: serverData.aiChatHistory });
+            
+            addToast("Restored from server backup.", "success");
+            setLastSyncStatus(`Restored: ${new Date().toLocaleTimeString()}`);
+        } catch (e) {
+            addToast(`Restore failed: ${(e as Error).message}`, 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [setIsSyncing, addToast, dispatch, setLastSyncStatus]);
+
+    const handleDeleteServerBackup = useCallback(async (filename: string) => {
+        try {
+            await backupService.deleteServerBackup(filename);
+            // Toast handled by caller usually or here? The modal calls this.
+        } catch (e) {
+            addToast(`Delete failed: ${(e as Error).message}`, 'error');
+            throw e; // Re-throw so modal knows it failed
+        }
+    }, [addToast]);
+
+    const handleRestoreSelectedItems = useCallback(async ({ selectedIds, backupData }: { selectedIds: Set<string>; backupData: FullBackupData }) => {
+        const currentData = await db.getAllDataForBackup();
+        // Use merge logic with a strategy where selected IDs are taken from backup ('remote')
+        const strategy: MergeResolutionStrategy = { decks: {}, series: {} };
+        
+        backupData.decks.forEach(d => {
+            if (selectedIds.has(d.id)) strategy.decks[d.id] = 'remote';
+            else strategy.decks[d.id] = 'local';
         });
-        await db.addDeckSeries(seriesToRestore);
-        await db.addDecks(decksToRestore.filter(d => allSeriesDeckIds.has(d.id)));
-      }
-      addToast('Successfully restored selected items.', 'success');
-      triggerSync({ isManual: false });
-    } catch (e) {
-      addToast(`Error restoring items: ${(e as Error).message}`, 'error');
-    }
-  }, [dispatch, addToast, triggerSync]);
+        backupData.deckSeries.forEach(s => {
+            if (selectedIds.has(s.id)) strategy.series[s.id] = 'remote';
+            else strategy.series[s.id] = 'local';
+        });
 
-  const handleClearAppCache = useCallback(() => {
-    if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_APP_CACHE' });
-      addToast('Clearing app cache... It may take a moment to take effect.', 'info');
-    } else {
-      addToast('Service worker not available to clear cache.', 'error');
-    }
-  }, [addToast]);
+        // We need to merge local and backup data
+        const merged = mergeData({ ...currentData, version: 9 }, backupData, strategy);
+        
+        await onRestoreDataWithSync(merged);
+    }, [onRestoreDataWithSync]);
 
-  const handleClearCdnCache = useCallback(() => {
-    if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CDN_CACHE' });
-      addToast('Clearing CDN cache... It may take a moment to take effect.', 'info');
-    } else {
-      addToast('Service worker not available to clear cache.', 'error');
-    }
-  }, [addToast]);
+    const handleMergeResolution = useCallback(async (strategy: MergeResolutionStrategy, remoteData: FullBackupData) => {
+        closeModal(); // Close merge conflict modal
+        const localData = await db.getAllDataForBackup();
+        const merged = mergeData({ ...localData, version: 9 }, remoteData, strategy);
+        
+        await db.performAtomicRestore(merged);
+        dispatch({ type: 'RESTORE_DATA', payload: merged });
+        if (merged.aiChatHistory) dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: merged.aiChatHistory });
+        
+        // Push the resolved state to server
+        setIsSyncing(true);
+        try {
+            await backupService.syncDataToServer(merged, true); // Force push resolved state
+            addToast("Sync conflict resolved.", "success");
+            setLastSyncStatus(`Synced: ${new Date().toLocaleTimeString()}`);
+        } catch (e) {
+            addToast("Failed to push resolved data to server.", "error");
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [closeModal, dispatch, addToast, setIsSyncing, setLastSyncStatus]);
 
-  return useMemo(() => ({
-    handleExportData,
-    onRestoreData,
-    handleCompareBackup,
-    handleRestoreSelectedItems,
-    triggerSync,
-    handleManualSync,
-    handleSync,
-    fetchAndRestoreFromServer,
-    handleForceFetchFromServer,
-    handleForceUploadToServer,
-    handleFactoryReset,
-    handleMergeResolution,
-    handleCreateServerBackup,
-    handleRestoreFromServerBackup,
-    handleDeleteServerBackup,
-    handleRevertLastFetch,
-    handleClearAppCache,
-    handleClearCdnCache
-  }), [
-    handleExportData, onRestoreData, handleCompareBackup, handleRestoreSelectedItems,
-    triggerSync, handleManualSync, handleSync, fetchAndRestoreFromServer,
-    handleForceFetchFromServer, handleForceUploadToServer, handleFactoryReset, handleMergeResolution,
-    handleCreateServerBackup, handleRestoreFromServerBackup, handleDeleteServerBackup, handleRevertLastFetch,
-    handleClearAppCache, handleClearCdnCache
-  ]);
+    const handleExportData = useCallback(async () => {
+        try {
+            await db.exportAllData();
+            addToast('Export started.', 'info');
+        } catch (e) {
+            addToast(`Export failed: ${(e as Error).message}`, 'error');
+        }
+    }, [addToast]);
+
+    const handleClearAppCache = useCallback(() => {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_APP_CACHE' });
+            addToast("App cache cleared. Reloading...", "success");
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            addToast("Service worker not active.", "error");
+        }
+    }, [addToast]);
+
+    const handleClearCdnCache = useCallback(() => {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CDN_CACHE' });
+            addToast("CDN cache cleared.", "success");
+        } else {
+            addToast("Service worker not active.", "error");
+        }
+    }, [addToast]);
+
+    return {
+        triggerSync,
+        handleManualSync,
+        onRestoreData: onRestoreDataWithSync,
+        handleCompareBackup,
+        handleRestoreSelectedItems,
+        handleForceFetchFromServer,
+        handleForceUploadToServer,
+        handleCreateServerBackup,
+        handleRestoreFromServerBackup,
+        handleDeleteServerBackup,
+        handleMergeResolution,
+        handleExportData,
+        handleClearAppCache,
+        handleClearCdnCache,
+        handleRevertLastFetch,
+    };
 };

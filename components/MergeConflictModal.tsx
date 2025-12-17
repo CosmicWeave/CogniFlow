@@ -1,14 +1,15 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
 import { useFocusTrap } from '../hooks/useFocusTrap.ts';
 import { BackupComparison, DeckType, FlashcardDeck, FullBackupData, LearningDeck, QuizDeck } from '../types.ts';
 import { useStore } from '../store/store.ts';
+import { MergeResolutionStrategy } from '../services/mergeService.ts';
 
 interface MergeConflictModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onResolve: (resolution: 'local' | 'remote') => void;
+  onResolve: (strategy: MergeResolutionStrategy, remoteData: FullBackupData) => void;
   comparison: BackupComparison;
   remoteData: FullBackupData;
 }
@@ -32,8 +33,42 @@ const MergeConflictModal: React.FC<MergeConflictModalProps> = ({ isOpen, onClose
   useFocusTrap(modalRef, isOpen);
   const { seriesProgress } = useStore();
 
-  const handleResolve = (resolution: 'local' | 'remote') => {
-    onResolve(resolution);
+  const [resolutions, setResolutions] = useState<MergeResolutionStrategy>({
+      decks: {},
+      series: {}
+  });
+
+  const [globalChoice, setGlobalChoice] = useState<'local' | 'remote' | 'mixed' | null>(null);
+
+  // Initialize resolutions
+  useMemo(() => {
+      const initialResolutions: MergeResolutionStrategy = { decks: {}, series: {} };
+      comparison.changedDecks.forEach(d => initialResolutions.decks[d.local.id] = 'remote'); // Default to remote (newer)
+      comparison.changedSeries.forEach(s => initialResolutions.series[s.local.id] = 'remote'); // Default to remote
+      setResolutions(initialResolutions);
+  }, [comparison]);
+
+  const toggleResolution = (type: 'decks' | 'series', id: string) => {
+      setResolutions(prev => ({
+          ...prev,
+          [type]: {
+              ...prev[type],
+              [id]: prev[type][id] === 'local' ? 'remote' : 'local'
+          }
+      }));
+      setGlobalChoice('mixed');
+  };
+
+  const handleGlobalChoose = (choice: 'local' | 'remote') => {
+      const newResolutions: MergeResolutionStrategy = { decks: {}, series: {} };
+      comparison.changedDecks.forEach(d => newResolutions.decks[d.local.id] = choice);
+      comparison.changedSeries.forEach(s => newResolutions.series[s.local.id] = choice);
+      setResolutions(newResolutions);
+      setGlobalChoice(choice);
+  };
+
+  const handleResolve = () => {
+    onResolve(resolutions, remoteData);
   };
   
   if (!isOpen) return null;
@@ -55,16 +90,24 @@ const MergeConflictModal: React.FC<MergeConflictModalProps> = ({ isOpen, onClose
 
         <div className="p-6 overflow-y-auto space-y-4">
           <p className="text-text-muted">
-            Both your local data and the server data have changed since the last sync. Please review the differences and choose which version to keep.
+            Both your local data and the server data have changed since the last sync. Please choose which version to keep for each item.
           </p>
           
-          <div className="space-y-3">
+          <div className="flex gap-2 mb-4">
+              <Button variant={globalChoice === 'local' ? 'primary' : 'secondary'} size="sm" onClick={() => handleGlobalChoose('local')}>Keep All Local</Button>
+              <Button variant={globalChoice === 'remote' ? 'primary' : 'secondary'} size="sm" onClick={() => handleGlobalChoose('remote')}>Take All Remote</Button>
+          </div>
+
+          <div className="space-y-6">
               {(comparison.newSeries.length > 0 || comparison.newDecks.length > 0) && (
                   <div>
-                    <h3 className="font-semibold text-text mb-2">New Items on Server</h3>
-                    <ul className="text-sm list-disc list-inside text-text-muted">
-                        {comparison.newSeries.map(s => <li key={s.id}>New Series: "{s.name}"</li>)}
-                        {comparison.newDecks.map(d => <li key={d.id}>New Deck: "{d.name}"</li>)}
+                    <h3 className="font-semibold text-text mb-2 flex items-center gap-2">
+                        <Icon name="plus" className="w-4 h-4 text-green-500" /> 
+                        New Items on Server (Will be added)
+                    </h3>
+                    <ul className="text-sm list-disc list-inside text-text-muted bg-background p-3 rounded-md border border-border">
+                        {comparison.newSeries.map(s => <li key={s.id}>Series: "{s.name}"</li>)}
+                        {comparison.newDecks.map(d => <li key={d.id}>Deck: "{d.name}"</li>)}
                     </ul>
                   </div>
               )}
@@ -72,16 +115,24 @@ const MergeConflictModal: React.FC<MergeConflictModalProps> = ({ isOpen, onClose
               {comparison.changedSeries.length > 0 && (
                   <div>
                     <h3 className="font-semibold text-text mb-2">Changed Series</h3>
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                         {comparison.changedSeries.map(({ local, backup }) => {
                             const localTotal = (local.levels || []).reduce((acc, l) => acc + (l.deckIds?.length || 0), 0);
                             const backupTotal = (backup.levels || []).reduce((acc, l) => acc + (l.deckIds?.length || 0), 0);
                             const localCompleted = seriesProgress.get(local.id)?.size || 0;
                             const backupCompleted = (remoteData.seriesProgress?.[backup.id] || []).length;
+                            const isKeepingLocal = resolutions.series[local.id] === 'local';
+
                             return (
-                                <div key={local.id} className="p-3 bg-background rounded-md border border-border">
-                                    <p className="font-bold">{local.name}</p>
+                                <div key={local.id} className={`p-3 rounded-md border transition-colors cursor-pointer ${isKeepingLocal ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'}`} onClick={() => toggleResolution('series', local.id)}>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <p className="font-bold">{local.name}</p>
+                                        <span className={`text-xs font-semibold px-2 py-1 rounded ${isKeepingLocal ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                                            {isKeepingLocal ? 'Keeping Local' : 'Taking Server'}
+                                        </span>
+                                    </div>
                                     <DiffView label="Progress" localValue={`${localCompleted}/${localTotal}`} remoteValue={`${backupCompleted}/${backupTotal}`} />
+                                    <p className="text-xs text-text-muted mt-2 text-right">Tap to toggle</p>
                                 </div>
                             )
                         })}
@@ -92,15 +143,23 @@ const MergeConflictModal: React.FC<MergeConflictModalProps> = ({ isOpen, onClose
               {comparison.changedDecks.length > 0 && (
                   <div>
                     <h3 className="font-semibold text-text mb-2">Changed Decks</h3>
-                     <div className="space-y-2">
+                     <div className="space-y-3">
                         {comparison.changedDecks.map(({ local, backup }) => {
                             const localDue = comparison.dueCounts.get(`local-${local.id}`) || 0;
                             const backupDue = comparison.dueCounts.get(backup.id) || 0;
+                            const isKeepingLocal = resolutions.decks[local.id] === 'local';
+
                             return (
-                                <div key={local.id} className="p-3 bg-background rounded-md border border-border">
-                                    <p className="font-bold">{local.name}</p>
+                                <div key={local.id} className={`p-3 rounded-md border transition-colors cursor-pointer ${isKeepingLocal ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'}`} onClick={() => toggleResolution('decks', local.id)}>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <p className="font-bold">{local.name}</p>
+                                        <span className={`text-xs font-semibold px-2 py-1 rounded ${isKeepingLocal ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                                            {isKeepingLocal ? 'Keeping Local' : 'Taking Server'}
+                                        </span>
+                                    </div>
                                     <DiffView label="Items" localValue={getDeckItemCount(local)} remoteValue={getDeckItemCount(backup)} />
                                     <DiffView label="Due" localValue={localDue} remoteValue={backupDue} />
+                                    <p className="text-xs text-text-muted mt-2 text-right">Tap to toggle</p>
                                 </div>
                             )
                         })}
@@ -114,16 +173,10 @@ const MergeConflictModal: React.FC<MergeConflictModalProps> = ({ isOpen, onClose
             <Button type="button" variant="danger" onClick={onClose}>
                 Cancel Sync
             </Button>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => handleResolve('local')}>
-                <Icon name="laptop" className="mr-2" />
-                Keep My Changes
-              </Button>
-              <Button variant="primary" onClick={() => handleResolve('remote')}>
-                <Icon name="upload-cloud" className="mr-2" />
-                Take Server Version
-              </Button>
-            </div>
+            <Button variant="primary" onClick={handleResolve}>
+                <Icon name="check-circle" className="mr-2" />
+                Resolve & Merge
+            </Button>
         </div>
       </div>
     </div>

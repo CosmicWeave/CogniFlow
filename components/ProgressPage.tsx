@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import * as db from '../services/db';
 import { Card, Deck, Question, ReviewLog, Reviewable, QuizDeck, LearningDeck } from '../types';
@@ -6,13 +7,17 @@ import StatsGrid from './ui/StatsGrid';
 import ActivityHeatmap from './ui/ActivityHeatmap';
 import ForecastGraph from './ui/ForecastGraph';
 import RetentionStats from './ui/RetentionStats';
-import { useStore } from '../store/store';
+import { useDecksList } from '../store/store';
+import Button from './ui/Button';
+import Icon from './ui/Icon';
+import { useModal } from '../contexts/ModalContext';
 
 const ProgressPage: React.FC = () => {
   const [reviews, setReviews] = useState<ReviewLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const decks = useStore(state => state.decks);
+  const decks = useDecksList();
+  const { openModal } = useModal();
 
   useEffect(() => {
     const fetchReviews = async () => {
@@ -106,7 +111,7 @@ const ProgressPage: React.FC = () => {
     );
   }
   
-  if (reviews.length === 0) {
+  if (reviews.length === 0 && allItems.length === 0) {
     return (
       <div className="text-center py-20">
         <h2 className="text-2xl font-bold text-text-muted">No review history yet.</h2>
@@ -117,8 +122,14 @@ const ProgressPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in space-y-8">
-       <h1 className="text-3xl font-bold text-text border-b border-border pb-4">Your Progress</h1>
-       <StatsGrid stats={stats!} />
+       <div className="flex justify-between items-center border-b border-border pb-4">
+           <h1 className="text-3xl font-bold text-text">Your Progress</h1>
+           <Button variant="secondary" size="sm" onClick={() => openModal('workloadSimulator')}>
+               <Icon name="trending-up" className="w-4 h-4 mr-2" />
+               Simulate Workload
+           </Button>
+       </div>
+       <StatsGrid stats={stats || { streak: 0, totalReviews: 0, matureCount: 0 }} />
        <div className="bg-surface p-6 rounded-lg shadow-md border border-border">
           <h2 className="text-xl font-semibold text-text mb-4">Activity</h2>
           <ActivityHeatmap reviews={reviews} />

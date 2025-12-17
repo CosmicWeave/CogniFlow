@@ -3,16 +3,22 @@ import React from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import { useModal } from '../contexts/ModalContext';
+import { useSettings } from '../hooks/useSettings';
 
 const AIChatFab: React.FC = () => {
     const { openModal } = useModal();
+    const { aiFeaturesEnabled } = useSettings();
 
     const handleOpenChat = () => {
         openModal('aiChat');
     };
 
+    if (!aiFeaturesEnabled) {
+        return null;
+    }
+
     return (
-        <div className="fixed bottom-6 right-6 z-40">
+        <div className="fixed bottom-6 right-6 z-40 animate-fade-in">
             <Button 
                 variant="primary" 
                 onClick={handleOpenChat}

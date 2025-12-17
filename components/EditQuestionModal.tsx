@@ -1,9 +1,14 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Question, QuestionOption } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import { useToast } from '../hooks/useToast';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import RichTextToolbar from './ui/RichTextToolbar';
+import { useData } from '../contexts/DataManagementContext';
+import { useSettings } from '../hooks/useSettings';
+import Spinner from './ui/Spinner';
 
 export type EditableQuestionParts = Pick<Question, 'questionText' | 'detailedExplanation' | 'options' | 'correctAnswerId' | 'tags'>;
 
@@ -11,9 +16,10 @@ interface EditQuestionModalProps {
   question: Question | null; // null for creating a new card
   onClose: () => void;
   onSave: (question: EditableQuestionParts & { id?: string }) => void;
+  deckName?: string;
 }
 
-const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose, onSave }) => {
+const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose, onSave, deckName }) => {
   const [questionText, setQuestionText] = useState('');
   const [detailedExplanation, setDetailedExplanation] = useState('');
   const [options, setOptions] = useState<QuestionOption[]>([]);
@@ -21,9 +27,12 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [openExplanationIds, setOpenExplanationIds] = useState<Set<string>>(new Set());
+  const [isHardening, setIsHardening] = useState(false);
   const { addToast } = useToast();
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, true);
+  const dataHandlers = useData();
+  const { aiFeaturesEnabled } = useSettings();
 
 
   useEffect(() => {
@@ -96,6 +105,58 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
     setTags(tags.filter(tag => tag !== tagToRemove));
   };
 
+  const handleTextAreaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, setter: React.Dispatch<React.SetStateAction<string>>) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const target = e.target as HTMLTextAreaElement;
+        const start = target.selectionStart;
+        const end = target.selectionEnd;
+        const newValue = target.value.substring(0, start) + "\t" + target.value.substring(end);
+        target.value = newValue; // Visual update
+        setter(newValue); // State update
+        target.selectionStart = target.selectionEnd = start + 1;
+    }
+  };
+
+  const handleHardenDistractors = async () => {
+      if (!questionText.trim() || !correctAnswerId) {
+          addToast("Please enter a question and select a correct answer first.", "error");
+          return;
+      }
+      const correctAnswer = options.find(o => o.id === correctAnswerId);
+      if (!correctAnswer || !correctAnswer.text.trim()) {
+          addToast("The correct answer text must be set.", "error");
+          return;
+      }
+
+      setIsHardening(true);
+      try {
+          const tempQuestion: Question = {
+              id: 'temp',
+              questionText,
+              options,
+              correctAnswerId,
+              detailedExplanation,
+              questionType: 'multipleChoice',
+              dueDate: '', interval: 0, easeFactor: 0, lapses: 0
+          };
+          const newOptions = await dataHandlers.handleHardenDistractors(tempQuestion, deckName);
+          if (newOptions) {
+              setOptions(newOptions);
+              // The API ensures the correct answer is preserved, but IDs might change for distractors.
+              // The correct answer ID needs to be re-synced if the object ref changed, but usually we just want to match text.
+              // Our handler returns options with NEW IDs for distractors, but we need to ensure the correct answer ID stays valid.
+              // Actually, the handler logic should probably preserve the correct answer ID if possible, or return a new ID.
+              // Let's rely on the handler returning a valid list where one is correct.
+              // In our implementation, we appended the original correct answer object, so ID is preserved.
+              addToast("Distractors updated!", "success");
+          }
+      } catch (e) {
+          // Toast handled in hook
+      } finally {
+          setIsHardening(false);
+      }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,19 +194,39 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
 
           <div className="p-6 space-y-4 overflow-y-auto">
             <div>
-              <label htmlFor="question-text" className="block text-sm font-medium text-text-muted mb-1">Question Text</label>
-              <textarea
-                id="question-text"
-                value={questionText}
-                onChange={(e) => setQuestionText(e.target.value)}
-                rows={3}
-                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="What is the capital of France?"
-              />
+              <label htmlFor="question-text" className="block text-sm font-medium text-text-muted mb-1">Question Text (Supports HTML)</label>
+              <div className="border border-border rounded-md focus-within:ring-2 focus-within:ring-primary overflow-hidden">
+                <RichTextToolbar targetId="question-text" value={questionText} onChange={setQuestionText} />
+                <textarea
+                    id="question-text"
+                    value={questionText}
+                    onChange={(e) => setQuestionText(e.target.value)}
+                    onKeyDown={(e) => handleTextAreaKeyDown(e, setQuestionText)}
+                    rows={4}
+                    className="w-full p-2 bg-background focus:outline-none font-mono text-sm block"
+                    placeholder="What is the capital of France?"
+                />
+              </div>
             </div>
             
             <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Options</label>
+                <div className="flex justify-between items-end mb-1">
+                    <label className="block text-sm font-medium text-text-muted">Options</label>
+                    {aiFeaturesEnabled && (
+                        <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={handleHardenDistractors} 
+                            disabled={isHardening}
+                            className="text-primary hover:text-primary-hover"
+                            title="Use AI to generate more challenging incorrect answers"
+                        >
+                            {isHardening ? <Spinner size="sm" /> : <Icon name="zap" className="w-3 h-3 mr-1" />}
+                            {isHardening ? 'Hardening...' : 'Harden Distractors'}
+                        </Button>
+                    )}
+                </div>
                 <div className="space-y-2">
                     {options.map((option, index) => (
                       <div key={option.id}>
@@ -193,15 +274,19 @@ const EditQuestionModal: React.FC<EditQuestionModalProps> = ({ question, onClose
             </div>
 
             <div>
-              <label htmlFor="detailed-explanation" className="block text-sm font-medium text-text-muted mb-1">Detailed Explanation</label>
-              <textarea
-                id="detailed-explanation"
-                value={detailedExplanation}
-                onChange={(e) => setDetailedExplanation(e.target.value)}
-                rows={4}
-                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                placeholder="Explain why the correct answer is right and provide more context."
-              />
+              <label htmlFor="detailed-explanation" className="block text-sm font-medium text-text-muted mb-1">Detailed Explanation (Supports HTML)</label>
+              <div className="border border-border rounded-md focus-within:ring-2 focus-within:ring-primary overflow-hidden">
+                <RichTextToolbar targetId="detailed-explanation" value={detailedExplanation} onChange={setDetailedExplanation} />
+                <textarea
+                    id="detailed-explanation"
+                    value={detailedExplanation}
+                    onChange={(e) => setDetailedExplanation(e.target.value)}
+                    onKeyDown={(e) => handleTextAreaKeyDown(e, setDetailedExplanation)}
+                    rows={4}
+                    className="w-full p-2 bg-background focus:outline-none font-mono text-sm block"
+                    placeholder="Explain why the correct answer is right..."
+                />
+              </div>
             </div>
 
             <div>

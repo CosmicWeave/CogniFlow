@@ -1,8 +1,10 @@
 
-import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, ImportedCard, ImportedQuizDeck, LearningDeck } from '../types';
 
-function triggerDownload(jsonString: string, filename: string) {
-    const blob = new Blob([jsonString], { type: 'application/json' });
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, ImportedCard, ImportedQuizDeck, LearningDeck } from '../types';
+import Papa from 'papaparse';
+
+function triggerDownload(content: string, filename: string, mimeType: string) {
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
@@ -52,7 +54,23 @@ export const exportDeck = (deck: Deck): void => {
     }
     
     const jsonString = JSON.stringify(exportData, null, 2);
-    triggerDownload(jsonString, filename);
+    triggerDownload(jsonString, filename, 'application/json');
+};
+
+export const exportDeckToCSV = (deck: Deck): void => {
+    if (deck.type !== DeckType.Flashcard) {
+        throw new Error("CSV export is currently only supported for Flashcard decks.");
+    }
+    
+    const flashcardDeck = deck as FlashcardDeck;
+    const data = (flashcardDeck.cards || []).map(card => ({
+        Front: card.front,
+        Back: card.back
+    }));
+    
+    const csv = Papa.unparse(data);
+    const filename = `cogniflow-deck-${sanitizeFilename(deck.name)}.csv`;
+    triggerDownload(csv, filename, 'text/csv');
 };
 
 export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
@@ -113,5 +131,5 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
     
     const filename = `cogniflow-series-${sanitizeFilename(series.name)}.json`;
     const jsonString = JSON.stringify(exportData, null, 2);
-    triggerDownload(jsonString, filename);
+    triggerDownload(jsonString, filename, 'application/json');
 };

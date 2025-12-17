@@ -10,11 +10,13 @@ interface LearningItemListEditorProps {
   onSaveBlock: (data: LearningBlockData) => void;
   onDeleteBlock: (infoCardId: string) => void;
   onBlockClick: (block: LearningBlockData) => void;
+  onReorderBlocks: (newInfoCards: InfoCard[]) => void;
 }
 
-const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, onSaveBlock, onDeleteBlock, onBlockClick }) => {
+const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, onSaveBlock, onDeleteBlock, onBlockClick, onReorderBlocks }) => {
   const [editingBlock, setEditingBlock] = useState<LearningBlockData | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [draggedBlockIndex, setDraggedBlockIndex] = useState<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const openEditModal = (block: LearningBlockData | null, e?: React.MouseEvent<HTMLButtonElement>) => {
@@ -41,6 +43,29 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
     }));
   }, [deck.infoCards, deck.questions]);
 
+  // Drag and Drop Handlers
+  const handleDragStart = (index: number, e: React.DragEvent) => {
+      setDraggedBlockIndex(index);
+      e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (index: number, e: React.DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (index: number, e: React.DragEvent) => {
+      e.preventDefault();
+      if (draggedBlockIndex === null || draggedBlockIndex === index) return;
+
+      const newInfoCards = [...(deck.infoCards || [])];
+      const [draggedItem] = newInfoCards.splice(draggedBlockIndex, 1);
+      newInfoCards.splice(index, 0, draggedItem);
+      
+      onReorderBlocks(newInfoCards);
+      setDraggedBlockIndex(null);
+  };
+
   return (
     <div>
       <div className="border-b border-border p-6">
@@ -51,45 +76,55 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
       <div className="p-6">
         {learningBlocks.length > 0 ? (
           <ul className="space-y-4">
-            {learningBlocks.map(block => (
-              <li
-                key={block.infoCard.id}
-                className="p-4 rounded-lg bg-background border border-border transition-all duration-200 hover:border-primary hover:shadow-md cursor-pointer"
-                onClick={() => onBlockClick(block)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBlockClick(block); }}
-                tabIndex={0}
-                role="button"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0 mr-4">
-                    <div className="flex items-center gap-2 text-text font-semibold">
-                        <Icon name="book-open" className="w-5 h-5 text-purple-500 flex-shrink-0" />
-                        <p className="truncate" title={stripHtml(block.infoCard.content)}>
-                            {stripHtml(block.infoCard.content)}
-                        </p>
+            {learningBlocks.map((block, index) => {
+              const isDragging = draggedBlockIndex === index;
+              return (
+                <li
+                  key={block.infoCard.id}
+                  className={`p-4 rounded-lg bg-background border transition-all duration-200 cursor-pointer ${isDragging ? 'opacity-50 ring-2 ring-primary border-transparent' : 'border-border hover:border-primary hover:shadow-md'}`}
+                  draggable
+                  onDragStart={(e) => handleDragStart(index, e)}
+                  onDragOver={(e) => handleDragOver(index, e)}
+                  onDrop={(e) => handleDrop(index, e)}
+                  onClick={() => onBlockClick(block)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBlockClick(block); }}
+                  tabIndex={0}
+                  role="button"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text" onClick={e => e.stopPropagation()}>
+                        <Icon name="grip-vertical" className="w-5 h-5" />
                     </div>
-                    {block.questions.length > 0 && (
-                        <ul className="mt-2 pl-7 space-y-1">
-                            {block.questions.map(q => (
-                                <li key={q.id} className="flex items-center gap-2 text-sm text-text-muted">
-                                    <Icon name="help-circle" className="w-4 h-4 flex-shrink-0"/>
-                                    <span className="truncate" title={stripHtml(q.questionText)}>{stripHtml(q.questionText)}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
+                    <div className="flex-1 min-w-0 mr-4">
+                      <div className="flex items-center gap-2 text-text font-semibold">
+                          <Icon name="book-open" className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                          <p className="truncate" title={stripHtml(block.infoCard.content)}>
+                              {stripHtml(block.infoCard.content)}
+                          </p>
+                      </div>
+                      {block.questions.length > 0 && (
+                          <ul className="mt-2 pl-7 space-y-1">
+                              {block.questions.map(q => (
+                                  <li key={q.id} className="flex items-center gap-2 text-sm text-text-muted">
+                                      <Icon name="help-circle" className="w-4 h-4 flex-shrink-0"/>
+                                      <span className="truncate" title={stripHtml(q.questionText)}>{stripHtml(q.questionText)}</span>
+                                  </li>
+                              ))}
+                          </ul>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0 flex items-center gap-1">
+                      <Button variant="ghost" className="p-2 h-auto" onClick={(e) => { e.stopPropagation(); openEditModal(block, e); }} title="Edit this block">
+                        <Icon name="edit" className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => { e.stopPropagation(); onDeleteBlock(block.infoCard.id); }} title="Delete this block">
+                        <Icon name="trash-2" className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex-shrink-0 flex items-center gap-1">
-                    <Button variant="ghost" className="p-2 h-auto" onClick={(e) => { e.stopPropagation(); openEditModal(block, e); }} title="Edit this block">
-                      <Icon name="edit" className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => { e.stopPropagation(); onDeleteBlock(block.infoCard.id); }} title="Delete this block">
-                      <Icon name="trash-2" className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <div className="text-center text-text-muted py-8">

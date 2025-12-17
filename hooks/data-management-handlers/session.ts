@@ -1,6 +1,7 @@
+
 import { useCallback, useMemo } from 'react';
-import { Deck, Reviewable, QuizDeck, DeckType, FlashcardDeck, LearningDeck, ReviewRating, ReviewLog } from '../../types.ts';
-import * as db from '../../services/db.ts';
+import { Deck, Reviewable, QuizDeck, DeckType, FlashcardDeck, LearningDeck, ReviewRating, ReviewLog, DeckSeries, DeckLearningProgress } from '../../types.ts';
+import storage from '../../services/storage.ts';
 import { useStore } from '../../store/store.ts';
 import { resetReviewable } from '../../services/srs.ts';
 import { useToast } from '../useToast.ts';
@@ -19,7 +20,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
         setSessionsToResume(newSessions);
     }
     try {
-        await db.deleteSessionState(sessionKey);
+        await storage.deleteSessionState(sessionKey);
     } catch (e) {
         console.error(`Failed to clean up session state for ${sessionKey} from DB`, e);
     }
@@ -35,7 +36,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
         setSessionsToResume(newSessions);
     }
     try {
-        await db.deleteSessionState(sessionKey);
+        await storage.deleteSessionState(sessionKey);
     } catch (e) {
         console.error(`Failed to clean up session state for ${sessionKey} from DB`, e);
     }
@@ -45,7 +46,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
 
   const handleItemReviewed = useCallback(async (deckId: string, reviewedItem: Reviewable, rating: ReviewRating | null, seriesId?: string) => {
     const { decks, deckSeries, seriesProgress } = useStore.getState();
-    const deck = decks.find(d => d.id === deckId);
+    const deck = decks[deckId];
     if (!deck) return;
 
     let newDeck: Deck;
@@ -61,7 +62,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
             itemId: reviewedItem.id, deckId: deckId, seriesId: seriesId, timestamp: new Date().toISOString(),
             rating: rating, newInterval: reviewedItem.interval, easeFactor: reviewedItem.easeFactor, masteryLevel: reviewedItem.masteryLevel || 0,
         };
-        await db.addReviewLog(reviewLog);
+        await storage.addReviewLog(reviewLog);
     } catch (e) { console.error("Failed to log review:", e); }
 
     if (seriesId) {
@@ -76,8 +77,8 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
             currentSeriesProgress.add(deckId);
             newProgress.set(seriesId, currentSeriesProgress);
             try {
-                await db.saveSeriesProgress(seriesId, currentSeriesProgress);
-                const series = deckSeries.find(s => s.id === seriesId);
+                await storage.saveSeriesProgress(seriesId, currentSeriesProgress);
+                const series = deckSeries[seriesId];
                 const flatDeckIds = (series?.levels || []).flatMap(l => l?.deckIds || []);
                 const isLastDeckInSeries = flatDeckIds.indexOf(deckId) === flatDeckIds.length - 1;
                 if (isLastDeckInSeries && flatDeckIds.length > 0) addToast(`Congratulations! You've completed the series: "${series?.name}"!`, 'success');
@@ -89,7 +90,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
   }, [handleUpdateDeck, addToast, dispatch]);
 
   const handleResetDeckProgress = useCallback(async (deckId: string) => {
-    const deckToReset = useStore.getState().decks.find(d => d.id === deckId);
+    const deckToReset = useStore.getState().decks[deckId];
     if (!deckToReset) return;
     let updatedDeck: Deck;
     if (deckToReset.type === DeckType.Flashcard) updatedDeck = { ...deckToReset, cards: ((deckToReset as FlashcardDeck).cards || []).map(c => resetReviewable(c)) };
@@ -100,9 +101,9 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
   const handleStartGeneralStudy = useCallback(() => {
     const { decks, deckSeries, seriesProgress } = useStore.getState();
     const seriesDeckIds = new Set<string>();
-    deckSeries.forEach(series => ((series.levels || []).filter(Boolean)).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId))));
+    (Object.values(deckSeries) as DeckSeries[]).forEach(series => ((series.levels || []).filter(Boolean)).forEach(level => (level.deckIds || []).forEach(deckId => seriesDeckIds.add(deckId))));
     const unlockedSeriesDeckIds = new Set<string>();
-    deckSeries.forEach(series => {
+    (Object.values(deckSeries) as DeckSeries[]).forEach(series => {
         if (!series.archived && !series.deletedAt) {
             const completedCount = seriesProgress.get(series.id)?.size || 0;
             let deckCount = 0;
@@ -116,14 +117,14 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
     });
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const allDueQuestions = decks
+    const allDueQuestions = (Object.values(decks) as Deck[])
       .filter((deck): deck is QuizDeck => {
         if (deck.type !== DeckType.Quiz || deck.archived || deck.deletedAt) return false;
         if (seriesDeckIds.has(deck.id) && !unlockedSeriesDeckIds.has(deck.id)) return false;
         return true;
       })
       .flatMap(deck => {
-        const series = deckSeries.find(s => (s.levels || []).some(l => (l.deckIds || []).includes(deck.id)));
+        const series = (Object.values(deckSeries) as DeckSeries[]).find(s => (s.levels || []).some(l => (l.deckIds || []).includes(deck.id)));
         return (deck.questions || [])
           .filter(q => !q.suspended && new Date(q.dueDate) <= today)
           .map(q => ({ ...q, originalDeckId: deck.id, originalDeckName: deck.name, originalSeriesName: series?.name, originalSeriesId: series?.id }))
@@ -142,7 +143,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
 
   const handleStartSeriesStudy = useCallback(async (seriesId: string) => {
     const { decks, deckSeries, seriesProgress } = useStore.getState();
-    const series = deckSeries.find(s => s.id === seriesId);
+    const series = deckSeries[seriesId];
     if (!series) return;
     const unlockedSeriesDeckIds = new Set<string>();
     const completedCount = seriesProgress.get(series.id)?.size || 0;
@@ -155,7 +156,7 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
     });
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    const seriesDecks = ((series.levels || []).filter(Boolean)).flatMap(l => l.deckIds || []).map(id => decks.find(d => d.id === id)).filter((d): d is QuizDeck | LearningDeck => !!(d && (d.type === DeckType.Quiz || d.type === DeckType.Learning)));
+    const seriesDecks = ((series.levels || []).filter(Boolean)).flatMap(l => l.deckIds || []).map(id => decks[id]).filter((d): d is QuizDeck | LearningDeck => !!(d && (d.type === DeckType.Quiz || d.type === DeckType.Learning)));
     const allDueQuestions = seriesDecks
       .filter(deck => unlockedSeriesDeckIds.has(deck.id))
       .flatMap(deck => 
@@ -174,6 +175,15 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
     setGeneralStudyDeck(virtualDeck);
     navigate(`/study/general?seriesId=${seriesId}&from=${encodeURIComponent(path)}`);
   }, [navigate, setGeneralStudyDeck, path]);
+
+  const handleUpdateLearningProgress = useCallback(async (progress: DeckLearningProgress) => {
+      dispatch({ type: 'UPDATE_LEARNING_PROGRESS', payload: progress });
+      try {
+          await storage.saveLearningProgress(progress);
+      } catch (e) {
+          console.error("Failed to save learning progress", e);
+      }
+  }, [dispatch]);
   
   return useMemo(() => ({
     handleSessionEnd,
@@ -182,5 +192,6 @@ export const useSessionHandlers = ({ sessionsToResume, setSessionsToResume, setG
     handleResetDeckProgress,
     handleStartGeneralStudy,
     handleStartSeriesStudy,
-  }), [handleSessionEnd, handleStudyNextDeckInSeries, handleItemReviewed, handleResetDeckProgress, handleStartGeneralStudy, handleStartSeriesStudy]);
+    handleUpdateLearningProgress,
+  }), [handleSessionEnd, handleStudyNextDeckInSeries, handleItemReviewed, handleResetDeckProgress, handleStartGeneralStudy, handleStartSeriesStudy, handleUpdateLearningProgress]);
 };

@@ -1,3 +1,4 @@
+
 // FIX: Populate `types.ts` with all necessary type definitions for the application.
 
 export enum DeckType {
@@ -28,6 +29,9 @@ export interface Card extends Reviewable {
   front: string;
   back: string;
   css?: string;
+  frontAudio?: string; // Base64 encoded raw PCM audio
+  backAudio?: string; // Base64 encoded raw PCM audio
+  tags?: string[];
 }
 
 export interface QuestionOption {
@@ -64,6 +68,7 @@ interface DeckBase {
   deletedAt?: string | null;
   lastModified?: number;
   locked?: boolean;
+  icon?: string;
 }
 
 export interface FlashcardDeck extends DeckBase {
@@ -112,12 +117,18 @@ export interface ImportedCard {
   back: string;
 }
 
+export interface ImportedQuestionOption {
+  id?: string;
+  text: string;
+  explanation?: string;
+}
+
 export interface ImportedQuestion {
   questionType: 'multipleChoice';
   questionText: string;
-  options: QuestionOption[];
+  options: ImportedQuestionOption[];
   correctAnswerId: string;
-  detailedExplanation: string;
+  detailedExplanation?: string;
   tags?: string[];
 }
 
@@ -142,11 +153,19 @@ export interface ReviewLog {
 // FIX: Add SeriesProgress type definition for use in the store and components.
 export type SeriesProgress = Map<string, Set<string>>;
 
+export interface DeckLearningProgress {
+  deckId: string;
+  readInfoCardIds: string[];
+  unlockedQuestionIds: string[];
+  lastReadCardId?: string;
+}
+
 export interface SessionState {
   id: string;
   reviewQueue: (Card | Question | InfoCard)[];
   currentIndex: number;
   itemsCompleted: number;
+  // Legacy fields below, moving to DeckLearningProgress for persistent tracking
   readInfoCardIds?: string[];
   unlockedQuestionIds?: string[];
 }
@@ -187,7 +206,7 @@ export interface AIPersona {
 }
 
 export interface AIGenerationParams {
-  generationType: 'series-scaffold' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-flashcard' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck';
+  generationType: 'series-scaffold' | 'series-quiz' | 'series-flashcard' | 'series-vocab' | 'series-course' | 'series-auto-fill' | 'level-auto-fill' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-course' | 'deck-flashcard' | 'deck-vocab' | 'deck-atomic' | 'quiz-blooms' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck';
   topic: string;
   persona: string;
   understanding: string;
@@ -201,11 +220,19 @@ export interface AIGenerationParams {
 
 export interface AIGenerationTask {
   id: string;
-  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck' | 'generateFullSeriesFromScaffold' | 'generateFlashcardDeckWithAI' | 'regenerateQuestion';
+  type: 'generateSeriesScaffoldWithAI' | 'generateDeckWithAI' | 'generateLearningDeckWithAI' | 'generateMoreLevelsForSeries' | 'generateMoreDecksForLevel' | 'generateSeriesQuestionsInBatches' | 'generateSeriesLearningContentInBatches' | 'generateQuestionsForDeck' | 'generateFullSeriesFromScaffold' | 'generateFlashcardDeckWithAI' | 'regenerateQuestion' | 'generateDeckFromOutline' | 'autoPopulateSeries' | 'autoPopulateLevel';
   payload: any;
   statusText: string;
   deckId?: string;
   seriesId?: string;
+}
+
+export interface DeckAnalysisSuggestion {
+    id: string;
+    title: string;
+    description: string;
+    category: 'accuracy' | 'clarity' | 'formatting' | 'completeness';
+    rationale: string;
 }
 
 
@@ -217,6 +244,10 @@ export interface AppSettings {
     backupEnabled?: boolean;
     backupApiKey?: string;
     syncOnCellular?: boolean;
+    notificationsEnabled?: boolean;
+    // SRS Settings
+    leechThreshold?: number;
+    leechAction?: 'suspend' | 'tag' | 'warn';
 }
 
 export interface FullBackupData {
@@ -227,6 +258,7 @@ export interface FullBackupData {
   reviews?: ReviewLog[];
   sessions?: SessionState[];
   seriesProgress?: Record<string, string[]>;
+  learningProgress?: Record<string, DeckLearningProgress>; // New field
   aiChatHistory?: AIMessage[];
   aiOptions?: any;
   settings?: AppSettings;

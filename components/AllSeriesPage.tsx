@@ -1,10 +1,11 @@
+
 import React, { useState, useMemo } from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, Reviewable, LearningDeck } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import SeriesListItem from './SeriesListItem';
 import DeckSortControl from './ui/DeckSortControl';
-import { useStore } from '../store/store';
+import { useStore, useDecksList, useSeriesList } from '../store/store';
 import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs';
 import { useSettings } from '../hooks/useSettings';
 
@@ -27,7 +28,9 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
   onGenerateAI,
   handleGenerateQuestionsForEmptyDecksInSeries,
 }) => {
-    const { deckSeries: allSeries, decks, seriesProgress } = useStore();
+    const allSeries = useSeriesList();
+    const decks = useDecksList();
+    const seriesProgress = useStore(state => state.seriesProgress);
     const { aiFeaturesEnabled } = useSettings();
     const [searchTerm, setSearchTerm] = useState('');
     const [sort, setSort] = useState<SortPreference>('recent');
@@ -71,8 +74,8 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
 
     const filteredAndSortedSeries = useMemo(() => {
         let filteredSeries = series.filter(s =>
-            s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.description.toLowerCase().includes(searchTerm.toLowerCase())
+            (s.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (s.description || '').toLowerCase().includes(searchTerm.toLowerCase())
         );
 
         if (filter !== 'all') {
@@ -106,7 +109,7 @@ const AllSeriesPage: React.FC<AllSeriesPageProps> = ({
                 });
             case 'name':
             default:
-                return filteredSeries.sort((a,b) => a.name.localeCompare(b.name));
+                return filteredSeries.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
         }
 
     }, [series, searchTerm, sort, filter, seriesProgress, seriesData]);

@@ -12,10 +12,12 @@ interface BreadcrumbsProps {
 }
 
 const truncateLabel = (label: string, maxLength: number): string => {
-    if (label.length > maxLength) {
-        return label.substring(0, maxLength) + '...';
+    if (!label) return "";
+    const strLabel = String(label);
+    if (strLabel.length > maxLength) {
+        return strLabel.substring(0, maxLength) + '...';
     }
-    return label;
+    return strLabel;
 };
 
 const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {

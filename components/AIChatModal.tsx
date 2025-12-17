@@ -1,10 +1,12 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { AIAction, AIMessage } from '../types';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
+import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer';
 import * as db from '../services/db';
-import { useStore } from '../store/store';
+import { useDecksList, useFoldersList, useSeriesList, useStore } from '../store/store';
 import { getAIResponse } from '../services/aiChatService';
 
 
@@ -16,7 +18,11 @@ interface AIChatModalProps {
 }
 
 const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, onExecuteAction, history }) => {
-    const { dispatch, decks, folders, deckSeries } = useStore();
+    const { dispatch } = useStore();
+    const decks = useDecksList();
+    const folders = useFoldersList();
+    const deckSeries = useSeriesList();
+    
     const [userInput, setUserInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -78,6 +84,23 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, onExecuteAct
         onClose();
     };
 
+    const formatMessageText = (text: string) => {
+        // Simple Markdown-to-HTML converter
+        let formatted = text
+            // Bold
+            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+            // Italic
+            .replace(/\*(.*?)\*/g, '<i>$1</i>')
+            // Code Block
+            .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-800 text-white p-2 rounded my-2 overflow-x-auto text-xs"><code>$1</code></pre>')
+            // Inline Code
+            .replace(/`([^`]+)`/g, '<code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-sm font-mono">$1</code>')
+            // Newlines to breaks (if not in pre tags, roughly)
+            .replace(/\n/g, '<br />');
+        
+        return formatted;
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -107,7 +130,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, onExecuteAct
                                             <span className="text-text-muted">Thinking...</span>
                                         </div>
                                     ) : (
-                                        <p className="whitespace-pre-wrap">{message.text}</p>
+                                        <DangerousHtmlRenderer html={formatMessageText(message.text)} className="prose dark:prose-invert max-w-none text-sm" />
                                     )}
                                     {message.actions && message.actions.length > 0 && (
                                         <div className="mt-3 pt-3 border-t border-border/50 flex flex-wrap gap-2">

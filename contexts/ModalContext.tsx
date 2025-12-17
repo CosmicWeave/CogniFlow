@@ -1,3 +1,4 @@
+
 import React, { createContext, useState, useContext, ReactNode, useCallback, useRef } from 'react';
 
 // Define all possible modal types
@@ -17,7 +18,10 @@ export type ModalType =
   | 'addDeckToSeries'
   | 'commandPalette'
   | 'mergeConflict'
-  | 'aiResponseFix';
+  | 'aiResponseFix'
+  | 'aiGenerationChat'
+  | 'deckAnalysis'
+  | 'workloadSimulator'; // Added
 
 // Define the shape of the modal payload. It can be anything.
 export type ModalPayload = any;

@@ -202,7 +202,7 @@ export const backup = async (): Promise<GoogleDriveFile> => {
     }
 
     const exportData: FullBackupData = {
-        version: 6,
+        version: 7,
         ...backupData
     };
 
@@ -270,7 +270,8 @@ export const downloadFile = async (fileId: string): Promise<FullBackupData> => {
     }
 
     const content = typeof response.body === 'string' ? response.body : JSON.stringify(response.result);
-    return parseAndValidateBackupFile(content);
+    // Updated to await async parse
+    return await parseAndValidateBackupFile(content);
 };
 
 export const deleteFile = async (fileId: string): Promise<void> => {

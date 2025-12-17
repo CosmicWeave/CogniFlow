@@ -8,7 +8,7 @@
     <!-- PWA & Mobile-First Meta Tags -->
     <meta name="theme-color" content="#f9fafb">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="apple-touch-icon" href="/assets/icon.svg">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="CogniFlow">
@@ -43,21 +43,51 @@
       html.theme-rose {
         --color-primary: 225 29 72; --color-primary-hover: 190 18 60;
       }
+      html.theme-rose.dark {
+        --color-primary: 251 113 133; --color-primary-hover: 244 63 94; /* rose-400 */
+        --color-on-primary: 88 12 28; /* rose-950 for contrast */
+      }
+
       html.theme-matcha {
         --color-primary: 22 163 74; --color-primary-hover: 21 128 61;
       }
+      html.theme-matcha.dark {
+        --color-primary: 74 222 128; --color-primary-hover: 34 197 94; /* green-400 */
+        --color-on-primary: 20 83 45; /* green-900 for contrast */
+      }
+
       html.theme-latte {
         --color-primary: 217 119 6; --color-primary-hover: 180 83 9;
       }
+      html.theme-latte.dark {
+        --color-primary: 251 191 36; --color-primary-hover: 245 158 11; /* amber-400 */
+        --color-on-primary: 69 26 3; /* amber-950 for contrast */
+      }
+
       html.theme-sky {
         --color-primary: 14 165 233; --color-primary-hover: 2 132 199;
       }
+      html.theme-sky.dark {
+        --color-primary: 56 189 248; --color-primary-hover: 14 165 233; /* sky-400 */
+        --color-on-primary: 8 47 73; /* sky-950 for contrast */
+      }
+
       html.theme-sunrise {
         --color-primary: 249 115 22; --color-primary-hover: 234 88 12;
       }
+      html.theme-sunrise.dark {
+        --color-primary: 251 146 60; --color-primary-hover: 249 115 22; /* orange-400 */
+        --color-on-primary: 67 20 7; /* orange-950 */
+      }
+
       html.theme-lavender {
         --color-primary: 124 58 237; --color-primary-hover: 109 40 217;
       }
+      html.theme-lavender.dark {
+        --color-primary: 167 139 250; --color-primary-hover: 139 92 246; /* violet-400 */
+        --color-on-primary: 46 16 101; /* violet-950 for contrast */
+      }
+
       html.theme-terracotta {
         --color-primary: 226 114 91; --color-primary-hover: 209 93 70;
       }
@@ -218,6 +248,21 @@
       .animate-fade-in {
         animation: fade-in 0.3s ease-out forwards;
       }
+
+      /* Page Transition Animation */
+      @keyframes fade-in-up {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fade-in-up {
+        animation: fade-in-up 0.3s ease-out forwards;
+      }
     </style>
   <script type="importmap">
 {
@@ -232,7 +277,10 @@
     "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime?dev",
     "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?dev",
     "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/"
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "dompurify": "https://esm.sh/dompurify@3.1.2?dev",
+    "zod": "https://esm.sh/zod@3.23.8?dev",
+    "papaparse": "https://esm.sh/papaparse@5.4.1?dev"
   }
 }
 </script>
