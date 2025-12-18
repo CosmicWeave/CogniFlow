@@ -32,7 +32,7 @@ interface DashboardPageProps {
   onCreateSampleFlashcardDeck: () => void;
   onCreateSampleLearningDeck: () => void;
   onCreateSampleSeries: () => void;
-  onCreateSampleCourse: () => void;
+  onCreateSampleCourse?: () => void;
 }
 
 const DashboardPage: React.FC<DashboardPageProps> = ({
@@ -52,8 +52,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   onCreateSampleQuizDeck,
   onCreateSampleFlashcardDeck,
   onCreateSampleLearningDeck,
-  onCreateSampleSeries,
-  onCreateSampleCourse
+  onCreateSampleSeries
 }) => {
   const decks = useDecksList();
   const deckSeries = useSeriesList();
@@ -205,9 +204,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
               </Button>
               <Button onClick={onCreateSampleFlashcardDeck} variant="secondary" size="sm">
                   <Icon name="laptop" className="w-4 h-4 mr-2" /> Flashcard Deck
-              </Button>
-              <Button onClick={onCreateSampleCourse} variant="secondary" size="sm">
-                  <Icon name="file-text" className="w-4 h-4 mr-2" /> Sample Course
               </Button>
               <Button onClick={onCreateSampleLearningDeck} variant="secondary" size="sm">
                   <Icon name="book-open" className="w-4 h-4 mr-2" /> Learning Deck

@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Question, QuizDeck, LearningDeck } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -299,7 +298,7 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
                     )}
                 </div>
               </div>
-            ) : null}
+            )}
           </div>
           {questions.length > 0 && (
             <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">

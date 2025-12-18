@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useRouter } from '../contexts/RouterContext.tsx';
 import { Deck } from '../types.ts';
@@ -13,61 +14,42 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ onOpenMenu, onOpenCommandPalette, activeDeck, isVisible }) => {
-    const { path } = useRouter();
+    const { path, goBack, canGoBack } = useRouter();
 
-    const [pathname, queryString] = path.split('?');
+    const [pathname] = path.split('?');
     const isHomePage = pathname === '/';
     
-    const isStudySessionPath = (p: string) => {
-        if (p === '/study/general') return true;
-        if (p.startsWith('/decks/')) {
-            const parts = p.split('/');
-            const lastPart = parts[parts.length - 1];
-            return ['study', 'cram', 'study-reversed', 'study-flip'].includes(lastPart);
-        }
-        return false;
-    };
-    const isStudyPage = isStudySessionPath(pathname);
-
     let headerContent;
 
     if (isHomePage) {
         headerContent = <Link href="/" className="no-underline"><h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-teal-300">CogniFlow</h1></Link>;
     } else {
-        let backHref = '/'; // Default to home
-        let backButtonText: React.ReactNode = "Back";
-
-        if (isStudyPage) {
-            const deckName = activeDeck?.name || (pathname === '/study/general' ? 'General Study' : 'Back');
-            backButtonText = <span className="truncate">{deckName}</span>;
-            
-            const params = new URLSearchParams(queryString);
-            const seriesId = params.get('seriesId');
-            const fromPath = params.get('from');
-            
-            if (fromPath) {
-                backHref = decodeURIComponent(fromPath);
-            } else {
-                const deckId = pathname.split('/')[2];
-                // From a study session, always go back to the deck/series page
-                backHref = seriesId ? `/series/${seriesId}` : `/decks/${deckId}`;
-            }
-            
-        } else if (pathname.startsWith('/decks/')) {
-            const params = new URLSearchParams(queryString);
-            const seriesId = params.get('seriesId');
-            backHref = seriesId ? `/series/${seriesId}` : '/decks';
-        } else if (pathname.startsWith('/series/')) {
-            backHref = '/series';
-        } else if (['/decks', '/series', '/settings', '/archive', '/trash', '/progress', '/instructions/json'].includes(pathname)) {
-            backHref = '/';
+        // Use generic "Back" text or try to be context aware if possible, 
+        // but for pure history, "Back" is safest.
+        // We can display the active deck name if available for context, essentially as a title.
+        let titleText = "Back";
+        if (activeDeck) {
+            titleText = activeDeck.name;
+        } else if (pathname === '/study/general') {
+            titleText = "General Study";
+        } else if (pathname === '/settings') {
+            titleText = "Settings";
         }
 
+        // If we can't go back (e.g. refresh on sub-page), we still show the title but maybe with a Home link or disabled back button?
+        // Standard UX: If deep linked and no history, "Back" might go Home or be hidden.
+        // The router's goBack implementation falls back to Home if history is empty.
+        
         headerContent = (
-            <Link href={backHref} passAs={Button} variant="ghost" className="flex items-center space-x-2 -ml-3 min-w-0">
+            <Button 
+                variant="ghost" 
+                onClick={goBack} 
+                className="flex items-center space-x-2 -ml-3 min-w-0"
+                aria-label="Go Back"
+            >
                 <Icon name="chevron-left" />
-                {backButtonText}
-            </Link>
+                <span className="truncate">{titleText}</span>
+            </Button>
         );
     }
 

@@ -3,10 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable, SeriesLevel } from '../types.ts';
 import { useStore, useDecksList } from '../store/store.ts';
 import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs.ts';
-// FIX: Changed to named import to match the updated export in DeckListItem.tsx.
 import { DeckListItem } from './DeckListItem.tsx';
 import Button from './ui/Button.tsx';
-import Icon from './ui/Icon.tsx';
+import Icon, { IconName } from './ui/Icon.tsx';
 import { stripHtml } from '../services/utils.ts';
 import TruncatedText from './ui/TruncatedText.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
@@ -29,12 +28,24 @@ interface SeriesOverviewPageProps {
   handleGenerateQuestionsForDeck: (deck: QuizDeck) => void;
   onCancelAIGeneration: () => void;
   onExportSeries: (series: DeckSeries) => void;
-  // FIX: Added missing properties to pass down to DeckListItem.
   onDeleteDeck: (deckId: string) => void;
   handleGenerateContentForLearningDeck: (deck: LearningDeck) => void;
   onGenerateDeckForLevel: (seriesId: string, levelIndex: number) => void;
   onAutoExpandSeries: (seriesId: string) => void;
 }
+
+const QuickStatCard = ({ icon, label, value, subtext, color = "primary" }: { icon: IconName, label: string, value: string | number, subtext?: string, color?: string }) => (
+    <div className="bg-surface p-4 rounded-lg shadow-sm border border-border flex items-center gap-4">
+        <div className={`p-3 rounded-full bg-${color}/10 text-${color}`}>
+            <Icon name={icon} className="w-6 h-6" />
+        </div>
+        <div>
+            <p className="text-sm font-medium text-text-muted">{label}</p>
+            <p className="text-2xl font-bold text-text">{value}</p>
+            {subtext && <p className="text-xs text-text-muted mt-0.5">{subtext}</p>}
+        </div>
+    </div>
+);
 
 const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
   const { series, sessionsToResume, onUpdateLastOpened, onUpdateDeck, onDeleteDeck, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onUpdateSeries } = props;
@@ -45,6 +56,9 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(series.name);
   const [editedDescription, setEditedDescription] = useState(series.description);
+  
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Level editing state
   const [editingLevelIndex, setEditingLevelIndex] = useState<number | null>(null);
@@ -55,7 +69,6 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
     onUpdateLastOpened(series.id);
   }, [series.id, onUpdateLastOpened]);
 
-  // Sync local state when series prop changes (e.g. from external update)
   useEffect(() => {
     if (!isEditing) {
         setEditedName(series.name);
@@ -69,6 +82,18 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
           levelTitleInputRef.current.select();
       }
   }, [editingLevelIndex]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+            setIsMenuOpen(false);
+        }
+    };
+    if (isMenuOpen) {
+        document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMenuOpen]);
 
   const handleSave = () => {
     if (!editedName.trim()) return;
@@ -102,10 +127,8 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
       const newLevel: SeriesLevel = { title: `Level ${(series.levels || []).length + 1}: New Level`, deckIds: [] };
       const updatedLevels = [...(series.levels || []), newLevel];
       onUpdateSeries({ ...series, levels: updatedLevels }, { toastMessage: 'New level added.' });
-      // Automatically start editing the new level
       setTimeout(() => {
           handleStartRenameLevel(updatedLevels.length - 1, newLevel.title);
-          // Scroll to bottom to see new level (rough approximation)
           window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       }, 100);
   };
@@ -151,8 +174,6 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
       onUpdateSeries({ ...series, levels: updatedLevels }, { toastMessage: 'Deck removed from series.' });
   };
 
-  // --- End Level Management ---
-
   const { dueCount, nextUpDeckId, isCompleted, completedCount, totalCount } = React.useMemo(() => {
     const seriesDecks = (series.levels || []).flatMap(l => l?.deckIds || []).map(id => decks.find(d => d.id === id)).filter((d): d is Deck => !!d);
     
@@ -164,7 +185,6 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
 
     const unlockedDeckIds = new Set<string>();
     flatDeckIds.forEach((deckId, index) => {
-        // A deck is unlocked if it's the next one up, or has been completed.
         if (index <= completedCount) {
             unlockedDeckIds.add(deckId);
         }
@@ -178,7 +198,6 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
     }, 0);
 
     const nextUpDeckId = flatDeckIds.find(id => !completedDeckIds.has(id)) || null;
-
     const isCompleted = totalCount > 0 && completedCount >= totalCount;
 
     return { dueCount, nextUpDeckId, isCompleted, completedCount, totalCount };
@@ -193,10 +212,13 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
   const isGeneratingThisSeries = aiGenerationStatus.currentTask?.seriesId === series.id;
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in space-y-8 pb-10">
-      <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
+    <div className="max-w-5xl mx-auto animate-fade-in space-y-6 pb-20">
+      
+      {/* Hero Header Section */}
+      <div className={`bg-surface rounded-xl shadow-sm border border-border ${isEditing ? 'overflow-hidden' : ''}`}>
         {isEditing ? (
-            <div className="space-y-4 animate-fade-in">
+            <div className="p-6 space-y-4 animate-fade-in bg-background/50">
+                <h2 className="text-xl font-bold text-text mb-4">Edit Series Details</h2>
                 <div>
                     <label htmlFor="series-name-edit" className="block text-sm font-medium text-text-muted mb-1">Series Name</label>
                     <input 
@@ -204,7 +226,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                         type="text" 
                         value={editedName} 
                         onChange={(e) => setEditedName(e.target.value)} 
-                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold"
+                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-xl font-bold"
                         autoFocus
                     />
                 </div>
@@ -218,77 +240,118 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                         className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                     />
                 </div>
-                <div className="flex justify-start gap-2 pt-2">
-                    <Button onClick={handleSave}><Icon name="save" className="mr-2" /> Save Changes</Button>
+                <div className="flex justify-end gap-2 pt-2 border-t border-border mt-4">
                     <Button variant="secondary" onClick={handleCancel}>Cancel</Button>
+                    <Button onClick={handleSave}><Icon name="save" className="mr-2" /> Save Changes</Button>
                 </div>
             </div>
         ) : (
-            <div>
-                <h2 className="text-3xl font-bold mb-2 text-text break-words">{series.name}</h2>
-                {series.description && <TruncatedText html={series.description} className="text-text-muted prose dark:prose-invert max-w-none" />}
-                <div className="flex items-center gap-2 mt-4 flex-wrap">
-                    <Button variant="ghost" onClick={() => setIsEditing(true)}><Icon name="edit" className="mr-2"/> Edit</Button>
-                    {aiFeaturesEnabled && (
-                        <Button variant="ghost" onClick={() => props.onAutoExpandSeries(series.id)}>
-                            <Icon name="layers" className="w-4 h-4 mr-2" /> Auto-Expand Series
-                        </Button>
-                    )}
-                    <Button variant="ghost" onClick={() => props.onExportSeries(series)}><Icon name="download" className="mr-2"/> Export</Button>
-                    <Button variant="ghost" onClick={() => props.onDeleteSeries(series.id)}><Icon name="trash-2" className="mr-2"/> Move to Trash</Button>
-                    {aiFeaturesEnabled && hasEmptyDecks && (
-                    <Button
-                        variant="secondary"
-                        onClick={() => props.handleGenerateQuestionsForEmptyDecksInSeries(series.id)}
-                        disabled={isGeneratingThisSeries}
-                    >
-                        {isGeneratingThisSeries ? <span className="mr-2"><Spinner size="sm" /></span> : <Icon name="zap" className="w-4 h-4 mr-2" />}
-                        {isGeneratingThisSeries ? 'Generating...' : 'Generate All Questions'}
+            <div className="p-6 md:p-8 flex flex-col md:flex-row items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0">
+                            <Icon name="layers" className="w-8 h-8 text-primary" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center text-xs font-semibold text-text-muted mb-1 uppercase tracking-wider">
+                                <span>Learning Series</span>
+                            </div>
+                            <h1 className="text-3xl font-extrabold text-text break-words leading-tight">{series.name}</h1>
+                            {series.description && (
+                                <div className="mt-2 text-text-muted">
+                                    <TruncatedText html={series.description} className="prose prose-sm dark:prose-invert max-w-none text-text-muted leading-relaxed" />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+                
+                <div className="relative flex-shrink-0 self-start mt-2 md:mt-0" ref={menuRef}>
+                    <Button variant="ghost" onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 rounded-full hover:bg-border/50">
+                        <Icon name="more-vertical" className="w-6 h-6 text-text-muted" />
                     </Button>
+                    {isMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-64 bg-surface rounded-lg shadow-xl border border-border z-20 py-1 animate-fade-in origin-top-right">
+                            <button onClick={() => { setIsEditing(true); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                <Icon name="edit" className="w-4 h-4 mr-3" /> Edit Details
+                            </button>
+                            {aiFeaturesEnabled && (
+                                <>
+                                    <button onClick={() => { props.onAutoExpandSeries(series.id); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                        <Icon name="layers" className="w-4 h-4 mr-3" /> Auto-Expand Series
+                                    </button>
+                                    <button onClick={() => { props.onAiAddLevelsToSeries(series.id); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                        <Icon name="plus" className="w-4 h-4 mr-3" /> Generate Next Level
+                                    </button>
+                                </>
+                            )}
+                            {aiFeaturesEnabled && hasEmptyDecks && (
+                                <button onClick={() => { props.handleGenerateQuestionsForEmptyDecksInSeries(series.id); setIsMenuOpen(false); }} disabled={isGeneratingThisSeries} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors disabled:opacity-50">
+                                    <Icon name="zap" className="w-4 h-4 mr-3" /> {isGeneratingThisSeries ? 'Generating...' : 'Generate All Questions'}
+                                </button>
+                            )}
+                            <button onClick={() => { props.onExportSeries(series); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                <Icon name="download" className="w-4 h-4 mr-3" /> Export JSON
+                            </button>
+                            <div className="my-1 border-t border-border"></div>
+                            <button onClick={() => { props.onDeleteSeries(series.id); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                                <Icon name="trash-2" className="w-4 h-4 mr-3" /> Move to Trash
+                            </button>
+                        </div>
                     )}
                 </div>
             </div>
         )}
       </div>
-      
-      {(dueCount > 0 || nextUpDeckId || isCompleted) && (
-        <div className="border-t border-border pt-6 flex flex-wrap items-center justify-center gap-4">
-          {!isCompleted && nextUpDeckId && (
-            <Link
-              href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
-              passAs={Button}
-              variant="primary"
-              size="lg"
-              className="font-semibold w-full sm:w-auto"
-            >
-              <Icon name="zap" className="w-5 h-5 mr-2" />
-              {completedCount > 0 ? 'Continue Series' : 'Start Series'}
-            </Link>
-          )}
-          {dueCount > 0 && (
-            <Button
-              variant={!isCompleted && nextUpDeckId ? 'secondary' : 'primary'}
-              size="lg"
-              onClick={() => props.onStartSeriesStudy(series.id)}
-              className="font-semibold w-full sm:w-auto"
-            >
-              <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
-              Study Due ({dueCount})
-            </Button>
-          )}
-          {isCompleted && (
-            <div className="flex items-center gap-2 text-green-500 dark:text-green-400 bg-green-100 dark:bg-green-900/50 px-4 py-2 rounded-full">
-              <Icon name="check-circle" className="w-6 h-6" />
-              <span className="text-lg font-semibold">Series Completed!</span>
-            </div>
-          )}
-        </div>
-      )}
 
+      {/* Primary Action Area */}
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-6 bg-primary/5 rounded-xl border border-primary/10">
+          <div className="flex-1 text-center md:text-left">
+              <h3 className="text-lg font-bold text-text mb-1">
+                  {isCompleted ? "Series Completed!" : (nextUpDeckId ? "Ready to continue learning?" : "Start this series.")}
+              </h3>
+              <p className="text-sm text-text-muted">
+                  {isCompleted ? "Great job! Review due items to maintain mastery." : (nextUpDeckId ? "Pick up where you left off." : "Begin the first level.")}
+              </p>
+          </div>
+          <div className="flex flex-wrap gap-3 justify-center md:justify-end">
+              {!isCompleted && nextUpDeckId && (
+                <Link
+                  href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
+                  passAs={Button}
+                  variant="primary"
+                  size="lg"
+                  className="font-bold px-8 shadow-md"
+                >
+                  <Icon name="zap" className="w-5 h-5 mr-2" />
+                  {completedCount > 0 ? 'Continue' : 'Start Series'}
+                </Link>
+              )}
+              {dueCount > 0 && (
+                <Button
+                  variant={!isCompleted && nextUpDeckId ? 'secondary' : 'primary'}
+                  size="lg"
+                  onClick={() => props.onStartSeriesStudy(series.id)}
+                  className="font-bold"
+                >
+                  <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
+                  Study Due ({dueCount})
+                </Button>
+              )}
+          </div>
+      </div>
 
-      <div className="space-y-8">
+      {/* Dashboard Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+           <QuickStatCard icon="layers" label="Total Decks" value={totalCount} color="blue" />
+           <QuickStatCard icon="check-circle" label="Progress" value={`${completedCount} / ${totalCount}`} subtext={`${Math.round((completedCount / (totalCount || 1)) * 100)}% Complete`} color="green" />
+           <QuickStatCard icon="zap" label="Due Today" value={dueCount} color="orange" />
+      </div>
+
+      {/* Levels List */}
+      <div className="space-y-8 mt-8">
         {(series.levels || []).map((level, index) => (
-          <div key={index} className="bg-surface/30 rounded-xl p-4 border border-border/50">
+          <div key={index} className="bg-surface rounded-xl p-4 border border-border shadow-sm">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-border pb-2 gap-2">
                 {editingLevelIndex === index ? (
                     <div className="flex-grow flex items-center gap-2 w-full sm:w-auto">
@@ -307,22 +370,22 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                         <Button size="sm" variant="ghost" onClick={() => setEditingLevelIndex(null)}><Icon name="x" className="w-4 h-4"/></Button>
                     </div>
                 ) : (
-                    <h3 className="text-xl font-semibold text-text flex-grow cursor-pointer hover:text-primary transition-colors" onClick={() => handleStartRenameLevel(index, level.title)}>
+                    <h3 className="text-xl font-bold text-text flex-grow cursor-pointer hover:text-primary transition-colors" onClick={() => handleStartRenameLevel(index, level.title)}>
                         {level.title}
                     </h3>
                 )}
                 
                 <div className="flex items-center gap-1 self-end sm:self-auto">
-                    <Button variant="ghost" size="sm" className="p-1 h-auto" onClick={() => handleMoveLevel(index, 'up')} disabled={index === 0} title="Move Up">
+                    <Button variant="ghost" size="sm" className="p-1 h-auto text-text-muted hover:text-text" onClick={() => handleMoveLevel(index, 'up')} disabled={index === 0} title="Move Up">
                         <Icon name="chevron-down" className="w-4 h-4 rotate-180" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="p-1 h-auto" onClick={() => handleMoveLevel(index, 'down')} disabled={index === (series.levels || []).length - 1} title="Move Down">
+                    <Button variant="ghost" size="sm" className="p-1 h-auto text-text-muted hover:text-text" onClick={() => handleMoveLevel(index, 'down')} disabled={index === (series.levels || []).length - 1} title="Move Down">
                         <Icon name="chevron-down" className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="p-1 h-auto" onClick={() => handleStartRenameLevel(index, level.title)} title="Rename Level">
+                    <Button variant="ghost" size="sm" className="p-1 h-auto text-text-muted hover:text-text" onClick={() => handleStartRenameLevel(index, level.title)} title="Rename Level">
                         <Icon name="edit" className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="p-1 h-auto hover:text-red-500" onClick={() => handleDeleteLevel(index)} title="Delete Level">
+                    <Button variant="ghost" size="sm" className="p-1 h-auto text-text-muted hover:text-red-500" onClick={() => handleDeleteLevel(index)} title="Delete Level">
                         <Icon name="trash-2" className="w-4 h-4" />
                     </Button>
                     
@@ -365,8 +428,9 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                 );
               })}
               {(level.deckIds || []).length === 0 && (
-                  <div className="text-center p-4 border-2 border-dashed border-border rounded-lg text-text-muted text-sm">
-                      No decks in this level.
+                  <div className="text-center p-8 border-2 border-dashed border-border rounded-lg text-text-muted text-sm">
+                      <Icon name="folder" className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      No decks in this level yet.
                   </div>
               )}
             </div>
@@ -374,18 +438,11 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
         ))}
       </div>
 
-      <div className="flex flex-col items-center justify-center pt-8 pb-8 gap-4 border-t border-border mt-8">
+      <div className="flex justify-center pt-8 border-t border-border">
         <Button onClick={handleAddLevel} variant="secondary" className="w-full sm:w-auto">
             <Icon name="plus" className="w-5 h-5 mr-2" />
             Add New Level
         </Button>
-        
-        {aiFeaturesEnabled && (
-            <Button variant="ghost" onClick={() => props.onAiAddLevelsToSeries(series.id)} className="text-sm">
-                <Icon name="layers" className="w-4 h-4 mr-2" />
-                AI: Generate Next Level
-            </Button>
-        )}
       </div>
     </div>
   );

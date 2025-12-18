@@ -63,13 +63,21 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         } else if (pathname === '/decks') {
             items.push({ label: 'Decks' });
         } else if (pathname.startsWith('/decks/') && activeDeck) {
-            const seriesId = params.get('seriesId');
-            if (seriesId) {
-                const series = deckSeries.find(s => s.id === seriesId);
-                if (series) {
-                    items.push({ label: 'Series', href: '/series' });
-                    items.push({ label: series.name || 'Series', href: `/series/${series.id}` });
-                }
+            let parentSeries = null;
+            const seriesIdParam = params.get('seriesId');
+            
+            if (seriesIdParam) {
+                parentSeries = deckSeries.find(s => s.id === seriesIdParam);
+            }
+            
+            // If not found by param, try to find if it belongs to any active series
+            if (!parentSeries) {
+                 parentSeries = deckSeries.find(s => !s.deletedAt && (s.levels || []).some(l => l.deckIds?.includes(activeDeck.id)));
+            }
+
+            if (parentSeries) {
+                items.push({ label: 'Series', href: '/series' });
+                items.push({ label: parentSeries.name || 'Series', href: `/series/${parentSeries.id}` });
             } else {
                  items.push({ label: 'Decks', href: '/decks' });
             }
@@ -327,9 +335,6 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                       </Button>
                       <Button onClick={dataHandlers.handleCreateSampleFlashcardDeck} variant="ghost" size="sm">
                           <Icon name="laptop" className="w-4 h-4 mr-2" /> Flashcard Deck
-                      </Button>
-                      <Button onClick={dataHandlers.handleCreateSampleCourse} variant="ghost" size="sm">
-                          <Icon name="file-text" className="w-4 h-4 mr-2" /> Sample Course
                       </Button>
                       <Button onClick={dataHandlers.handleCreateSampleLearningDeck} variant="ghost" size="sm">
                           <Icon name="book-open" className="w-4 h-4 mr-2" /> Learning Deck

@@ -183,81 +183,6 @@ export const createSampleFlashcardDeck = (): FlashcardDeck => {
 };
 
 export const createSampleLearningDeck = (): LearningDeck => {
-    const infoCardId1 = crypto.randomUUID();
-    const infoCardId2 = crypto.randomUUID();
-    const q1Id = crypto.randomUUID();
-    const q2Id = crypto.randomUUID();
-
-    const infoCards: InfoCard[] = [
-        {
-            id: infoCardId1,
-            content: '<h3>The Water Cycle: Evaporation</h3><p><b>Evaporation</b> is the process by which water changes from a liquid to a gas or vapor. The sun provides the energy that drives the water cycle, heating water in oceans and lakes.</p>',
-            unlocksQuestionIds: [q1Id]
-        },
-        {
-            id: infoCardId2,
-            content: '<h3>The Water Cycle: Condensation</h3><p><b>Condensation</b> is the process by which water vapor in the air is changed into liquid water. Condensation is crucial to the water cycle because it is responsible for the formation of clouds.</p>',
-            unlocksQuestionIds: [q2Id]
-        }
-    ];
-
-    const questions: Question[] = [
-        {
-            id: q1Id,
-            questionType: 'multipleChoice',
-            questionText: 'What provides the energy for evaporation?',
-            options: [
-                { id: crypto.randomUUID(), text: 'The Sun', explanation: 'Correct! Solar energy heats the water.' },
-                { id: crypto.randomUUID(), text: 'The Wind', explanation: 'Wind helps move vapor, but the Sun provides the heat energy.' },
-                { id: crypto.randomUUID(), text: 'The Moon', explanation: 'The Moon affects tides, not evaporation.' }
-            ],
-            correctAnswerId: '', // Filled below
-            detailedExplanation: 'The sun heats the water, causing water molecules to move faster and escape as vapor.',
-            dueDate: new Date().toISOString(),
-            interval: 0,
-            easeFactor: INITIAL_EASE_FACTOR,
-            suspended: false,
-            masteryLevel: 0,
-            lapses: 0,
-            infoCardIds: [infoCardId1]
-        },
-        {
-            id: q2Id,
-            questionType: 'multipleChoice',
-            questionText: 'What forms when water vapor condenses?',
-            options: [
-                { id: crypto.randomUUID(), text: 'Clouds', explanation: 'Correct! Clouds are made of tiny liquid water droplets.' },
-                { id: crypto.randomUUID(), text: 'Wind', explanation: 'Wind is moving air.' },
-                { id: crypto.randomUUID(), text: 'Light', explanation: 'Light is energy.' }
-            ],
-            correctAnswerId: '', // Filled below
-            detailedExplanation: 'As water vapor cools higher in the atmosphere, it condenses into tiny droplets that form clouds.',
-            dueDate: new Date().toISOString(),
-            interval: 0,
-            easeFactor: INITIAL_EASE_FACTOR,
-            suspended: false,
-            masteryLevel: 0,
-            lapses: 0,
-            infoCardIds: [infoCardId2]
-        }
-    ];
-    
-    // Fix correct IDs
-    questions[0].correctAnswerId = questions[0].options[0].id;
-    questions[1].correctAnswerId = questions[1].options[0].id;
-
-    return {
-        id: crypto.randomUUID(),
-        name: 'Sample: The Water Cycle',
-        description: 'A guided learning deck explaining how water moves around the Earth.',
-        type: DeckType.Learning,
-        infoCards,
-        questions,
-        lastOpened: new Date().toISOString(),
-    };
-};
-
-export const createSampleCourse = (): LearningDeck => {
     const infoId1 = crypto.randomUUID();
     const infoId2 = crypto.randomUUID();
     const q1Id = crypto.randomUUID();
@@ -322,11 +247,12 @@ export const createSampleCourse = (): LearningDeck => {
 
     return {
         id: crypto.randomUUID(),
-        name: 'Sample Course: Photography Basics',
+        name: 'Sample: Photography Basics',
         description: 'A mini-course covering exposure and composition fundamentals.',
         type: DeckType.Learning,
         infoCards,
         questions,
+        learningMode: 'separate', // Default
         lastOpened: new Date().toISOString(),
     };
 };

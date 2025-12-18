@@ -85,6 +85,7 @@ export interface LearningDeck extends DeckBase {
   type: DeckType.Learning;
   infoCards: InfoCard[];
   questions: Question[];
+  learningMode?: 'mixed' | 'separate'; // Default is 'separate'
 }
 
 export type Deck = FlashcardDeck | QuizDeck | LearningDeck;

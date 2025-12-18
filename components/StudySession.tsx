@@ -24,6 +24,7 @@ import Icon from './ui/Icon.tsx';
 import Spinner from './ui/Spinner.tsx';
 import { stripHtml } from '../services/utils.ts';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts.ts';
+import ToggleSwitch from './ui/ToggleSwitch.tsx';
 
 interface StudySessionProps {
     deck: Deck;
@@ -61,7 +62,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
 
     const { hapticsEnabled, aiFeaturesEnabled, leechThreshold, leechAction } = useSettings();
     const { addToast } = useToast();
-    const { deckSeries, seriesProgress } = useStore();
+    const { deckSeries, seriesProgress, learningProgress } = useStore();
     const dataHandlers = useData();
     const series = seriesId ? deckSeries[seriesId] : null;
     
@@ -69,6 +70,7 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
     const sessionKey = `session_deck_${deck.id}${sessionKeySuffix}`;
     const isLearningDeck = deck.type === 'learning';
 
+    // Queue Hook
     const { sessionQueue, setSessionQueue, isSessionInitialized, initialIndex, readInfoCardIds, setReadInfoCardIds, unlockedQuestionIds, setUnlockedQuestionIds, initialItemsCompleted } = useSessionQueue(deck, sessionKey, isSpecialSession);
     
     useEffect(() => {
@@ -86,13 +88,22 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         if (isSpecialSession) {
             total = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards?.length : (deck as QuizDeck | LearningDeck).questions?.length) || 0;
         } else if (deck.type === DeckType.Learning) {
+            // If Mixed Mode, the sessionQueue *is* the total plan (roughly)
+            // If Separate Mode, sessionQueue is just due items
             const learningDeck = deck as LearningDeck;
-            total = (learningDeck.infoCards?.length || 0) + (learningDeck.questions?.length || 0);
+            if (learningDeck.learningMode === 'mixed') {
+                 // In Mixed mode, total is tough because the queue is dynamic. 
+                 // Let's use current queue length + completed.
+                 total = sessionQueue.length + itemsCompleted; // Approximation
+            } else {
+                 total = sessionQueue.length;
+            }
         } else {
             total = sessionQueue.length;
         }
-        setTotalSessionItems(total);
-    }, [isSessionInitialized, deck, isSpecialSession, sessionQueue]);
+        // Ensure total doesn't shrink weirdly
+        setTotalSessionItems(prev => Math.max(prev, total));
+    }, [isSessionInitialized, deck, isSpecialSession, sessionQueue, itemsCompleted]);
     
     useEffect(() => {
         if (isSessionInitialized) {
@@ -277,29 +288,37 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
         }
     }, [isCurrent, isAnswered, currentIndex, setSessionQueue]);
 
-    const handleReadInfoCard = useCallback(() => {
+    const handleReadInfoCard = useCallback(async () => {
         if (isCurrent && isInfoCard) {
             const infoCard = displayedItem as InfoCard;
-            setReadInfoCardIds(prev => new Set(prev).add(infoCard.id));
-            setUnlockedQuestionIds(prev => new Set([...prev, ...infoCard.unlocksQuestionIds]));
+            const newReadIds = Array.from(new Set([...Array.from(readInfoCardIds), infoCard.id]));
+            const newUnlockedIds = Array.from(new Set([...Array.from(unlockedQuestionIds), ...infoCard.unlocksQuestionIds]));
             
-            const newlyUnlockedQuestions = (deck as LearningDeck).questions
-                .filter(q => infoCard.unlocksQuestionIds.includes(q.id));
-
-            const currentQueueIds = new Set(sessionQueue.map(item => item.id));
-            const questionsToAdd = newlyUnlockedQuestions.filter(q => !currentQueueIds.has(q.id));
-
-            if (questionsToAdd.length > 0) {
-                questionsToAdd.sort(() => Math.random() - 0.5);
-                setSessionQueue(prev => {
-                    const nextQueue = [...prev];
-                    nextQueue.splice(currentIndex + 1, 0, ...questionsToAdd);
-                    return nextQueue;
+            // Persist progress
+            setReadInfoCardIds(new Set(newReadIds));
+            setUnlockedQuestionIds(new Set(newUnlockedIds));
+            
+            if (dataHandlers?.handleUpdateLearningProgress) {
+                await dataHandlers.handleUpdateLearningProgress({
+                    deckId: deck.id,
+                    readInfoCardIds: newReadIds,
+                    unlockedQuestionIds: newUnlockedIds,
+                    lastReadCardId: infoCard.id
                 });
             }
+
+            // In Mixed mode, questions are already in the queue linearly, so we don't need to splice them in randomly.
+            // If the user wants random questions after reading, that is handled by "Separate" mode logic or custom insertions.
+            // For now, Mixed Mode implies the queue is pre-built linearly.
+            // However, useSessionQueue logic for Mixed mode pre-populates based on UNREAD. 
+            // So if we are reading it now, the next item in queue should naturally follow.
+            
+            // NOTE: If we want to support "unlocking" questions that were NOT in the queue (because we are in Separate mode switching to Mixed?), 
+            // we'd need more complex logic. Assuming simple flow for now.
+
             advanceToNext();
         }
-    }, [isCurrent, isInfoCard, displayedItem, setReadInfoCardIds, setUnlockedQuestionIds, deck, setSessionQueue, currentIndex, advanceToNext, sessionQueue]);
+    }, [isCurrent, isInfoCard, displayedItem, readInfoCardIds, unlockedQuestionIds, deck.id, dataHandlers, advanceToNext]);
 
     const handleNavigatePrevious = useCallback(() => {
         if (displayIndex > 0) setDisplayIndex(prev => prev - 1);
@@ -371,6 +390,26 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
             setIsExplaining(false);
         }
     };
+
+    const handleToggleLearningMode = useCallback(async () => {
+        if (isLearningDeck) {
+            const learningDeck = deck as LearningDeck;
+            const newMode = learningDeck.learningMode === 'mixed' ? 'separate' : 'mixed';
+            
+            // Delete current session state to force a queue rebuild on reload/re-render
+            await deleteSessionState(sessionKey);
+            
+            // Update deck locally and in DB
+            // This update triggers the useSessionQueue hook to re-run because 'deck' prop changes (if parent passes updated deck)
+            // or we might need to force a reload if the parent doesn't update immediately.
+            // The dataHandlers.handleUpdateDeck will update the store, which updates the 'deck' prop passed here.
+            await dataHandlers?.handleUpdateDeck({ ...learningDeck, learningMode: newMode }, { silent: true });
+            
+            addToast(`Switched to ${newMode === 'mixed' ? 'Mixed Course' : 'Review Only'} mode.`, 'success');
+            // Force re-initialization of session
+            window.location.reload(); 
+        }
+    }, [deck, isLearningDeck, sessionKey, dataHandlers, addToast]);
 
     // Keyboard Shortcuts Configuration
     const shortcuts = useMemo(() => ({
@@ -593,6 +632,17 @@ const StudySession: React.FC<StudySessionProps> = ({ deck, onSessionEnd, onItemR
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-surface shadow-xl border border-border rounded-lg p-4 animate-fade-in text-left z-50">
                                 <h4 className="text-sm font-semibold text-text mb-3 border-b border-border pb-1">Session Settings</h4>
                                 
+                                {isLearningDeck && (
+                                    <div className="mb-4">
+                                        <ToggleSwitch 
+                                            label="Mixed Mode" 
+                                            checked={(deck as LearningDeck).learningMode === 'mixed'} 
+                                            onChange={handleToggleLearningMode}
+                                            description="Combine reading and questions."
+                                        />
+                                    </div>
+                                )}
+
                                 <div className="mb-4">
                                     <label className="flex items-center text-xs font-semibold text-text-muted mb-2">
                                         <Icon name="type" className="w-3 h-3 mr-1" /> Text Size

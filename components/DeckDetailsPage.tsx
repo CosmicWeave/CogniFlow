@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
 import Button from './ui/Button.tsx';
 import Link from './ui/Link.tsx';
@@ -14,7 +14,7 @@ import { useRouter } from '../contexts/RouterContext.tsx';
 import MasteryBar from './ui/MasteryBar.tsx';
 import { getEffectiveMasteryLevel, getDueItemsCount } from '../services/srs.ts';
 import DueDateGraph from './ui/DueDateGraph.tsx';
-import { useStore } from '../store/store.ts';
+import { useStore, useSeriesList } from '../store/store.ts';
 import * as db from '../services/db.ts';
 import Spinner from './ui/Spinner.tsx';
 import MasteryOverTimeGraph from './ui/MasteryOverTimeGraph.tsx';
@@ -31,7 +31,7 @@ import CramOptionsModal, { CramOptions } from './CramOptionsModal.tsx';
 interface DeckDetailsPageProps {
   deck: Deck;
   sessionsToResume: Set<string>;
-  onUpdateDeck: (updatedDeck: Deck, options?: { silent: boolean }) => void;
+  onUpdateDeck: (updatedDeck: Deck, options?: { silent?: boolean; toastMessage?: string }) => void;
   onDeleteDeck: (deckId: string) => void;
   onUpdateLastOpened: (deckId: string) => void;
   openConfirmModal: (props: any) => void;
@@ -129,7 +129,7 @@ const StatisticsTabContent = ({ deck }: { deck: Deck }) => {
     }
     
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                  <div className="bg-surface p-6 rounded-lg shadow-md border border-border">
                     <h3 className="text-xl font-semibold text-text mb-4">Mastery Over Time</h3>
@@ -161,22 +161,40 @@ const StatisticsTabContent = ({ deck }: { deck: Deck }) => {
     );
 };
 
+const QuickStatCard = ({ icon, label, value, subtext, color = "primary" }: { icon: IconName, label: string, value: string | number, subtext?: string, color?: string }) => (
+    <div className="bg-surface p-4 rounded-lg shadow-sm border border-border flex items-center gap-4">
+        <div className={`p-3 rounded-full bg-${color}/10 text-${color}`}>
+            <Icon name={icon} className="w-6 h-6" />
+        </div>
+        <div>
+            <p className="text-sm font-medium text-text-muted">{label}</p>
+            <p className="text-2xl font-bold text-text">{value}</p>
+            {subtext && <p className="text-xs text-text-muted mt-0.5">{subtext}</p>}
+        </div>
+    </div>
+);
+
 const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResume, onUpdateDeck, onDeleteDeck, onUpdateLastOpened, openConfirmModal, handleGenerateQuestionsForDeck, handleGenerateContentForLearningDeck, onCancelAIGeneration, onSaveLearningBlock, onDeleteLearningBlock, onExportDeck, onRegenerateQuestion, onExpandText, onGenerateAI }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(deck.name);
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
   const [editedFolderId, setEditedFolderId] = useState(deck.folderId || '');
   const [editedIcon, setEditedIcon] = useState(deck.icon);
+  
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
   const [isCramModalOpen, setIsCramModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isBlockDetailModalOpen, setIsBlockDetailModalOpen] = useState(false);
   const [selectedBlock, setSelectedBlock] = useState<LearningBlockData | null>(null);
+  
   const { navigate } = useRouter();
   const { addToast } = useToast();
   const { aiFeaturesEnabled } = useSettings();
   const { folders, aiGenerationStatus, learningProgress } = useStore();
+  const seriesList = useSeriesList();
   const dataHandlers = useData();
+  const menuRef = useRef<HTMLDivElement>(null);
   
   const allItems = (deck.type === DeckType.Flashcard ? (deck as FlashcardDeck).cards : 
                    deck.type === DeckType.Learning ? (deck as LearningDeck).questions : 
@@ -192,6 +210,10 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   }, [aiGenerationStatus, deck.id]);
 
   const isGeneratingThisDeck = !!relevantTask;
+
+  const parentSeries = useMemo(() => {
+      return seriesList.find(s => !s.deletedAt && (s.levels || []).some(l => l.deckIds?.includes(deck.id)));
+  }, [seriesList, deck.id]);
 
   useEffect(() => {
       onUpdateLastOpened(deck.id);
@@ -211,6 +233,18 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
           setEditedIcon(deck.icon);
       }
   }, [deck, isEditing]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+            setIsMenuOpen(false);
+        }
+    };
+    if (isMenuOpen) {
+        document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMenuOpen]);
 
   const handleSaveChanges = () => {
     onUpdateDeck({ ...deck, name: editedName, description: editedDescription, folderId: editedFolderId || null, icon: editedIcon });
@@ -331,10 +365,16 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     if (allItems.length === 0) return "No Items to Study";
     if (deck.locked) return "Deck is Locked";
     
-    // Custom logic for Learning Decks is handled in the render
-    if (deck.type === DeckType.Quiz) return canResume ? 'Resume Quiz' : `Start Quiz (${dueCount} due)`;
-    return canResume ? 'Resume Study' : `Study Cards (${dueCount} due)`;
-  }, [deck.type, canResume, dueCount, deck.locked, allItems.length]);
+    if (deck.type === DeckType.Quiz) return canResume ? 'Resume Quiz' : `Start Quiz`;
+    
+    // Learning Mode Logic
+    if (deck.type === DeckType.Learning) {
+        if ((deck as LearningDeck).learningMode === 'mixed') return `Start Course`;
+        return `Practice`;
+    }
+
+    return canResume ? 'Resume Study' : `Study Cards`;
+  }, [deck.type, canResume, deck.locked, allItems.length, (deck as LearningDeck).learningMode]);
 
   const progressBarData = [
     { value: progressStats.new, color: 'bg-blue-500', label: 'New' },
@@ -343,16 +383,19 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     { value: progressStats.mature, color: 'bg-green-500', label: 'Mature' },
   ];
   
-  const tabClasses = (tabName: Tab) => `px-4 py-2 text-sm font-medium transition-colors ${activeTab === tabName ? 'border-b-2 border-primary text-text' : 'text-text-muted hover:text-text'}`;
+  const tabClasses = (tabName: Tab) => `px-4 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === tabName ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`;
   
   const isDeckEmpty = allItems.length === 0 && (deck.type !== DeckType.Learning || (deck as LearningDeck).infoCards.length === 0);
+  const showReadButton = deck.type === DeckType.Learning && (deck as LearningDeck).learningMode !== 'mixed';
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
-      {/* Deck Info & Edit Section */}
-      <div className="bg-surface rounded-lg shadow-md p-6 border border-border">
+    <div className="max-w-5xl mx-auto animate-fade-in space-y-6 pb-20">
+      
+      {/* Hero Header Section */}
+      <div className={`bg-surface rounded-xl shadow-sm border border-border ${isEditing ? 'overflow-hidden' : ''}`}>
         {isEditing ? (
-          <div className="space-y-4 animate-fade-in">
+          <div className="p-6 space-y-4 animate-fade-in bg-background/50">
+            <h2 className="text-xl font-bold text-text mb-4">Edit Deck Details</h2>
             <div>
               <label htmlFor="deck-name-edit" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
               <input
@@ -360,38 +403,40 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                 type="text"
                 value={editedName}
                 onChange={(e) => setEditedName(e.target.value)}
-                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-2xl font-bold"
+                className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-xl font-bold"
                 autoFocus
               />
             </div>
             
-            <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Deck Icon</label>
-                <div className="flex gap-2">
-                    <select 
-                        value={editedIcon || ''} 
-                        onChange={(e) => setEditedIcon(e.target.value as IconName)} 
-                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
-                    >
-                        <option value="">Default</option>
-                        {ALL_ICONS.map(icon => (
-                            <option key={icon} value={icon}>{icon}</option>
-                        ))}
-                    </select>
-                    {aiFeaturesEnabled && (
-                        <Button variant="secondary" onClick={() => dataHandlers?.handleSuggestDeckIcon(deck)} title="Suggest Icon with AI">
-                            <Icon name="zap" className="w-4 h-4 mr-1"/> Auto
-                        </Button>
-                    )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-text-muted mb-1">Deck Icon</label>
+                    <div className="flex gap-2">
+                        <select 
+                            value={editedIcon || ''} 
+                            onChange={(e) => setEditedIcon(e.target.value as IconName)} 
+                            className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
+                        >
+                            <option value="">Default</option>
+                            {ALL_ICONS.map(icon => (
+                                <option key={icon} value={icon}>{icon}</option>
+                            ))}
+                        </select>
+                        {aiFeaturesEnabled && (
+                            <Button variant="secondary" onClick={() => dataHandlers?.handleSuggestDeckIcon(deck)} title="Suggest Icon with AI">
+                                <Icon name="zap" className="w-4 h-4 mr-1"/> Auto
+                            </Button>
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            <div>
-              <label htmlFor="deck-folder" className="block text-sm font-medium text-text-muted mb-1">Folder</label>
-              <select id="deck-folder" value={editedFolderId} onChange={(e) => setEditedFolderId(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                <option value="">No folder</option>
-                {(Object.values(folders) as Folder[]).map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-              </select>
+                <div>
+                    <label htmlFor="deck-folder" className="block text-sm font-medium text-text-muted mb-1">Folder</label>
+                    <select id="deck-folder" value={editedFolderId} onChange={(e) => setEditedFolderId(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
+                        <option value="">No folder</option>
+                        {(Object.values(folders) as Folder[]).map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                    </select>
+                </div>
             </div>
             
             <div>
@@ -405,176 +450,215 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
               />
             </div>
             
-            <div className="flex justify-start gap-2 pt-2">
-              <Button onClick={handleSaveChanges}><Icon name="save" className="mr-2" /> Save Changes</Button>
+            <div className="flex justify-end gap-2 pt-2 border-t border-border mt-4">
               <Button variant="secondary" onClick={handleCancelEdit}>Cancel</Button>
+              <Button onClick={handleSaveChanges}><Icon name="save" className="mr-2" /> Save Changes</Button>
             </div>
           </div>
         ) : (
-          <div>
-            <div className="min-w-0 flex items-start gap-3">
-                <div className="p-3 bg-primary/10 rounded-lg hidden sm:block">
-                    <Icon name={(deck.icon as IconName) || (deck.type === 'flashcard' ? 'laptop' : (deck.type === 'learning' ? 'book-open' : 'help-circle'))} className="w-8 h-8 text-primary" />
-                </div>
-                <div className="flex-grow">
-                    <h2 className="text-3xl font-bold mb-2 text-text break-words">{deck.name}</h2>
-                    {deck.folderId && (
-                        <div className="flex items-center text-sm text-text-muted mb-2">
-                            <Icon name="folder" className="w-4 h-4 mr-2" />
-                            <span>{folders[deck.folderId]?.name || '...'}</span>
-                        </div>
-                    )}
+          <div className="p-6 md:p-8 flex flex-col md:flex-row items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+                <div className="flex items-start gap-4">
+                    <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0">
+                        <Icon name={(deck.icon as IconName) || (deck.type === 'flashcard' ? 'laptop' : (deck.type === 'learning' ? 'book-open' : 'help-circle'))} className="w-8 h-8 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        {parentSeries ? (
+                             <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <Link href={`/series/${parentSeries.id}`} className="flex items-center text-xs font-bold text-primary uppercase tracking-wider hover:underline">
+                                    <Icon name="layers" className="w-3 h-3 mr-1" />
+                                    <span>{parentSeries.name}</span>
+                                </Link>
+                                {deck.folderId && folders[deck.folderId] && (
+                                    <>
+                                        <span className="text-text-muted/30 text-xs">•</span>
+                                        <div className="flex items-center text-xs font-medium text-text-muted uppercase tracking-wider">
+                                            <Icon name="folder" className="w-3 h-3 mr-1" />
+                                            <span>{folders[deck.folderId].name}</span>
+                                        </div>
+                                    </>
+                                )}
+                             </div>
+                        ) : (
+                            deck.folderId && (
+                                <div className="flex items-center text-xs font-semibold text-text-muted mb-1 uppercase tracking-wider">
+                                    <Icon name="folder" className="w-3 h-3 mr-1" />
+                                    <span>{folders[deck.folderId]?.name || 'Uncategorized'}</span>
+                                </div>
+                            )
+                        )}
+                        <h1 className="text-3xl font-extrabold text-text break-words leading-tight">{deck.name}</h1>
+                        {deck.description && (
+                            <div className="mt-2 text-text-muted">
+                                <TruncatedText html={deck.description} className="prose prose-sm dark:prose-invert max-w-none text-text-muted leading-relaxed" />
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 mb-4 mt-2">
-                <Button variant="ghost" onClick={() => setIsEditing(true)}><Icon name="edit" className="mr-2"/> Edit</Button>
-                {aiFeaturesEnabled && !isDeckEmpty && (
-                    <Button variant="ghost" onClick={() => dataHandlers?.handleOpenDeckAnalysis(deck)}>
-                        <Icon name="zap" className="mr-2" /> Analyze & Improve
-                    </Button>
+            
+            <div className="relative flex-shrink-0 self-start mt-2 md:mt-0" ref={menuRef}>
+                <Button variant="ghost" onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 rounded-full hover:bg-border/50">
+                    <Icon name="more-vertical" className="w-6 h-6 text-text-muted" />
+                </Button>
+                {isMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-surface rounded-lg shadow-xl border border-border z-20 py-1 animate-fade-in origin-top-right">
+                        <button onClick={() => { setIsEditing(true); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                            <Icon name="edit" className="w-4 h-4 mr-3" /> Edit Details
+                        </button>
+                        {aiFeaturesEnabled && !isDeckEmpty && (
+                            <button onClick={() => { dataHandlers?.handleOpenDeckAnalysis(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                <Icon name="zap" className="w-4 h-4 mr-3" /> Analyze & Improve
+                            </button>
+                        )}
+                        <Link href={`/decks/${deck.id}/print`} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                            <Icon name="printer" className="w-4 h-4 mr-3" /> Print / PDF
+                        </Link>
+                        <button onClick={() => { onExportDeck(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                            <Icon name="download" className="w-4 h-4 mr-3" /> Export JSON
+                        </button>
+                        {deck.type === 'flashcard' && (
+                            <button onClick={() => { dataHandlers?.handleExportDeckCSV(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                <Icon name="file-text" className="w-4 h-4 mr-3" /> Export CSV
+                            </button>
+                        )}
+                        <div className="my-1 border-t border-border"></div>
+                        <button onClick={() => { onUpdateDeck({ ...deck, archived: true }, { toastMessage: "Deck archived." }); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                            <Icon name="archive" className="w-4 h-4 mr-3" /> Archive
+                        </button>
+                        <button onClick={() => { handleDelete(); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                            <Icon name="trash-2" className="w-4 h-4 mr-3" /> Move to Trash
+                        </button>
+                    </div>
                 )}
-                <Button variant="ghost" onClick={() => onUpdateDeck({ ...deck, archived: true })}><Icon name="archive" className="mr-2"/> Archive</Button>
-                <div className="flex gap-1">
-                    <Link href={`/decks/${deck.id}/print`} passAs={Button} variant="ghost" title="Print/Export PDF">
-                        <Icon name="printer" className="mr-2"/> Print
-                    </Link>
-                    <Button variant="ghost" onClick={() => onExportDeck(deck)} title="Export JSON"><Icon name="download" className="mr-2"/> Export</Button>
-                    {deck.type === 'flashcard' && (
-                        <Button variant="ghost" onClick={() => dataHandlers?.handleExportDeckCSV(deck)} title="Export CSV">CSV</Button>
-                    )}
-                </div>
             </div>
-            {deck.description && <TruncatedText html={deck.description} className="text-text-muted prose dark:prose-invert max-w-none" />}
           </div>
         )}
       </div>
 
-      {/* Tabs */}
-       <div className="border-b border-border flex space-x-4">
+      {/* Navigation Tabs */}
+       <div className="flex space-x-1 border-b border-border overflow-x-auto">
           <button className={tabClasses('overview')} onClick={() => setActiveTab('overview')}>Overview</button>
           <button className={tabClasses('items')} onClick={() => setActiveTab('items')}>Items ({allItems.length})</button>
           <button className={tabClasses('stats')} onClick={() => setActiveTab('stats')}>Statistics</button>
        </div>
        
-       <div className="mt-6">
+       <div className="min-h-[300px]">
         {activeTab === 'overview' && (
             <div className="space-y-8 animate-fade-in">
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div className="space-y-4 bg-surface p-6 rounded-lg shadow-md border border-border">
-                        <div>
-                            <h4 className="text-sm font-semibold text-text mb-2">Deck Statistics</h4>
-                            <div className="space-y-1">
-                                {deck.type === DeckType.Learning && <p className="text-sm text-text-muted">Info Cards: <strong className="text-text">{(deck as LearningDeck).infoCards?.length || 0}</strong></p>}
-                                <p className="text-sm text-text-muted">Active {deck.type === DeckType.Learning ? 'Questions' : 'Items'}: <strong className="text-text">{activeItems.length}</strong></p>
-                                {deck.type === DeckType.Learning && (
-                                    <p className="text-sm text-text-muted">Questions Unlocked: <strong className="text-text">{unlockedQuestionsCount} / {totalQuestionsCount}</strong></p>
+                {/* Primary Actions Area */}
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-6 bg-primary/5 rounded-xl border border-primary/10">
+                    <div className="flex-1 text-center md:text-left">
+                        <h3 className="text-lg font-bold text-text mb-1">
+                            {dueCount > 0 ? `You have ${dueCount} item${dueCount !== 1 ? 's' : ''} due today.` : "All caught up for now!"}
+                        </h3>
+                        <p className="text-sm text-text-muted">
+                            {dueCount > 0 ? "Keep up your streak and review now." : "Review ahead or add new cards."}
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3 justify-center md:justify-end">
+                        {isDeckEmpty && aiFeaturesEnabled ? (
+                            isGeneratingThisDeck ? (
+                                <div className="flex items-center justify-center py-3 px-6 bg-surface rounded-md border border-border">
+                                    <Spinner size="sm" />
+                                    <span className="ml-3 text-text-muted text-sm font-semibold">{relevantTask.statusText || 'Generating...'}</span>
+                                </div>
+                            ) : (
+                                <Button 
+                                    variant="primary" 
+                                    size="lg" 
+                                    onClick={() => {
+                                        if (deck.type === DeckType.Quiz) {
+                                            handleGenerateQuestionsForDeck(deck as QuizDeck);
+                                        } else if (deck.type === DeckType.Learning) {
+                                            handleGenerateContentForLearningDeck(deck as LearningDeck);
+                                        } else {
+                                            onGenerateAI(deck);
+                                        }
+                                    }}
+                                >
+                                    <Icon name="zap" className="w-5 h-5 mr-2" />
+                                    Generate Content
+                                </Button>
+                            )
+                        ) : isDeckEmpty && !aiFeaturesEnabled ? (
+                            <Button variant="primary" size="lg" onClick={() => setActiveTab('items')}>
+                                <Icon name="plus" className="w-5 h-5 mr-2" />
+                                Create First Item
+                            </Button>
+                        ) : (
+                            <>
+                                {showReadButton && (
+                                    <Link 
+                                        href={`/decks/${deck.id}/read`}
+                                        passAs={Button}
+                                        variant="secondary"
+                                        size="lg"
+                                        className="font-semibold"
+                                    >
+                                        <Icon name="book-open" className="w-5 h-5 mr-2" />
+                                        {readCardCount === 0 ? 'Read' : (hasUnreadContent ? 'Continue Reading' : 'Review')}
+                                    </Link>
                                 )}
-                                <p className="text-sm text-text-muted">Items Due Today: <strong className={dueCount > 0 ? 'text-primary' : 'text-text'}>{dueCount}</strong></p>
-                                {suspendedCount > 0 && <p className="text-sm text-yellow-600 dark:text-yellow-400">Suspended Items: <strong>{suspendedCount}</strong></p>}
-                            </div>
-                        </div>
-                        <div>
-                           <h4 className="text-sm font-semibold text-text mb-2">Overall Mastery</h4><MasteryBar level={effectiveMastery} />
-                        </div>
-                        <div>
-                           <h4 className="text-sm font-semibold text-text mb-2">Progress by Stage</h4>
-                           <StackedProgressBar data={progressBarData} total={activeItems.length} />
-                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 text-xs">
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 mr-2"></span><span className="text-text-muted">New: <strong>{progressStats.new}</strong></span></div>
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 mr-2"></span><span className="text-text-muted">Learning: <strong>{progressStats.learning}</strong></span></div>
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-teal-500 mr-2"></span><span className="text-text-muted">Young: <strong>{progressStats.young}</strong></span></div>
-                               <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-green-500 mr-2"></span><span className="text-text-muted">Mature: <strong>{progressStats.mature}</strong></span></div>
-                           </div>
-                        </div>
+                                <Link 
+                                    href={`/decks/${deck.id}/study`} 
+                                    passAs={Button} 
+                                    variant={(deck.type !== DeckType.Learning || !hasUnreadContent || (deck as LearningDeck).learningMode === 'mixed') ? 'primary' : 'secondary'} 
+                                    size="lg" 
+                                    onClick={() => onUpdateLastOpened(deck.id)} 
+                                    disabled={(dueCount === 0 && !canResume) || !!deck.locked || allItems.length === 0} 
+                                    className="font-bold px-8 shadow-md"
+                                >
+                                    <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> {studyButtonText}
+                                </Link>
+                                <Button
+                                    variant="secondary"
+                                    size="lg"
+                                    onClick={() => setIsCramModalOpen(true)}
+                                    disabled={allItems.length === 0}
+                                    title="Review without affecting stats"
+                                >
+                                    Cram
+                                </Button>
+                            </>
+                        )}
+                        {/* More study options dropdown could go here, or simple buttons */}
+                        {deck.type === DeckType.Flashcard && activeItems.length > 0 && (
+                             <Link href={`/decks/${deck.id}/study-reversed`} passAs={Button} variant="ghost" size="lg" onClick={() => onUpdateLastOpened(deck.id)} title="Study Back-to-Front">
+                                <Icon name="repeat" className="w-5 h-5" />
+                            </Link>
+                        )}
+                        {deck.type === DeckType.Quiz && activeItems.length > 0 && (
+                             <Link href={`/decks/${deck.id}/study-flip`} passAs={Button} variant="ghost" size="lg" onClick={() => onUpdateLastOpened(deck.id)} title="Review as Flashcards">
+                                <Icon name="columns" className="w-5 h-5" />
+                            </Link>
+                        )}
+                    </div>
+                </div>
+
+                {/* Dashboard Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <QuickStatCard icon="layers" label="Total Items" value={activeItems.length} color="blue" />
+                    <QuickStatCard icon="zap" label="Due Today" value={dueCount} subtext={suspendedCount > 0 ? `${suspendedCount} suspended` : undefined} color="orange" />
+                    <div className="sm:col-span-2 bg-surface p-4 rounded-lg shadow-sm border border-border flex flex-col justify-center">
+                        <MasteryBar level={effectiveMastery} />
+                    </div>
+                </div>
+
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="bg-surface p-6 rounded-lg shadow-md border border-border flex flex-col justify-center">
+                       <h4 className="text-sm font-semibold text-text mb-4 flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4"/> Retention Breakdown</h4>
+                       <StackedProgressBar data={progressBarData} total={activeItems.length} />
+                       <div className="grid grid-cols-2 gap-4 mt-6">
+                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span className="text-sm text-text-muted">New: <strong>{progressStats.new}</strong></span></div>
+                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-orange-500"></div><span className="text-sm text-text-muted">Learning: <strong>{progressStats.learning}</strong></span></div>
+                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-teal-500"></div><span className="text-sm text-text-muted">Young: <strong>{progressStats.young}</strong></span></div>
+                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div><span className="text-sm text-text-muted">Mature: <strong>{progressStats.mature}</strong></span></div>
+                       </div>
                     </div>
                     <div className="bg-surface p-6 rounded-lg shadow-md border border-border">
                          <DueDateGraph data={dueDateGraphData} />
                     </div>
-                </div>
-                <div className="border-t border-border pt-6 flex flex-wrap items-center justify-center gap-4">
-                  {isDeckEmpty && aiFeaturesEnabled ? (
-                    isGeneratingThisDeck ? (
-                        <div className="flex items-center justify-center w-full sm:w-auto text-lg py-3 px-6 font-semibold bg-background rounded-md">
-                            <Spinner size="sm" />
-                            <span className="ml-3 text-text-muted">{relevantTask.statusText || 'Generating...'}</span>
-                        </div>
-                    ) : (
-                        <Button 
-                            variant="primary" 
-                            size="lg" 
-                            className="font-semibold w-full sm:w-auto"
-                            onClick={() => {
-                                if (deck.type === DeckType.Quiz) {
-                                    handleGenerateQuestionsForDeck(deck as QuizDeck);
-                                } else if (deck.type === DeckType.Learning) {
-                                    handleGenerateContentForLearningDeck(deck as LearningDeck);
-                                } else {
-                                    // For flashcards, offer generation
-                                    onGenerateAI(deck);
-                                }
-                            }}
-                        >
-                            <Icon name="zap" className="w-5 h-5 mr-2" />
-                            {deck.type === DeckType.Flashcard ? 'Generate with AI' : (deck.type === DeckType.Quiz ? 'Generate Questions' : 'Generate Content')}
-                        </Button>
-                    )
-                  ) : isDeckEmpty && !aiFeaturesEnabled ? (
-                    <Button 
-                        variant="primary" 
-                        size="lg" 
-                        className="font-semibold w-full sm:w-auto"
-                        onClick={() => setActiveTab('items')}
-                    >
-                        <Icon name="plus" className="w-5 h-5 mr-2" />
-                        Create {deck.type === DeckType.Flashcard ? 'Flashcards' : 'Items'}
-                    </Button>
-                  ) : (
-                    <>
-                        {deck.type === DeckType.Learning && (
-                            <Link 
-                                href={`/decks/${deck.id}/read`}
-                                passAs={Button}
-                                variant={hasUnreadContent ? 'primary' : 'secondary'}
-                                size="lg"
-                                className="font-semibold w-full sm:w-auto"
-                            >
-                                <Icon name="book-open" className="w-5 h-5 mr-2" />
-                                {readCardCount === 0 ? 'Start Reading' : (hasUnreadContent ? 'Continue Reading' : 'Review Content')}
-                            </Link>
-                        )}
-                        <Link 
-                            href={`/decks/${deck.id}/study`} 
-                            passAs={Button} 
-                            variant={(deck.type !== DeckType.Learning || !hasUnreadContent) ? 'primary' : 'secondary'} 
-                            size="lg" 
-                            onClick={() => onUpdateLastOpened(deck.id)} 
-                            disabled={(dueCount === 0 && !canResume) || !!deck.locked || allItems.length === 0} 
-                            className="font-semibold w-full sm:w-auto"
-                        >
-                            <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> {deck.type === DeckType.Learning ? `Practice (${dueCount})` : studyButtonText}
-                        </Link>
-                    </>
-                  )}
-                  <Button
-                    variant="secondary"
-                    size="lg"
-                    onClick={() => setIsCramModalOpen(true)}
-                    disabled={allItems.length === 0}
-                    className="font-semibold w-full sm:w-auto"
-                    title="Review all cards in random order or by difficulty."
-                  >
-                    <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> Cram
-                  </Button>
-                  {deck.type === DeckType.Flashcard && activeItems.length > 0 && (
-                     <Link href={`/decks/${deck.id}/study-reversed`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={!!deck.locked} className="font-semibold w-full sm:w-auto" title="Study cards from back to front.">
-                        <Icon name="repeat" className="w-5 h-5 mr-2" /> Study Reversed
-                    </Link>
-                  )}
-                  {deck.type === DeckType.Quiz && activeItems.length > 0 && (
-                     <Link href={`/decks/${deck.id}/study-flip`} passAs={Button} variant="secondary" size="lg" onClick={() => onUpdateLastOpened(deck.id)} disabled={!!deck.locked} className="font-semibold w-full sm:w-auto">
-                        <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> Review as Flashcards
-                    </Link>
-                  )}
                 </div>
             </div>
         )}
@@ -628,13 +712,6 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         )}
         {activeTab === 'stats' && <div className="animate-fade-in"><StatisticsTabContent deck={deck} /></div>}
        </div>
-
-      {/* Danger Zone */}
-      <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
-        <h3 className="text-xl font-semibold text-red-400 dark:text-red-300 mb-2">Danger Zone</h3>
-        <p className="text-red-500/80 dark:text-red-300/80 mb-4">Moving a deck to the trash will make it unavailable for study. It will be permanently deleted after 10 days.</p>
-        <Button variant="danger" onClick={handleDelete}><Icon name="trash-2" className="mr-2" /> Move to Trash</Button>
-      </div>
       
       {isBulkAddModalOpen && <BulkAddModal isOpen={isBulkAddModalOpen} onClose={() => setIsBulkAddModalOpen(false)} onAddItems={handleBulkAddItems} deckType={deck.type} />}
       {isBlockDetailModalOpen && (

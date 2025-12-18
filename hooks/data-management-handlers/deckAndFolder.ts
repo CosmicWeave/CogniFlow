@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { Deck, Folder, QuizDeck, LearningDeck, InfoCard, Question, DeckType, FlashcardDeck } from '../../types.ts';
 import storage from '../../services/storage.ts';
 import { useStore } from '../../store/store.ts';
-import { createNatureSampleDeck, createSampleFlashcardDeck, createSampleLearningDeck, createSampleCourse } from '../../services/sampleData.ts';
+import { createNatureSampleDeck, createSampleFlashcardDeck, createSampleLearningDeck } from '../../services/sampleData.ts';
 import { useToast } from '../useToast.ts';
 import * as exportService from '../../services/exportService.ts';
 
@@ -186,12 +186,6 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     addToast(`Sample learning deck "${sampleDeck.name}" created.`, 'success');
   }, [handleAddDecks, addToast]);
 
-  const handleCreateSampleCourse = useCallback(() => {
-    const sampleDeck = createSampleCourse();
-    handleAddDecks([sampleDeck]);
-    addToast(`Sample course "${sampleDeck.name}" created.`, 'success');
-  }, [handleAddDecks, addToast]);
-
   const handleSaveLearningBlock = useCallback(async (deckId: string, blockData: { infoCard: InfoCard; questions: Question[] }) => {
     const deck = useStore.getState().decks[deckId] as LearningDeck;
     if (!deck) return;
@@ -316,7 +310,6 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     handleCreateSampleQuizDeck,
     handleCreateSampleFlashcardDeck,
     handleCreateSampleLearningDeck,
-    handleCreateSampleCourse,
     handleSaveLearningBlock,
     handleDeleteLearningBlock,
     handleExportDeck,
@@ -326,7 +319,7 @@ export const useDeckAndFolderHandlers = ({ triggerSync, openConfirmModal }: any)
     handleAddDecks, handleUpdateDeck, handleBulkUpdateDecks, handleMoveDeck, handleDeleteDeck, 
     handleRestoreDeck, handleDeleteDeckPermanently, handleSaveFolder, handleDeleteFolder, 
     updateLastOpened, handleCreateSampleDeck, handleCreateSampleQuizDeck, handleCreateSampleFlashcardDeck,
-    handleCreateSampleLearningDeck, handleCreateSampleCourse, handleSaveLearningBlock, handleDeleteLearningBlock,
+    handleCreateSampleLearningDeck, handleSaveLearningBlock, handleDeleteLearningBlock,
     handleExportDeck, handleExportDeckCSV, handleShiftSchedule
   ]);
 };

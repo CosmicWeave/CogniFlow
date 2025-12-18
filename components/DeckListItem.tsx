@@ -125,8 +125,11 @@ export const DeckListItem: React.FC<DeckListItemProps> = React.memo(({ deck, ses
         if (deck.locked) return "Locked";
         if (isActionableEmptyDeck && !isTaskRunningForThisDeck) return "Generate";
         if (canResume) return "Resume";
+        if (deck.type === DeckType.Learning && (deck as LearningDeck).learningMode === 'mixed') {
+            return `Start Course`;
+        }
         return `Study (${dueCount})`;
-    }, [deck.locked, isActionableEmptyDeck, isTaskRunningForThisDeck, canResume, dueCount]);
+    }, [deck.locked, isActionableEmptyDeck, isTaskRunningForThisDeck, canResume, dueCount, deck.type, (deck as LearningDeck).learningMode]);
 
     const handlePrimaryAction = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -145,6 +148,8 @@ export const DeckListItem: React.FC<DeckListItemProps> = React.memo(({ deck, ses
         }
     };
     
+    const showReadButton = deck.type === DeckType.Learning && (deck as LearningDeck).learningMode !== 'mixed';
+
     return (
         <Link 
             href={`/decks/${deck.id}`}
@@ -215,7 +220,7 @@ export const DeckListItem: React.FC<DeckListItemProps> = React.memo(({ deck, ses
                         </div>
                     ) : (
                         <div className="flex gap-2">
-                            {deck.type === DeckType.Learning && (
+                            {showReadButton && (
                                 <Link 
                                     href={`/decks/${deck.id}/read`}
                                     passAs={Button}
