@@ -1,3 +1,4 @@
+
 import React, { ErrorInfo, ReactNode } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -12,19 +13,32 @@ interface ErrorBoundaryState {
   errorInfo: ErrorInfo | null;
 }
 
+/**
+ * ErrorBoundary component to catch rendering errors and display a fallback UI.
+ * Inherits from React.Component to use lifecycle methods for error handling.
+ */
+/* FIX: Explicitly extending React.Component to ensure properties like setState and props are inherited correctly in all environments. */
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // Initial state setup
   public state: ErrorBoundaryState = {
     hasError: false,
     error: null,
     errorInfo: null,
   };
 
+  /**
+   * Static method to update state when an error occurs during rendering.
+   */
   public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error, errorInfo: null };
   }
 
+  /**
+   * Lifecycle method to perform logging or side effects when an error is caught.
+   */
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    /* FIX: Correctly accessing setState inherited from React.Component. */
     this.setState({ errorInfo });
   }
 
@@ -57,8 +71,12 @@ ${errorInfo?.componentStack}
     });
   };
 
+  /**
+   * Renders the children or the fallback error UI.
+   */
   public render(): ReactNode {
     const { hasError, error } = this.state;
+    /* FIX: Correctly accessing props inherited from React.Component. */
     const { children } = this.props;
 
     if (hasError) {

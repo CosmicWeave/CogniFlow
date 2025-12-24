@@ -1,12 +1,16 @@
 
-import React, { useState, useRef, useMemo } from 'react';
-import { Card } from '../types';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { Card, DeckType, FlashcardDeck } from '../types';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
 import EditCardModal from './EditCardModal.tsx';
 import ConfirmModal from './ConfirmModal.tsx';
 import MasteryBar from './ui/MasteryBar.tsx';
 import { getEffectiveMasteryLevel } from '../services/srs.ts';
+import AIActionsMenu from './AIActionsMenu.tsx';
+import { useStore } from '../store/store.ts';
+import { useSettings } from '../hooks/useSettings.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
 
 interface CardListEditorProps {
   cards: Card[];
@@ -14,6 +18,7 @@ interface CardListEditorProps {
   onAddCard: (newCardData: Pick<Card, 'front' | 'back' | 'css'>) => void;
   onBulkAdd: () => void;
   deckName?: string;
+  deck: FlashcardDeck;
 }
 
 const PAGE_SIZE = 50;
@@ -45,7 +50,7 @@ const getDueDateInfo = (dueDateString: string): { text: string, isDue: boolean }
 };
 
 
-const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, onAddCard, onBulkAdd, deckName }) => {
+const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, onAddCard, onBulkAdd, deckName, deck }) => {
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [cardToDelete, setCardToDelete] = useState<Card | null>(null);
@@ -53,6 +58,17 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [draggedCardIndex, setDraggedCardIndex] = useState<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const { aiFeaturesEnabled } = useSettings();
+  const dataHandlers = useData();
+  
+  const relevantTask = useStore(useCallback(state => {
+      const { currentTask, queue } = state.aiGenerationStatus;
+      if (currentTask?.deckId === deck.id) return currentTask;
+      return (queue || []).find(task => task.deckId === deck.id);
+  }, [deck.id]));
+
+  const isGenerating = !!relevantTask;
 
   const visibleCards = useMemo(() => cards.slice(0, visibleCount), [cards, visibleCount]);
 
@@ -101,11 +117,10 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
   const handleDragStart = (index: number, e: React.DragEvent) => {
       setDraggedCardIndex(index);
       e.dataTransfer.effectAllowed = "move";
-      // Transparent drag image hack or just default
   };
 
   const handleDragOver = (index: number, e: React.DragEvent) => {
-      e.preventDefault(); // Necessary to allow dropping
+      e.preventDefault(); 
       e.dataTransfer.dropEffect = "move";
   };
 
@@ -209,18 +224,30 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
               </div>
             )}
           </div>
-          {cards.length > 0 && (
-            <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
-                    <Icon name="plus" className="w-5 h-5 mr-2"/>
-                    Add New Card
-                </Button>
-                <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
-                    <Icon name="code" className="w-5 h-5 mr-2"/>
-                    Bulk Add via JSON
-                </Button>
-            </div>
-          )}
+          
+          <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2 items-center">
+            <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
+                <Icon name="plus" className="w-5 h-5 mr-2"/>
+                Add New Card
+            </Button>
+            <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
+                <Icon name="code" className="w-5 h-5 mr-2"/>
+                Bulk Add via JSON
+            </Button>
+
+            <div className="flex-grow"></div>
+
+            {aiFeaturesEnabled && (
+                <AIActionsMenu 
+                    deck={deck}
+                    isGenerating={isGenerating}
+                    onGenerateMore={() => dataHandlers?.handleOpenAIGenerationForDeck(deck)}
+                    onRework={() => dataHandlers?.handleOpenAIReworkForDeck(deck)}
+                    onAnalyze={() => dataHandlers?.handleOpenDeckAnalysis(deck)}
+                    onGenerateAudio={() => dataHandlers?.handleGenerateAudioForAllCards(deck)}
+                />
+            )}
+          </div>
         </div>
       )}
 

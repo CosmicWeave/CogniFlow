@@ -1,5 +1,4 @@
 
-
 import { useCallback, useMemo } from 'react';
 import { Deck, DeckSeries, QuizDeck, DeckType, LearningDeck } from '../../types.ts';
 import storage from '../../services/storage.ts';
@@ -111,7 +110,8 @@ export const useSeriesHandlers = ({ triggerSync, handleAddDecks, handleUpdateDec
                 const decksForLevel = (levelData.decks || []).map((d: any): Deck | null => {
                     const newDeckBase = { id: crypto.randomUUID(), name: d.name, description: d.description };
                     if (d.type === DeckType.Quiz) return { ...newDeckBase, type: DeckType.Quiz, questions: d.questions || [] };
-                    if (d.type === DeckType.Learning) return { ...newDeckBase, type: DeckType.Learning, questions: d.questions || [], infoCards: d.infoCards || [] };
+                    // FIX: Added default learningMode for Learning decks
+                    if (d.type === DeckType.Learning) return { ...newDeckBase, type: DeckType.Learning, questions: d.questions || [], infoCards: d.infoCards || [], learningMode: d.learningMode || 'separate' };
                     if (d.type === DeckType.Flashcard) return { ...newDeckBase, type: DeckType.Flashcard, cards: d.cards || [] };
                     return null;
                 }).filter((d: Deck | null): d is Deck => d !== null);

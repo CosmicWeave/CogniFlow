@@ -1,3 +1,4 @@
+
 import React from 'react';
 import Link from './Link';
 import Icon from './Icon';
@@ -27,27 +28,27 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
 
   const renderLabel = (label: string) => (
     <>
-      <span className="sm:hidden" title={label}>{truncateLabel(label, 10)}</span>
+      <span className="sm:hidden" title={label}>{truncateLabel(label, 8)}</span>
       <span className="hidden sm:inline" title={label}>{truncateLabel(label, 25)}</span>
     </>
   );
 
   return (
-    <nav aria-label="Breadcrumb" className="mb-6">
-      <ol className="flex items-center space-x-2 text-sm text-text-muted flex-wrap">
+    <nav aria-label="Breadcrumb" className="mb-4 sm:mb-6">
+      <ol className="flex items-center space-x-1 sm:space-x-2 text-xs sm:text-sm text-text-muted flex-wrap">
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
           return (
             <li key={index} className="flex items-center">
               {index > 0 && (
-                <Icon name="chevron-left" className="w-4 h-4 rotate-180 mx-2 flex-shrink-0" />
+                <Icon name="chevron-left" className="w-3 h-3 sm:w-4 sm:h-4 rotate-180 mx-1 sm:mx-2 flex-shrink-0" />
               )}
               {isLast ? (
                 <span className="font-semibold text-text" aria-current="page">
                   {renderLabel(item.label)}
                 </span>
               ) : (
-                <Link href={item.href!} className="hover:underline hover:text-primary">
+                <Link href={item.href!} className="hover:underline hover:text-primary whitespace-nowrap">
                   {renderLabel(item.label)}
                 </Link>
               )}

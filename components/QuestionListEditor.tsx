@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Question, QuizDeck, LearningDeck } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
@@ -11,6 +11,9 @@ import MasteryBar from './ui/MasteryBar.tsx';
 import Spinner from './ui/Spinner.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
 import { stripHtml } from '../services/utils.ts';
+import AIActionsMenu from './AIActionsMenu.tsx';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import { useStore } from '../store/store.ts';
 
 type NewQuestionData = Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'lapses'>;
 
@@ -62,10 +65,19 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
   const [menuOpenForQuestion, setMenuOpenForQuestion] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [draggedQuestionIndex, setDraggedQuestionIndex] = useState<number | null>(null);
-  const [isAutoTagging, setIsAutoTagging] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
   const { aiFeaturesEnabled } = useSettings();
+  const dataHandlers = useData();
+
+  const relevantTask = useStore(useCallback(state => {
+      const { currentTask, queue } = state.aiGenerationStatus;
+      if (currentTask?.deckId === deck.id) return currentTask;
+      return (queue || []).find(task => task.deckId === deck.id);
+  }, [deck.id]));
+
+  const isGenerating = !!relevantTask;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -140,17 +152,6 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
     }
   };
 
-  const handleAutoTag = async () => {
-      if (onAutoTag) {
-          setIsAutoTagging(true);
-          try {
-              await onAutoTag();
-          } finally {
-              setIsAutoTagging(false);
-          }
-      }
-  };
-
   // Drag and Drop Handlers
   const handleDragStart = (index: number, e: React.DragEvent) => {
       setDraggedQuestionIndex(index);
@@ -183,7 +184,7 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
           aria-expanded={isOpen}
           aria-controls="question-list-content"
         >
-          <h3 className="text-xl font-semibold text-text">Questions</h3>
+          <h3 className="text-xl font-semibold text-text">Questions ({questions.length})</h3>
           <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
         </button>
       </div>
@@ -290,50 +291,35 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
                         <Icon name="plus" className="w-4 h-4 mr-2"/>
                         Add Question
                     </Button>
-                    {aiFeaturesEnabled && onGenerateAI && (
-                        <Button variant="ghost" onClick={onGenerateAI} disabled={isGeneratingAI}>
-                            <Icon name="zap" className="w-4 h-4 mr-2"/>
-                            Generate with AI
-                        </Button>
-                    )}
                 </div>
               </div>
             )}
           </div>
-          {questions.length > 0 && (
-            <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
-                    <Icon name="plus" className="w-5 h-5 mr-2"/>
-                    Add New Question
-                </Button>
-                <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
-                    <Icon name="code" className="w-5 h-5 mr-2"/>
-                    Bulk Add via JSON
-                </Button>
-                {aiFeaturesEnabled && onAutoTag && (
-                    <Button 
-                        variant="ghost" 
-                        onClick={handleAutoTag} 
-                        className="flex-grow sm:flex-grow-0"
-                        disabled={isAutoTagging}
-                    >
-                        {isAutoTagging ? <Spinner size="sm" /> : <Icon name="filter" className="w-5 h-5 mr-2"/>}
-                        {isAutoTagging ? 'Tagging...' : 'Auto-Tag'}
-                    </Button>
-                )}
-                {aiFeaturesEnabled && onGenerateAI && (
-                    <Button 
-                        variant="ghost" 
-                        onClick={onGenerateAI} 
-                        className="flex-grow sm:flex-grow-0"
-                        disabled={isGeneratingAI}
-                    >
-                        {isGeneratingAI ? <Spinner size="sm" /> : <Icon name="zap" className="w-5 h-5 mr-2"/>}
-                        {isGeneratingAI ? 'Generating...' : 'Generate with AI'}
-                    </Button>
-                )}
-            </div>
-          )}
+
+          <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2 items-center">
+            <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
+                <Icon name="plus" className="w-5 h-5 mr-2"/>
+                Add New Question
+            </Button>
+            <Button variant="ghost" onClick={onBulkAdd} className="flex-grow sm:flex-grow-0">
+                <Icon name="code" className="w-5 h-5 mr-2"/>
+                Bulk Add via JSON
+            </Button>
+
+            <div className="flex-grow"></div>
+
+            {aiFeaturesEnabled && (
+                <AIActionsMenu 
+                    deck={deck}
+                    isGenerating={isGenerating}
+                    onGenerateMore={() => dataHandlers?.handleOpenAIGenerationForDeck(deck)}
+                    onRework={() => dataHandlers?.handleOpenAIReworkForDeck(deck)}
+                    onAnalyze={() => dataHandlers?.handleOpenDeckAnalysis(deck)}
+                    onAutoTag={() => dataHandlers?.handleAutoTagQuestions(deck as QuizDeck)}
+                    onHardenDistractors={() => dataHandlers?.handleHardenAllDistractors(deck as QuizDeck)}
+                />
+            )}
+          </div>
         </div>
       )}
 

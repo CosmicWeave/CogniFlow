@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Deck, DeckSeries, Folder, AIActionType, AIAction } from "../types";
 
@@ -48,6 +49,10 @@ export const getAIResponse = async (
         decks: Deck[];
         folders: Folder[];
         series: DeckSeries[];
+        activeContext?: {
+            deck?: Deck;
+            series?: DeckSeries;
+        }
     }
 ): Promise<AIAction[]> => {
     const ai = getAiClient();
@@ -59,37 +64,48 @@ export const getAIResponse = async (
         return `- Series: "${s.name}" (id: ${s.id})\n${levelInfo}`;
     }).join('\n');
 
+    let activeItemContext = "";
+    if (context.activeContext?.deck) {
+        const d = context.activeContext.deck;
+        activeItemContext = `\nCURRENT OPEN DECK: "${d.name}" (ID: ${d.id})\n`;
+        // Include summary of content if small enough
+        const itemsCount = d.type === 'flashcard' ? d.cards.length : d.questions.length;
+        activeItemContext += `Contains ${itemsCount} items. User might refer to this with "this deck" or "@".\n`;
+    }
+    if (context.activeContext?.series) {
+        const s = context.activeContext.series;
+        activeItemContext += `\nCURRENT OPEN SERIES: "${s.name}" (ID: ${s.id})\n`;
+        activeItemContext += `User might refer to this with "this series" or "@".\n`;
+    }
+
     const systemPrompt = `
-        You are an AI assistant for the 'CogniFlow' flashcard app. Your goal is to help users manage their decks and folders by interpreting their natural language requests.
+        You are an AI assistant for 'CogniFlow', a spaced repetition app. Your goal is to help users manage their decks and folders.
 
-        You MUST respond with a JSON object that is an array of actions, conforming to the provided schema.
+        **CRITICAL: REFERENCING CONTEXT (@)**
+        Users may use "@" or "this" to refer to the current deck or series they are viewing. 
+        ${activeItemContext}
 
-        **Your Capabilities:**
-        - Create, rename, move, and delete decks.
-        - Create, rename, and delete folders.
-        - Analyze and expand learning series by adding new levels or decks.
-        - Generate new, unique questions for a specific quiz deck, with support for HTML formatting (e.g., \`<b>\`, \`<i>\`, \`<ruby>\`).
+        You MUST respond with a JSON array of actions.
+
+        **Capabilities:**
+        - Create/rename/move/delete decks & folders.
+        - Expand learning series.
+        - Generate unique questions for decks using HTML formatting.
+        - Answer general questions about study materials if context is provided.
 
         **Instructions:**
-        1.  Analyze the user's request.
-        2.  Analyze the provided application state to find the relevant IDs for decks and folders mentioned by name.
-        3.  If the user's request is ambiguous (e.g., "delete the history deck" when multiple exist), ask for clarification by using the 'NO_ACTION' type and formulating a question in the 'confirmationMessage'.
-        4.  If the user is just chatting or asking a question you can't perform an action for, use the 'NO_ACTION' type and provide a helpful response in the 'confirmationMessage'.
-        5.  For any action that modifies data, construct a clear and concise 'confirmationMessage' that will be presented as a button for the user to approve. Example: "Delete 'Ancient Rome' Deck?" or "Create 'Languages' Folder?".
-        6.  For MOVE_DECK_TO_FOLDER, if the user wants to move a deck out of a folder, the 'folderId' in the payload should be \`null\`.
-        7.  For EXPAND_SERIES_ADD_DECKS, you must identify the correct series by name to get its ID, and determine the correct 0-based 'levelIndex' from the user's request (e.g., "add a deck to the first level" means levelIndex: 0).
-        8.  For GENERATE_QUESTIONS_FOR_DECK, identify the target deck by name to get its ID. If the user specifies a number (e.g., "add 10 questions"), include it in the 'count' payload property. The generated content should leverage HTML formatting where appropriate for clarity (e.g., using <b> for emphasis or <ruby> for annotations in language decks).
+        1. Analyze user request. Use active context (marked above) if the user says "@" or "this".
+        2. Find relevant IDs in the application state.
+        3. For conversational replies, use 'NO_ACTION'.
+        4. For data modifications, use a clear 'confirmationMessage'.
 
-        **Current Application State:**
-        
-        **Folders:**
-        ${foldersContext || 'No folders exist.'}
-        
-        **Decks:**
-        ${decksContext || 'No decks exist.'}
-
-        **Series:**
-        ${seriesContext || 'No series exist.'}
+        **State:**
+        Folders:
+        ${foldersContext || 'None'}
+        Decks:
+        ${decksContext || 'None'}
+        Series:
+        ${seriesContext || 'None'}
     `;
 
     try {
@@ -116,8 +132,8 @@ export const getAIResponse = async (
     } catch (error) {
         console.error("Error getting AI response:", error);
         if (error instanceof Error && error.message.includes('SAFETY')) {
-            throw new Error("The request was blocked due to safety settings. Please try a different request.");
+            throw new Error("Blocked by safety settings.");
         }
-        throw new Error("Sorry, I had trouble understanding that. Could you try rephrasing?");
+        throw new Error("Sorry, I had trouble with that. Try rephrasing?");
     }
 };

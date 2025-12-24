@@ -1,8 +1,8 @@
+
 import React, { useState } from 'react';
 import { useAIOptions, AIOptionCategories, AIPersona } from '../hooks/useAIOptions.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
-// FIX: Imported useToast to make the addToast function available.
 import { useToast } from '../hooks/useToast.ts';
 
 interface AIOptionsManagerProps {
@@ -37,8 +37,8 @@ const StringListEditor: React.FC<{
             <h4 className="font-semibold text-text mb-2">{title}</h4>
             <ul className="space-y-2">
                 {items.map((item, index) => (
-                    <li key={index} className="flex items-center justify-between p-2 bg-surface rounded-md">
-                        <span>{item}</span>
+                    <li key={index} className="flex items-center justify-between p-2 bg-surface rounded-md border border-border/50">
+                        <span className="text-sm">{item}</span>
                         <Button variant="ghost" size="sm" className="p-1 h-auto" onClick={() => handleRemoveItem(index)}>
                             <Icon name="trash-2" className="w-4 h-4 text-red-500" />
                         </Button>
@@ -51,10 +51,10 @@ const StringListEditor: React.FC<{
                     value={newItem}
                     onChange={(e) => setNewItem(e.target.value)}
                     onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddItem(); }}}
-                    placeholder="Add new option..."
-                    className="flex-grow p-2 bg-surface border border-border rounded-md"
+                    placeholder="Add..."
+                    className="flex-grow p-1.5 text-sm bg-surface border border-border rounded-md"
                 />
-                <Button variant="secondary" onClick={handleAddItem}>Add</Button>
+                <Button variant="secondary" size="sm" onClick={handleAddItem}>Add</Button>
             </div>
         </div>
     );
@@ -98,7 +98,7 @@ const PersonaEditor: React.FC = () => {
                         placeholder="Persona Name (e.g., Cheerful Tutor)"
                         value={persona.name}
                         onChange={(e) => handlePersonaChange(index, 'name', e.target.value)}
-                        className="w-full p-2 bg-surface border border-border rounded-md"
+                        className="w-full p-2 text-sm bg-surface border border-border rounded-md"
                         disabled={persona.id === 'default'}
                     />
                     <textarea
@@ -106,7 +106,7 @@ const PersonaEditor: React.FC = () => {
                         value={persona.instruction}
                         onChange={(e) => handlePersonaChange(index, 'instruction', e.target.value)}
                         rows={3}
-                        className="w-full p-2 bg-surface border border-border rounded-md"
+                        className="w-full p-2 text-sm bg-surface border border-border rounded-md"
                     />
                     {persona.id !== 'default' && (
                         <Button variant="ghost" size="sm" onClick={() => handleRemovePersona(index)} className="text-red-500">
@@ -125,14 +125,14 @@ const PersonaEditor: React.FC = () => {
 
 const AIOptionsManager: React.FC<AIOptionsManagerProps> = ({ onBack }) => {
     return (
-        <>
+        <div className="flex flex-col h-full overflow-hidden">
             <header className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
                 <div className="flex items-center gap-2">
                     <Button variant="ghost" onClick={onBack} className="p-1 h-auto"><Icon name="chevron-left" /></Button>
                     <h2 className="text-xl font-bold">Manage AI Options</h2>
                 </div>
             </header>
-            <main className="flex-grow p-6 overflow-y-auto space-y-6">
+            <main className="flex-grow p-6 overflow-y-auto space-y-6 no-scrollbar">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <StringListEditor title="Understanding Levels" category="understandingLevels" />
                     <StringListEditor title="Comprehensiveness Levels" category="comprehensivenessLevels" />
@@ -142,11 +142,11 @@ const AIOptionsManager: React.FC<AIOptionsManagerProps> = ({ onBack }) => {
                     <StringListEditor title="Tones" category="toneOptions" />
                 </div>
                 
-                <div className="border-t border-border pt-6">
+                <div className="border-t border-border pt-6 pb-4">
                     <PersonaEditor />
                 </div>
             </main>
-        </>
+        </div>
     );
 };
 

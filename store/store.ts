@@ -1,6 +1,6 @@
 
 import { create } from 'zustand';
-import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData, SeriesLevel, Reviewable, Card, Question, AIGenerationTask, DeckLearningProgress } from '../types';
+import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData, SeriesLevel, Reviewable, Card, Question, AIGenerationTask, DeckLearningProgress } from '../types.ts';
 
 export interface AIGenerationStatus {
   isGenerating: boolean;

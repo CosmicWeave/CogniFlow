@@ -11,8 +11,8 @@ export interface SimulationDay {
     totalLoad: number; // reviewCount + newCount
 }
 
+// FIX: Ensure SimItem contains all required fields from Reviewable.
 interface SimItem extends Reviewable {
-    // We only need the core SRS fields
     isNew: boolean;
 }
 
@@ -45,6 +45,7 @@ export const simulateWorkload = (
             interval: item.interval,
             easeFactor: item.easeFactor,
             lapses: item.lapses,
+            masteryLevel: item.masteryLevel || 0,
             isNew: item.interval === 0
         };
 
@@ -63,11 +64,9 @@ export const simulateWorkload = (
     for (let dayOffset = 0; dayOffset < daysToSimulate; dayOffset++) {
         const currentDate = new Date(today);
         currentDate.setDate(today.getDate() + dayOffset);
-        const currentDateMs = currentDate.getTime();
         const endOfDayMs = new Date(currentDate).setHours(23, 59, 59, 999);
 
         // A. Identify Reviews Due Today
-        // Filter items where dueDate <= endOfDay
         const reviewsDueToday: SimItem[] = [];
         const futureReviews: SimItem[] = [];
 
@@ -88,13 +87,6 @@ export const simulateWorkload = (
             const isSuccess = Math.random() < retentionRate;
             const rating = isSuccess ? ReviewRating.Good : ReviewRating.Again;
 
-            // Calculate next state
-            // We use the actual SRS logic but stub the date math relative to 'currentDate'
-            // To reuse `calculateNextReview`, we need to mock the system time or manually adjust dates.
-            // Since `calculateNextReview` uses `new Date()` internally for "today", 
-            // we can't easily mock it without hacking global Date.
-            // Instead, we'll manually apply the logic here roughly matching srs.ts logic for simulation speed.
-            
             let nextInterval = 0;
             let nextEase = item.easeFactor;
 
@@ -102,9 +94,7 @@ export const simulateWorkload = (
                 nextInterval = 1; // Reset to 1 day
                 nextEase = Math.max(1.3, item.easeFactor - 0.2);
             } else {
-                // Simplified Good logic from srs.ts
-                nextEase = item.easeFactor; // Good doesn't change ease in standard SM-2 often, or +0?
-                // Our srs.ts: Good -> ease + 0.
+                nextEase = item.easeFactor;
                 if (item.interval === 0) {
                     nextInterval = 1; // Graduate
                 } else {
@@ -126,9 +116,6 @@ export const simulateWorkload = (
         });
 
         // Rebuild review queue with processed items
-        // In simulation, we assume user clears the queue every day.
-        // So `reviewsDueToday` are removed from `reviewQueue` (already done by splitting) 
-        // and their updated versions are added back for future.
         reviewedItems.forEach(item => futureReviews.push(item));
         
         // Reset reviewQueue for next iteration
@@ -141,13 +128,10 @@ export const simulateWorkload = (
         const newCardsToday: SimItem[] = [];
         
         for (let i = 0; i < newCardsTodayCount; i++) {
-            const newItem = newQueue.shift(); // Remove from new queue
+            const newItem = newQueue.shift(); 
             if (newItem) {
-                // Simulate reviewing a new card (Graduating it)
-                // Assume passing first time for simplicity in workload modeling, 
-                // or apply retention rate same as reviews.
                 const nextDueDate = new Date(currentDate);
-                nextDueDate.setDate(currentDate.getDate() + 1); // Due tomorrow usually
+                nextDueDate.setDate(currentDate.getDate() + 1); 
 
                 const graduateItem: SimItem = {
                     ...newItem,
@@ -155,7 +139,7 @@ export const simulateWorkload = (
                     dueDate: nextDueDate.toISOString(),
                     isNew: false
                 };
-                reviewQueue.push(graduateItem); // Add to main review queue
+                reviewQueue.push(graduateItem); 
                 newCardsToday.push(graduateItem);
             }
         }

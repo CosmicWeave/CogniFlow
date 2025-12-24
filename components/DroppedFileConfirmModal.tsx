@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -26,7 +25,7 @@ const DroppedFileConfirmModal: React.FC<DroppedFileConfirmModalProps> = ({
 
   useEffect(() => {
       // Pre-fill deck name if available
-      if (analysis.type === 'quiz' && analysis.data.name) {
+      if ((analysis.type === 'quiz' || analysis.type === 'learning') && analysis.data.name) {
           setDeckName(analysis.data.name);
       } else {
           setDeckName('');
@@ -35,10 +34,10 @@ const DroppedFileConfirmModal: React.FC<DroppedFileConfirmModalProps> = ({
       // Load image preview if applicable
       if (analysis.type === 'image' && analysis.file) {
           const reader = new FileReader();
+          reader.readAsDataURL(analysis.file);
           reader.onload = (e) => {
               setImagePreview(e.target?.result as string);
           };
-          reader.readAsDataURL(analysis.file);
       } else {
           setImagePreview(null);
       }
@@ -64,6 +63,12 @@ const DroppedFileConfirmModal: React.FC<DroppedFileConfirmModalProps> = ({
           title: 'Import Quiz Deck',
           message: `You dropped a file for the quiz deck "${analysis.data.name}". Would you like to import it?`,
           confirmText: 'Import Deck',
+        };
+      case 'learning':
+        return {
+          title: 'Import Learning Deck',
+          message: `You dropped a file for the course "${analysis.data.name}". It includes instructional cards and associated questions.`,
+          confirmText: 'Import Course',
         };
       case 'flashcard':
         return {
@@ -109,7 +114,7 @@ const DroppedFileConfirmModal: React.FC<DroppedFileConfirmModalProps> = ({
         <div className="p-6 space-y-4 overflow-y-auto">
           <p className="text-text-muted">{message}</p>
           
-          {(analysis.type === 'flashcard' || analysis.type === 'quiz') && (
+          {(analysis.type === 'flashcard' || analysis.type === 'quiz' || analysis.type === 'learning') && (
             <div>
               <label htmlFor="deck-name-input" className="block text-sm font-medium text-text-muted mb-1">
                 Deck Name

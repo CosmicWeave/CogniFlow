@@ -36,6 +36,8 @@ const createQuestion = (
         suspended: false,
         masteryLevel: 0,
         lastReviewed: undefined,
+        // FIX: Added missing lapses property
+        lapses: 0,
     };
 };
 

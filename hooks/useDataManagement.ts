@@ -1,19 +1,19 @@
 
 import { useCallback, useMemo } from 'react';
-import { useStore } from '../store/store';
-import { useModal } from '../contexts/ModalContext';
-import { useToast } from './useToast';
-import { useDeckAndFolderHandlers } from './data-management-handlers/deckAndFolder';
-import { useSeriesHandlers } from './data-management-handlers/series';
-import { useSessionHandlers } from './data-management-handlers/session';
-import { useBackupHandlers } from './data-management-handlers/backup';
-import { useDriveHandlers } from './data-management-handlers/drive';
-import { useAIHandlers } from './data-management-handlers/ai';
-import { createCardsFromImport, createQuestionsFromImport, AnalysisResult } from '../services/importService';
-import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService';
-import { generateDeckFromImage } from '../services/aiService';
-import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, SeriesLevel } from '../types';
-import { useRouter } from '../contexts/RouterContext';
+import { useStore } from '../store/store.ts';
+import { useModal } from '../contexts/ModalContext.tsx';
+import { useToast } from './useToast.ts';
+import { useDeckAndFolderHandlers } from './data-management-handlers/deckAndFolder.ts';
+import { useSeriesHandlers } from './data-management-handlers/series.ts';
+import { useSessionHandlers } from './data-management-handlers/session.ts';
+import { useBackupHandlers } from './data-management-handlers/backup.ts';
+import { useDriveHandlers } from './data-management-handlers/drive.ts';
+import { useAIHandlers } from './data-management-handlers/ai.ts';
+import { createCardsFromImport, createQuestionsFromImport, AnalysisResult } from '../services/importService.ts';
+import { parseAnkiPkg, parseAnkiPkgMainThread } from '../services/ankiImportService.ts';
+import { generateDeckFromImage } from '../services/aiService.ts';
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, SeriesLevel, LearningDeck } from '../types.ts';
+import { useRouter } from '../contexts/RouterContext.tsx';
 
 export const useDataManagement = (props: any) => {
     const { dispatch } = useStore();
@@ -64,7 +64,7 @@ export const useDataManagement = (props: any) => {
         closeModal,
     });
 
-    // FIX: Implemented logic for all file types including Anki and Images
+    // FIX: Implemented logic for all file types including Anki, Images, and Learning decks
     const handleDroppedFileConfirm = useCallback(async (analysis: AnalysisResult, options: { deckName?: string; imageHint?: string } = {}) => {
         closeModal();
         if (!analysis) return;
@@ -107,6 +107,18 @@ export const useDataManagement = (props: any) => {
             };
             await deckAndFolderHandlers.handleAddDecks([newDeck]);
             addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
+          } else if (analysis.type === 'learning') {
+            const newDeck: LearningDeck = {
+                id: crypto.randomUUID(),
+                name: deckName || analysis.data.name,
+                description: analysis.data.description || '',
+                type: DeckType.Learning,
+                infoCards: analysis.data.infoCards || [],
+                questions: createQuestionsFromImport(analysis.data.questions || []),
+                learningMode: analysis.data.learningMode || 'separate'
+            };
+            await deckAndFolderHandlers.handleAddDecks([newDeck]);
+            addToast(`Learning Deck "${newDeck.name}" imported successfully.`, 'success');
           } else if (analysis.type === 'flashcard') {
             if (!deckName) {
               addToast('Deck name is required for flashcard import.', 'error');

@@ -1,11 +1,12 @@
+
 import { useCallback } from 'react';
-import * as backupService from '../../services/backupService';
-import * as db from '../../services/db';
-import { useStore } from '../../store/store';
-import { FullBackupData, BackupComparison, Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable } from '../../types';
-import { broadcastDataChange } from '../../services/syncService';
-import { mergeData, MergeResolutionStrategy } from '../../services/mergeService';
-import { getDueItemsCount, getEffectiveMasteryLevel } from '../../services/srs';
+import * as backupService from '../../services/backupService.ts';
+import * as db from '../../services/db.ts';
+import { useStore } from '../../store/store.ts';
+import { FullBackupData, BackupComparison, Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck, Reviewable } from '../../types.ts';
+import { broadcastDataChange } from '../../services/syncService.ts';
+import { mergeData, MergeResolutionStrategy } from '../../services/mergeService.ts';
+import { getDueItemsCount, getEffectiveMasteryLevel } from '../../services/srs.ts';
 
 export const useBackupHandlers = ({ 
     addToast, 
@@ -43,7 +44,7 @@ export const useBackupHandlers = ({
                 // Determine what changed
                 // Deep check for content (cards/questions)
                 const localItems = (localDeck.type === DeckType.Flashcard ? (localDeck as FlashcardDeck).cards : (localDeck.type === DeckType.Learning ? (localDeck as LearningDeck).questions : (localDeck as QuizDeck).questions)) || [];
-                const backupItems = (backupDeck.type === DeckType.Flashcard ? (backupDeck as FlashcardDeck).cards : (backupDeck.type === DeckType.Learning ? (backupDeck as LearningDeck).questions : (backupDeck as QuizDeck).questions)) || [];
+                const backupItems = (backupDeck.type === DeckType.Flashcard ? (backupDeck as FlashcardDeck).cards : (backupDeck.type === DeckType.Learning ? (backupDeck as LearningDeck).questions : (backupDeck.type === DeckType.Quiz ? (backupDeck as QuizDeck).questions : []))) || [];
                 
                 const diff = {
                     content: localItems.length !== backupItems.length, // Naive check

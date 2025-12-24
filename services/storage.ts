@@ -1,5 +1,6 @@
-import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, DeckLearningProgress } from '../types';
-import * as db from './db';
+
+import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, DeckLearningProgress } from '../types.ts';
+import * as db from './db.ts';
 
 export interface StorageService {
   // Decks

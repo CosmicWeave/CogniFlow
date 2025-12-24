@@ -1,16 +1,16 @@
 
 import React, { useMemo, Suspense, lazy } from 'react';
 import { useRouter } from '../contexts/RouterContext.tsx';
-import { Deck, Folder, DeckSeries, QuizDeck, DeckType, FlashcardDeck, Card, Question, LearningDeck, AppRouterProps } from '../types.ts';
-import Button from './ui/Button.tsx';
-import Icon from './ui/Icon.tsx';
-import { useStore, useActiveSeriesList, useStandaloneDecks, useTotalDueCount, useDecksList, useSeriesList } from '../store/store.ts';
+import { Deck, QuizDeck, DeckType, FlashcardDeck, Card, Question, LearningDeck } from '../types.ts';
+import { useStore, useActiveSeriesList, useStandaloneDecks, useTotalDueCount, useSeriesList } from '../store/store.ts';
 import { useSettings } from '../hooks/useSettings.ts';
 import { useData } from '../contexts/DataManagementContext.tsx';
 import Breadcrumbs, { BreadcrumbItem } from './ui/Breadcrumbs.tsx';
-import { useModal } from '../contexts/ModalContext.tsx';
 import PageTransition from './ui/PageTransition.tsx';
 import AppSkeleton from './AppSkeleton.tsx';
+// FIX: Added missing UI component imports
+import Button from './ui/Button.tsx';
+import Icon from './ui/Icon.tsx';
 
 // Lazy load page components
 const StudySession = lazy(() => import('./StudySession.tsx'));
@@ -27,17 +27,21 @@ const AllSeriesPage = lazy(() => import('./AllSeriesPage.tsx'));
 const ProgressPage = lazy(() => import('./ProgressPage.tsx'));
 const DeckPrintView = lazy(() => import('./DeckPrintView.tsx'));
 
-const AppRouter: React.FC<AppRouterProps> = (props) => {
+const AppRouter: React.FC = () => {
     const { path, navigate } = useRouter();
-    const { activeDeck, activeSeries, generalStudyDeck } = props;
-    const { aiFeaturesEnabled } = useSettings();
     const dataHandlers = useData();
+    const { 
+        activeDeck, activeSeries, generalStudyDeck, sessionsToResume,
+        isSyncing, lastSyncStatus, isGapiReady, isGapiSignedIn, gapiUser,
+        sortPreference, setSortPreference, draggedDeckId, setDraggedDeckId,
+        openFolderIds, onToggleFolder
+    } = dataHandlers;
+
+    const { aiFeaturesEnabled } = useSettings();
     const [pathname] = path.split('?');
-    const { openModal } = useModal();
-    const openConfirmModal = (p: any) => openModal('confirm', p);
     
     // Selectors
-    const deckSeries = useSeriesList(); // Get array of series for finding by ID in breadcrumbs
+    const deckSeries = useSeriesList();
     const standaloneDecks = useStandaloneDecks();
     const activeSeriesList = useActiveSeriesList();
     const totalDueQuestions = useTotalDueCount();
@@ -46,11 +50,10 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         return pathname.startsWith('/study/') || pathname.endsWith('/study') || pathname.endsWith('/cram') || pathname.endsWith('/study-reversed') || pathname.endsWith('/study-flip') || pathname.endsWith('/read');
     }, [pathname]);
     
-    // Check if it is a print view to hide standard layout elements if needed in parent
     const isPrintView = pathname.endsWith('/print');
 
     const breadcrumbItems = useMemo(() => {
-        if (isPrintView) return []; // Hide breadcrumbs in print view logic (handled by CSS mostly, but cleaner here)
+        if (isPrintView) return [];
 
         const items: BreadcrumbItem[] = [{ label: 'Home', href: '/' }];
         const params = new URLSearchParams(window.location.hash.split('?')[1]);
@@ -70,7 +73,6 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 parentSeries = deckSeries.find(s => s.id === seriesIdParam);
             }
             
-            // If not found by param, try to find if it belongs to any active series
             if (!parentSeries) {
                  parentSeries = deckSeries.find(s => !s.deletedAt && (s.levels || []).some(l => l.deckIds?.includes(activeDeck.id)));
             }
@@ -104,16 +106,16 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onRestore={() => dataHandlers.openModal('restore')}
                 onResetProgress={() => dataHandlers.openModal('resetProgress')}
                 onFactoryReset={dataHandlers.handleFactoryReset} 
-                onSync={props.onSync}
+                onSync={dataHandlers.handleManualSync}
                 onForceFetch={dataHandlers.handleForceFetchFromServer}
                 onForceUpload={dataHandlers.handleForceUploadToServer}
-                isSyncing={props.isSyncing}
-                lastSyncStatus={props.lastSyncStatus}
+                isSyncing={isSyncing}
+                lastSyncStatus={lastSyncStatus}
                 onManageServerBackups={() => dataHandlers.openModal('serverBackup')}
                 onCreateServerBackup={dataHandlers.handleCreateServerBackup}
-                isGapiReady={props.isGapiReady}
-                isGapiSignedIn={props.isGapiSignedIn}
-                gapiUser={props.gapiUser}
+                isGapiReady={isGapiReady}
+                isGapiSignedIn={isGapiSignedIn}
+                gapiUser={gapiUser}
                 onGoogleSignIn={dataHandlers.handleGoogleSignIn}
                 onGoogleSignOut={dataHandlers.handleGoogleSignOut}
                 onBackupToDrive={dataHandlers.handleBackupToDrive}
@@ -130,7 +132,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onRestoreSeries={dataHandlers.handleRestoreSeries}
                 onDeleteDeckPermanently={dataHandlers.handleDeleteDeckPermanently}
                 onDeleteSeriesPermanently={dataHandlers.handleDeleteSeriesPermanently}
-                openConfirmModal={openConfirmModal}
+                openConfirmModal={dataHandlers.openConfirmModal}
             />
         }
 
@@ -140,7 +142,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             onUpdateSeries={dataHandlers.handleUpdateSeries}
             onDeleteDeck={dataHandlers.handleDeleteDeck}
             onDeleteSeries={dataHandlers.handleDeleteSeries}
-            openConfirmModal={openConfirmModal}
+            openConfirmModal={dataHandlers.openConfirmModal}
           />
         }
 
@@ -152,14 +154,14 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             return <SeriesOverviewPage
                 key={activeSeries.id}
                 series={activeSeries}
-                sessionsToResume={props.sessionsToResume}
+                sessionsToResume={sessionsToResume}
                 onUpdateSeries={dataHandlers.handleUpdateSeries}
                 onDeleteSeries={dataHandlers.handleDeleteSeries}
                 onAddDeckToSeries={dataHandlers.handleAddDeckToSeries}
                 onUpdateDeck={dataHandlers.handleUpdateDeck}
                 onStartSeriesStudy={dataHandlers.handleStartSeriesStudy}
                 onUpdateLastOpened={dataHandlers.updateLastOpenedSeries}
-                openConfirmModal={openConfirmModal}
+                openConfirmModal={dataHandlers.openConfirmModal}
                 onAiAddLevelsToSeries={dataHandlers.handleAiAddLevelsToSeries}
                 onAiAddDecksToLevel={dataHandlers.handleAiAddDecksToLevel}
                 handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries}
@@ -187,7 +189,6 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             let items = ((activeDeck.type === DeckType.Flashcard ? (activeDeck as FlashcardDeck).cards : (activeDeck as QuizDeck | LearningDeck).questions) || [])
                 .filter(item => !item.suspended);
             
-            // Sorting Logic
             if (sortMode === 'hardest') {
                 items.sort((a, b) => {
                     const lapseDiff = (b.lapses || 0) - (a.lapses || 0);
@@ -195,16 +196,13 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                     return (a.easeFactor || 2.5) - (b.easeFactor || 2.5);
                 });
             } else if (sortMode === 'newest') {
-                // Reverse array order as approximation for "newest"
                 items.reverse();
             } else if (sortMode === 'oldest') {
-                // Default array order is usually oldest first
+                // Keep default order
             } else {
-                // Random
                 items.sort(() => Math.random() - 0.5);
             }
 
-            // Limiting Logic
             if (limit !== 'all') {
                 const limitNum = parseInt(limit, 10);
                 if (!isNaN(limitNum)) {
@@ -262,11 +260,11 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
             return activeDeck && <DeckDetailsPage 
                 key={activeDeck.id} 
                 deck={activeDeck} 
-                sessionsToResume={props.sessionsToResume} 
+                sessionsToResume={sessionsToResume} 
                 onUpdateDeck={dataHandlers.handleUpdateDeck} 
                 onDeleteDeck={dataHandlers.handleDeleteDeck} 
                 onUpdateLastOpened={dataHandlers.updateLastOpened} 
-                openConfirmModal={openConfirmModal} 
+                openConfirmModal={dataHandlers.openConfirmModal} 
                 handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} 
                 handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} 
                 onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} 
@@ -284,11 +282,40 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
         }
         
         if (pathname === '/decks') {
-            return <AllDecksPage sessionsToResume={props.sessionsToResume} sortPreference={props.sortPreference} onSortChange={props.setSortPreference} onUpdateLastOpened={dataHandlers.updateLastOpened} onDeleteFolder={dataHandlers.handleDeleteFolder} draggedDeckId={props.draggedDeckId} onDragStart={props.setDraggedDeckId} onDragEnd={() => props.setDraggedDeckId(null)} onMoveDeck={dataHandlers.handleMoveDeck} openFolderIds={props.openFolderIds} onToggleFolder={props.onToggleFolder} onUpdateDeck={dataHandlers.handleUpdateDeck} onDeleteDeck={dataHandlers.handleDeleteDeck} openConfirmModal={openConfirmModal} onNewFolder={() => dataHandlers.openModal('folder', { folder: 'new' })} onImportDecks={() => dataHandlers.openModal('import')} onCreateSampleDeck={dataHandlers.handleCreateSampleDeck} handleSaveFolder={dataHandlers.handleSaveFolder} handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
+            return <AllDecksPage 
+                sessionsToResume={sessionsToResume} 
+                sortPreference={sortPreference} 
+                onSortChange={setSortPreference} 
+                onUpdateLastOpened={dataHandlers.updateLastOpened} 
+                onDeleteFolder={dataHandlers.handleDeleteFolder} 
+                draggedDeckId={draggedDeckId} 
+                onDragStart={setDraggedDeckId} 
+                onDragEnd={() => setDraggedDeckId(null)} 
+                onMoveDeck={dataHandlers.handleMoveDeck} 
+                openFolderIds={openFolderIds} 
+                onToggleFolder={onToggleFolder} 
+                onUpdateDeck={dataHandlers.handleUpdateDeck} 
+                onDeleteDeck={dataHandlers.handleDeleteDeck} 
+                openConfirmModal={dataHandlers.openConfirmModal} 
+                onNewFolder={() => dataHandlers.openModal('folder', { folder: 'new' })} 
+                onImportDecks={() => dataHandlers.openModal('import')} 
+                onCreateSampleDeck={dataHandlers.handleCreateSampleDeck} 
+                handleSaveFolder={dataHandlers.handleSaveFolder} 
+                handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} 
+                handleGenerateContentForLearningDeck={dataHandlers.handleGenerateContentForLearningDeck} 
+                onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} 
+            />;
         }
 
         if (pathname === '/series') {
-            return <AllSeriesPage onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} onCreateNewSeries={() => dataHandlers.openModal('series', { series: 'new' })} onCreateSampleSeries={dataHandlers.handleCreateSampleSeries} onGenerateAI={() => dataHandlers.openModal('aiGeneration')} handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries} onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} />;
+            return <AllSeriesPage 
+                onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} 
+                onCreateNewSeries={() => dataHandlers.openModal('series', { series: 'new' })} 
+                onCreateSampleSeries={dataHandlers.handleCreateSampleSeries} 
+                onGenerateAI={() => dataHandlers.openModal('aiGeneration')} 
+                handleGenerateQuestionsForEmptyDecksInSeries={dataHandlers.handleGenerateQuestionsForEmptyDecksInSeries} 
+                onCancelAIGeneration={dataHandlers.handleCancelAIGeneration} 
+            />;
         }
 
         if (standaloneDecks.length > 0 || activeSeriesList.length > 0) {
@@ -296,11 +323,11 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onGenerateAI={() => dataHandlers.openModal('aiGeneration')} 
                 totalDueQuestions={totalDueQuestions} 
                 onStartGeneralStudy={dataHandlers.handleStartGeneralStudy} 
-                sessionsToResume={props.sessionsToResume} 
+                sessionsToResume={sessionsToResume} 
                 onUpdateLastOpened={dataHandlers.updateLastOpened} 
                 onUpdateDeck={dataHandlers.handleUpdateDeck} 
                 onDeleteDeck={dataHandlers.handleDeleteDeck} 
-                openConfirmModal={openConfirmModal} 
+                openConfirmModal={dataHandlers.openConfirmModal} 
                 seriesProgress={useStore.getState().seriesProgress} 
                 onStartSeriesStudy={dataHandlers.handleStartSeriesStudy} 
                 handleGenerateQuestionsForDeck={dataHandlers.handleGenerateQuestionsForDeck} 
@@ -311,7 +338,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
                 onCreateSampleFlashcardDeck={dataHandlers.handleCreateSampleFlashcardDeck}
                 onCreateSampleLearningDeck={dataHandlers.handleCreateSampleLearningDeck}
                 onCreateSampleSeries={dataHandlers.handleCreateSampleSeries}
-                onCreateSampleCourse={dataHandlers.handleCreateSampleCourse}
+                onCreateSampleCourse={dataHandlers.onCreateSampleCourse}
             />;
         }
         

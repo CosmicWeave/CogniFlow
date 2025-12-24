@@ -1,9 +1,13 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { LearningDeck, InfoCard, Question } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
 import EditLearningBlockModal, { LearningBlockData } from './EditLearningBlockModal.tsx';
 import { stripHtml } from '../services/utils.ts';
+import AIActionsMenu from './AIActionsMenu.tsx';
+import { useStore } from '../store/store.ts';
+import { useSettings } from '../hooks/useSettings.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
 
 interface LearningItemListEditorProps {
   deck: LearningDeck;
@@ -18,6 +22,17 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [draggedBlockIndex, setDraggedBlockIndex] = useState<number | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const { aiFeaturesEnabled } = useSettings();
+  const dataHandlers = useData();
+
+  const relevantTask = useStore(useCallback(state => {
+      const { currentTask, queue } = state.aiGenerationStatus;
+      if (currentTask?.deckId === deck.id) return currentTask;
+      return (queue || []).find(task => task.deckId === deck.id);
+  }, [deck.id]));
+
+  const isGenerating = !!relevantTask;
 
   const openEditModal = (block: LearningBlockData | null, e?: React.MouseEvent<HTMLButtonElement>) => {
     setEditingBlock(block);
@@ -134,11 +149,24 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
         )}
       </div>
 
-      <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2">
+      <div className="px-6 py-4 border-t border-border flex flex-wrap gap-2 items-center">
         <Button variant="secondary" onClick={(e) => openEditModal(null, e)} className="flex-grow sm:flex-grow-0">
           <Icon name="plus" className="w-5 h-5 mr-2" />
           Add Learning Block
         </Button>
+        
+        <div className="flex-grow"></div>
+
+        {aiFeaturesEnabled && (
+            <AIActionsMenu 
+                deck={deck}
+                isGenerating={isGenerating}
+                onGenerateMore={() => dataHandlers?.handleOpenAIGenerationForDeck(deck)}
+                onAnalyze={() => dataHandlers?.handleOpenDeckAnalysis(deck)}
+                onAutoTag={() => dataHandlers?.handleAutoTagQuestions(deck)}
+                onHardenDistractors={() => dataHandlers?.handleHardenAllDistractors(deck)}
+            />
+        )}
       </div>
 
       {isEditModalOpen && (

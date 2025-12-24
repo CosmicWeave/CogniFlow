@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types';
+import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types.ts';
 import Button from './ui/Button.tsx';
 import Link from './ui/Link.tsx';
 import Icon, { IconName, ALL_ICONS } from './ui/Icon.tsx';
@@ -27,6 +27,7 @@ import TruncatedText from './ui/TruncatedText.tsx';
 import StatsSkeleton from './StatsSkeleton.tsx';
 import { useData } from '../contexts/DataManagementContext.tsx';
 import CramOptionsModal, { CramOptions } from './CramOptionsModal.tsx';
+import { generateMetadata } from '../services/aiService.ts';
 
 interface DeckDetailsPageProps {
   deck: Deck;
@@ -180,6 +181,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   const [editedDescription, setEditedDescription] = useState(deck.description || '');
   const [editedFolderId, setEditedFolderId] = useState(deck.folderId || '');
   const [editedIcon, setEditedIcon] = useState(deck.icon);
+  const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
@@ -254,6 +256,25 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   const handleCancelEdit = () => {
     setIsEditing(false);
   };
+
+  const handleAutoMetadata = async () => {
+    if (allItems.length === 0) {
+        addToast("Add some cards or questions first so the AI has context.", "info");
+        return;
+    }
+    setIsGeneratingMetadata(true);
+    try {
+        const textContext = allItems.slice(0, 20).map(i => 'front' in i ? i.front : i.questionText).join('\n');
+        const { name, description } = await generateMetadata(textContext, 'deck');
+        setEditedName(name);
+        setEditedDescription(description);
+        addToast("Details generated!", "success");
+    } catch (e) {
+        addToast("Failed to generate details.", "error");
+    } finally {
+        setIsGeneratingMetadata(false);
+    }
+  };
   
   const handleBulkAddItems = (items: ImportedCard[] | ImportedQuestion[]) => {
     if (deck.type === DeckType.Flashcard && items.every(item => 'front' in item)) {
@@ -274,6 +295,16 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         message: `Are you sure you want to move the deck "${deck.name}" to the trash? It will be permanently deleted after 10 days. This will also remove it from any series it belongs to.`,
         onConfirm: () => onDeleteDeck(deck.id),
     });
+  };
+
+  const handleUpgradeToLearning = () => {
+      if (deck.type === DeckType.Learning) return;
+      openConfirmModal({
+          title: 'Upgrade to Learning Deck?',
+          message: `This will use AI to analyze your existing ${allItems.length} items and generate a structured curriculum (InfoCards) for them. You'll be able to read instructional chapters before taking the quiz.`,
+          confirmText: 'Upgrade with AI ✨',
+          onConfirm: () => dataHandlers?.handleUpgradeDeckToLearning(deck)
+      });
   };
 
   const handleBlockClick = (block: LearningBlockData) => {
@@ -395,7 +426,15 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
       <div className={`bg-surface rounded-xl shadow-sm border border-border ${isEditing ? 'overflow-hidden' : ''}`}>
         {isEditing ? (
           <div className="p-6 space-y-4 animate-fade-in bg-background/50">
-            <h2 className="text-xl font-bold text-text mb-4">Edit Deck Details</h2>
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-text">Edit Deck Details</h2>
+                {aiFeaturesEnabled && (
+                    <Button variant="ghost" size="sm" onClick={handleAutoMetadata} disabled={isGeneratingMetadata} className="text-primary hover:text-primary-hover">
+                        {isGeneratingMetadata ? <Spinner size="sm" /> : <Icon name="bot" className="w-4 h-4 mr-2" />}
+                        Auto-generate with AI
+                    </Button>
+                )}
+            </div>
             <div>
               <label htmlFor="deck-name-edit" className="block text-sm font-medium text-text-muted mb-1">Deck Name</label>
               <input
@@ -456,23 +495,23 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
             </div>
           </div>
         ) : (
-          <div className="p-6 md:p-8 flex flex-col md:flex-row items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
+          <div className="p-6 md:p-8 flex items-start justify-between gap-4 relative">
+            <div className="flex-1 min-w-0 pr-10 sm:pr-0">
                 <div className="flex items-start gap-4">
-                    <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0">
+                    <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0 hidden sm:block">
                         <Icon name={(deck.icon as IconName) || (deck.type === 'flashcard' ? 'laptop' : (deck.type === 'learning' ? 'book-open' : 'help-circle'))} className="w-8 h-8 text-primary" />
                     </div>
                     <div className="min-w-0 flex-1">
                         {parentSeries ? (
-                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <Link href={`/series/${parentSeries.id}`} className="flex items-center text-xs font-bold text-primary uppercase tracking-wider hover:underline">
+                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                                <Link href={`/series/${parentSeries.id}`} className="flex items-center text-xs font-bold text-primary uppercase tracking-wider hover:underline whitespace-nowrap">
                                     <Icon name="layers" className="w-3 h-3 mr-1" />
                                     <span>{parentSeries.name}</span>
                                 </Link>
                                 {deck.folderId && folders[deck.folderId] && (
                                     <>
-                                        <span className="text-text-muted/30 text-xs">•</span>
-                                        <div className="flex items-center text-xs font-medium text-text-muted uppercase tracking-wider">
+                                        <span className="text-text-muted/30 text-xs hidden sm:inline">•</span>
+                                        <div className="flex items-center text-xs font-medium text-text-muted uppercase tracking-wider whitespace-nowrap">
                                             <Icon name="folder" className="w-3 h-3 mr-1" />
                                             <span>{folders[deck.folderId].name}</span>
                                         </div>
@@ -481,13 +520,13 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                              </div>
                         ) : (
                             deck.folderId && (
-                                <div className="flex items-center text-xs font-semibold text-text-muted mb-1 uppercase tracking-wider">
+                                <div className="flex items-center text-xs font-semibold text-text-muted mb-2 uppercase tracking-wider">
                                     <Icon name="folder" className="w-3 h-3 mr-1" />
                                     <span>{folders[deck.folderId]?.name || 'Uncategorized'}</span>
                                 </div>
                             )
                         )}
-                        <h1 className="text-3xl font-extrabold text-text break-words leading-tight">{deck.name}</h1>
+                        <h1 className="text-2xl sm:text-3xl font-extrabold text-text break-words leading-tight">{deck.name}</h1>
                         {deck.description && (
                             <div className="mt-2 text-text-muted">
                                 <TruncatedText html={deck.description} className="prose prose-sm dark:prose-invert max-w-none text-text-muted leading-relaxed" />
@@ -497,19 +536,26 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                 </div>
             </div>
             
-            <div className="relative flex-shrink-0 self-start mt-2 md:mt-0" ref={menuRef}>
+            <div className="absolute top-6 right-6 md:static md:flex-shrink-0 md:self-start" ref={menuRef}>
                 <Button variant="ghost" onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 rounded-full hover:bg-border/50">
                     <Icon name="more-vertical" className="w-6 h-6 text-text-muted" />
                 </Button>
                 {isMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-56 bg-surface rounded-lg shadow-xl border border-border z-20 py-1 animate-fade-in origin-top-right">
+                    <div className="absolute right-0 mt-2 w-56 bg-surface rounded-lg shadow-xl border border-border z-30 py-1 animate-fade-in origin-top-right">
                         <button onClick={() => { setIsEditing(true); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
                             <Icon name="edit" className="w-4 h-4 mr-3" /> Edit Details
                         </button>
                         {aiFeaturesEnabled && !isDeckEmpty && (
-                            <button onClick={() => { dataHandlers?.handleOpenDeckAnalysis(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
-                                <Icon name="zap" className="w-4 h-4 mr-3" /> Analyze & Improve
-                            </button>
+                            <>
+                                <button onClick={() => { dataHandlers?.handleOpenDeckAnalysis(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                    <Icon name="zap" className="w-4 h-4 mr-3" /> Analyze & Improve
+                                </button>
+                                {deck.type !== DeckType.Learning && (
+                                    <button onClick={() => { handleUpgradeToLearning(); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                        <Icon name="layers" className="w-4 h-4 mr-3 text-purple-500" /> Upgrade to Course ✨
+                                    </button>
+                                )}
+                            </>
                         )}
                         <Link href={`/decks/${deck.id}/print`} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
                             <Icon name="printer" className="w-4 h-4 mr-3" /> Print / PDF
@@ -537,7 +583,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
       </div>
 
       {/* Navigation Tabs */}
-       <div className="flex space-x-1 border-b border-border overflow-x-auto">
+       <div className="flex space-x-1 border-b border-border overflow-x-auto no-scrollbar">
           <button className={tabClasses('overview')} onClick={() => setActiveTab('overview')}>Overview</button>
           <button className={tabClasses('items')} onClick={() => setActiveTab('items')}>Items ({allItems.length})</button>
           <button className={tabClasses('stats')} onClick={() => setActiveTab('stats')}>Statistics</button>
@@ -545,7 +591,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
        
        <div className="min-h-[300px]">
         {activeTab === 'overview' && (
-            <div className="space-y-8 animate-fade-in">
+            <div className="space-y-6 sm:space-y-8 animate-fade-in">
                 {/* Primary Actions Area */}
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-6 bg-primary/5 rounded-xl border border-primary/10">
                     <div className="flex-1 text-center md:text-left">
@@ -556,10 +602,10 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                             {dueCount > 0 ? "Keep up your streak and review now." : "Review ahead or add new cards."}
                         </p>
                     </div>
-                    <div className="flex flex-wrap gap-3 justify-center md:justify-end">
+                    <div className="flex flex-wrap gap-3 justify-center md:justify-end w-full md:w-auto">
                         {isDeckEmpty && aiFeaturesEnabled ? (
                             isGeneratingThisDeck ? (
-                                <div className="flex items-center justify-center py-3 px-6 bg-surface rounded-md border border-border">
+                                <div className="flex items-center justify-center py-3 px-6 bg-surface rounded-md border border-border w-full md:w-auto">
                                     <Spinner size="sm" />
                                     <span className="ml-3 text-text-muted text-sm font-semibold">{relevantTask.statusText || 'Generating...'}</span>
                                 </div>
@@ -576,13 +622,14 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                                             onGenerateAI(deck);
                                         }
                                     }}
+                                    className="w-full md:w-auto"
                                 >
                                     <Icon name="zap" className="w-5 h-5 mr-2" />
                                     Generate Content
                                 </Button>
                             )
                         ) : isDeckEmpty && !aiFeaturesEnabled ? (
-                            <Button variant="primary" size="lg" onClick={() => setActiveTab('items')}>
+                            <Button variant="primary" size="lg" onClick={() => setActiveTab('items')} className="w-full md:w-auto">
                                 <Icon name="plus" className="w-5 h-5 mr-2" />
                                 Create First Item
                             </Button>
@@ -594,7 +641,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                                         passAs={Button}
                                         variant="secondary"
                                         size="lg"
-                                        className="font-semibold"
+                                        className="font-semibold flex-1 md:flex-none"
                                     >
                                         <Icon name="book-open" className="w-5 h-5 mr-2" />
                                         {readCardCount === 0 ? 'Read' : (hasUnreadContent ? 'Continue Reading' : 'Review')}
@@ -607,7 +654,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                                     size="lg" 
                                     onClick={() => onUpdateLastOpened(deck.id)} 
                                     disabled={(dueCount === 0 && !canResume) || !!deck.locked || allItems.length === 0} 
-                                    className="font-bold px-8 shadow-md"
+                                    className="font-bold px-8 shadow-md flex-1 md:flex-none"
                                 >
                                     <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> {studyButtonText}
                                 </Link>
@@ -617,22 +664,25 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                                     onClick={() => setIsCramModalOpen(true)}
                                     disabled={allItems.length === 0}
                                     title="Review without affecting stats"
+                                    className="w-full md:w-auto"
                                 >
                                     Cram
                                 </Button>
                             </>
                         )}
                         {/* More study options dropdown could go here, or simple buttons */}
-                        {deck.type === DeckType.Flashcard && activeItems.length > 0 && (
-                             <Link href={`/decks/${deck.id}/study-reversed`} passAs={Button} variant="ghost" size="lg" onClick={() => onUpdateLastOpened(deck.id)} title="Study Back-to-Front">
-                                <Icon name="repeat" className="w-5 h-5" />
-                            </Link>
-                        )}
-                        {deck.type === DeckType.Quiz && activeItems.length > 0 && (
-                             <Link href={`/decks/${deck.id}/study-flip`} passAs={Button} variant="ghost" size="lg" onClick={() => onUpdateLastOpened(deck.id)} title="Review as Flashcards">
-                                <Icon name="columns" className="w-5 h-5" />
-                            </Link>
-                        )}
+                        <div className="flex gap-2 w-full sm:w-auto justify-center">
+                            {deck.type === DeckType.Flashcard && activeItems.length > 0 && (
+                                <Link href={`/decks/${deck.id}/study-reversed`} passAs={Button} variant="ghost" size="lg" onClick={() => onUpdateLastOpened(deck.id)} title="Study Back-to-Front" className="flex-1 sm:flex-none">
+                                    <Icon name="repeat" className="w-5 h-5" />
+                                </Link>
+                            )}
+                            {deck.type === DeckType.Quiz && activeItems.length > 0 && (
+                                <Link href={`/decks/${deck.id}/study-flip`} passAs={Button} variant="ghost" size="lg" onClick={() => onUpdateLastOpened(deck.id)} title="Review as Flashcards" className="flex-1 sm:flex-none">
+                                    <Icon name="columns" className="w-5 h-5" />
+                                </Link>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -645,15 +695,15 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                     </div>
                 </div>
 
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
                     <div className="bg-surface p-6 rounded-lg shadow-md border border-border flex flex-col justify-center">
                        <h4 className="text-sm font-semibold text-text mb-4 flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4"/> Retention Breakdown</h4>
                        <StackedProgressBar data={progressBarData} total={activeItems.length} />
                        <div className="grid grid-cols-2 gap-4 mt-6">
-                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span className="text-sm text-text-muted">New: <strong>{progressStats.new}</strong></span></div>
-                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-orange-500"></div><span className="text-sm text-text-muted">Learning: <strong>{progressStats.learning}</strong></span></div>
-                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-teal-500"></div><span className="text-sm text-text-muted">Young: <strong>{progressStats.young}</strong></span></div>
-                           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div><span className="text-sm text-text-muted">Mature: <strong>{progressStats.mature}</strong></span></div>
+                           <div className="flex items-center gap-2 text-sm text-text-muted"><div className="w-3 h-3 rounded-full bg-blue-500"></div><span>New: <strong>{progressStats.new}</strong></span></div>
+                           <div className="flex items-center gap-2 text-sm text-text-muted"><div className="w-3 h-3 rounded-full bg-orange-500"></div><span>Learning: <strong>{progressStats.learning}</strong></span></div>
+                           <div className="flex items-center gap-2 text-sm text-text-muted"><div className="w-3 h-3 rounded-full bg-teal-500"></div><span>Young: <strong>{progressStats.young}</strong></span></div>
+                           <div className="flex items-center gap-2 text-sm text-text-muted"><div className="w-3 h-3 rounded-full bg-green-500"></div><span>Mature: <strong>{progressStats.mature}</strong></span></div>
                        </div>
                     </div>
                     <div className="bg-surface p-6 rounded-lg shadow-md border border-border">

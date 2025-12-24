@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { FullBackupData, BackupComparison, Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck, DeckComparison, SeriesComparison } from '../types';
+import { FullBackupData, BackupComparison, Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
 import { parseAndValidateBackupFile } from '../services/importService';
 import Button from './ui/Button';
 import Icon from './ui/Icon';

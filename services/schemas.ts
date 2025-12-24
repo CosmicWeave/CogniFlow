@@ -1,7 +1,7 @@
 
 import { z } from 'zod';
-import { DeckType, ReviewRating } from '../types';
-import { INITIAL_EASE_FACTOR } from '../constants';
+import { DeckType, ReviewRating } from '../types.ts';
+import { INITIAL_EASE_FACTOR } from '../constants.ts';
 
 // --- Shared Sub-Schemas ---
 
@@ -18,7 +18,8 @@ export const ImportedCardSchema = z.object({
 });
 
 export const ImportedQuestionSchema = z.object({
-  questionType: z.literal('multipleChoice'),
+  id: z.string().optional(),
+  questionType: z.preprocess(val => val ?? "multipleChoice", z.string()),
   questionText: z.preprocess(val => val ?? "", z.string()),
   options: z.preprocess(val => Array.isArray(val) ? val : [], z.array(QuestionOptionSchema)),
   correctAnswerId: z.preprocess(val => val ? String(val) : "", z.string()),
@@ -26,10 +27,19 @@ export const ImportedQuestionSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
+export const InfoCardSchema = z.object({
+  id: z.coerce.string(),
+  content: z.string().nullable().optional().transform(val => val ?? ""),
+  unlocksQuestionIds: z.array(z.string()).nullable().optional().transform(val => val ?? []),
+});
+
 export const ImportedQuizDeckSchema = z.object({
   name: z.string(),
   description: z.preprocess(val => val ?? "", z.string()),
-  questions: z.array(ImportedQuestionSchema),
+  questions: z.array(z.any()), // permissive for initial analysis
+  type: z.string().optional(), // permissive for initial analysis
+  infoCards: z.array(z.any()).optional(),
+  learningMode: z.string().optional(),
 });
 
 // --- Internal Data Structures (for Backup Validation) ---
@@ -66,16 +76,9 @@ export const QuestionSchema = ReviewableSchema.extend({
   userSelectedAnswerId: z.string().optional(),
 });
 
-export const InfoCardSchema = z.object({
-  id: z.coerce.string(),
-  content: z.string().nullable().optional().transform(val => val ?? ""),
-  unlocksQuestionIds: z.array(z.string()).nullable().optional().transform(val => val ?? []),
-});
-
 const DeckBaseSchema = z.object({
   id: z.coerce.string(),
   name: z.coerce.string(),
-  // Permissive description: accepts string, null, undefined. Transforms null/undefined to "".
   description: z.string().nullable().optional().transform(val => val ?? ""),
   folderId: z.string().nullable().optional(),
   lastOpened: z.string().nullable().optional(),
@@ -84,7 +87,6 @@ const DeckBaseSchema = z.object({
   lastModified: z.number().nullable().optional(),
   locked: z.boolean().nullable().optional(),
   icon: z.string().nullable().optional(),
-  // Allow loose generation params to exist but be optional
   aiGenerationParams: z.any().optional(),
   suggestedQuestionCount: z.number().nullable().optional(),
 });
@@ -103,32 +105,29 @@ export const LearningDeckSchema = DeckBaseSchema.extend({
   type: z.literal(DeckType.Learning),
   infoCards: z.array(InfoCardSchema).nullable().optional().transform(val => val ?? []),
   questions: z.array(QuestionSchema).nullable().optional().transform(val => val ?? []),
+  learningMode: z.enum(['mixed', 'separate']).optional().transform(val => val ?? 'separate'),
 });
 
 // Preprocess function to handle legacy data structure issues before strict validation
 const processDeckData = (val: any) => {
     if (typeof val !== 'object' || val === null) {
-        // If the deck entry itself is corrupted (null or not an object), 
-        // return a dummy valid placeholder to prevent the entire backup import from failing.
         return {
             id: crypto.randomUUID(),
             name: "Corrupted Deck Entry",
             type: DeckType.Flashcard,
             cards: [],
-            description: "This deck entry was corrupted in the source file and could not be restored."
+            description: "This deck entry was corrupted in the source file."
         };
     }
     
     const deck = { ...val };
 
-    // 0. Ensure ID and Name exist
     if (!deck.id) deck.id = crypto.randomUUID();
     deck.id = String(deck.id);
 
     if (deck.name === null || deck.name === undefined) deck.name = "Untitled Deck";
     deck.name = String(deck.name);
 
-    // 1. Normalize and Infer Type
     if (deck.type && typeof deck.type === 'string') {
         deck.type = deck.type.toLowerCase();
     }
@@ -137,27 +136,21 @@ const processDeckData = (val: any) => {
     if (!deck.type || !validTypes.includes(deck.type)) {
         if (Array.isArray(deck.infoCards) && deck.infoCards.length > 0) deck.type = DeckType.Learning;
         else if (Array.isArray(deck.questions) && deck.questions.length > 0) deck.type = DeckType.Quiz;
-        else deck.type = DeckType.Flashcard; // Default fallback
+        else deck.type = DeckType.Flashcard;
     }
 
-    // 2. Normalize Description (older backups might have null)
     if (deck.description === null || deck.description === undefined) {
         deck.description = "";
     }
 
-    // 3. Robust Item Fixer: Ensure items are objects and have IDs
     const fixItem = (item: any) => {
-        if (!item || typeof item !== 'object') return null; // Filter out bad items
-        // Ensure ID
+        if (!item || typeof item !== 'object') return null;
         if (!item.id) item.id = crypto.randomUUID();
         item.id = String(item.id);
-        
-        // Ensure required type-specific fields to pass schema
         if (deck.type === DeckType.Flashcard) {
              if (item.front === null || item.front === undefined) item.front = "";
              if (item.back === null || item.back === undefined) item.back = "";
         }
-        
         return item;
     };
 
@@ -171,7 +164,6 @@ const processDeckData = (val: any) => {
         deck.questions = deck.questions.map((item: any) => {
             const fixed = fixItem(item);
             if (!fixed) return null;
-            // Force questionType for questions, otherwise Zod union discrimination fails
             if (!fixed.questionType) fixed.questionType = 'multipleChoice';
             return fixed;
         }).filter((i: any) => i !== null);
@@ -219,26 +211,23 @@ export const DeckSeriesSchema = z.object({
 });
 
 export const ReviewLogSchema = z.object({
-  id: z.union([z.string(), z.number()]).optional(), // Updated: allow string or number
+  id: z.union([z.string(), z.number()]).optional(),
   itemId: z.coerce.string(),
   deckId: z.coerce.string(),
   seriesId: z.string().optional(),
   timestamp: z.string(),
-  rating: z.nativeEnum(ReviewRating).nullable().optional(), // Allow null for legacy/suspend logs
+  rating: z.nativeEnum(ReviewRating).nullable().optional(),
   newInterval: z.number(),
   easeFactor: z.number(),
-  // Mastery level optional for backward compatibility with v6-8
   masteryLevel: z.number().nullable().optional().transform(val => val ?? 0),
 });
 
 export const SessionStateSchema = z.object({
   id: z.string(),
   reviewQueue: z.array(z.any()).transform(items => {
-      // Manual discrimination because schemas are too permissive for z.union
       if (!Array.isArray(items)) return [];
       return items.map(item => {
           if (!item || typeof item !== 'object') return null;
-          
           if ('questionType' in item) {
               const res = QuestionSchema.safeParse(item);
               return res.success ? res.data : null;
@@ -247,7 +236,6 @@ export const SessionStateSchema = z.object({
               const res = InfoCardSchema.safeParse(item);
               return res.success ? res.data : null;
           }
-          // Default to Card if it looks like one or generic
           const res = CardSchema.safeParse(item);
           return res.success ? res.data : null;
       }).filter((i): i is (z.infer<typeof CardSchema> | z.infer<typeof QuestionSchema> | z.infer<typeof InfoCardSchema>) => i !== null);
@@ -262,7 +250,7 @@ export const AIMessageSchema = z.object({
   id: z.string(),
   role: z.enum(['user', 'model']),
   text: z.string(),
-  actions: z.array(z.any()).optional(), // Actions are complex, keeping as any for now
+  actions: z.array(z.any()).optional(),
   isLoading: z.boolean().optional(),
 });
 
@@ -273,7 +261,6 @@ export const DeckLearningProgressSchema = z.object({
   lastReadCardId: z.string().optional(),
 });
 
-// Full Backup Schema
 export const FullBackupDataSchema = z.object({
   version: z.number(),
   decks: z.array(DeckSchema),
@@ -282,17 +269,15 @@ export const FullBackupDataSchema = z.object({
   reviews: z.array(ReviewLogSchema).nullable().optional().transform(val => val ?? []),
   sessions: z.array(SessionStateSchema).nullable().optional().transform(val => val ?? []),
   seriesProgress: z.record(z.string(), z.array(z.string())).nullable().optional().transform(val => val ?? {}),
-  // New in v9
   learningProgress: z.record(z.string(), DeckLearningProgressSchema).nullable().optional().transform(val => val ?? {}),
   aiChatHistory: z.array(AIMessageSchema).nullable().optional().transform(val => val ?? []),
   aiOptions: z.any().optional(),
   settings: z.any().optional(),
 });
 
-// Import Structures
 export const ImportedSeriesLevelSchema = z.object({
     title: z.string().nullable().optional().transform(val => val ?? "Untitled Level"),
-    decks: z.array(z.any()), // We validate items inside manually or loosely because import format varies slightly
+    decks: z.array(z.any()),
 });
 
 export const ImportedSeriesSchema = z.object({

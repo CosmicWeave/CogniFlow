@@ -11,6 +11,9 @@ import TruncatedText from './ui/TruncatedText.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
 import Spinner from './ui/Spinner.tsx';
 import Link from './ui/Link.tsx';
+import { generateMetadata } from '../services/aiService.ts';
+// FIX: Imported useToast hook.
+import { useToast } from '../hooks/useToast.ts';
 
 interface SeriesOverviewPageProps {
   series: DeckSeries;
@@ -41,7 +44,7 @@ const QuickStatCard = ({ icon, label, value, subtext, color = "primary" }: { ico
         </div>
         <div>
             <p className="text-sm font-medium text-text-muted">{label}</p>
-            <p className="text-2xl font-bold text-text">{value}</p>
+            <p className="text-xl sm:text-2xl font-bold text-text">{value}</p>
             {subtext && <p className="text-xs text-text-muted mt-0.5">{subtext}</p>}
         </div>
     </div>
@@ -52,10 +55,13 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
   const decks = useDecksList();
   const { seriesProgress, aiGenerationStatus } = useStore();
   const { aiFeaturesEnabled } = useSettings();
+  // FIX: Obtained addToast from the useToast hook.
+  const { addToast } = useToast();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(series.name);
   const [editedDescription, setEditedDescription] = useState(series.description);
+  const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -105,6 +111,29 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
     setEditedName(series.name);
     setEditedDescription(series.description);
     setIsEditing(false);
+  };
+
+  const handleAutoMetadata = async () => {
+    const seriesDecks = (series.levels || []).flatMap(l => l?.deckIds || []).map(id => decks.find(d => d.id === id)).filter(Boolean);
+    if (seriesDecks.length === 0) {
+        // FIX: addToast is now correctly accessible.
+        addToast("Add some decks to this series first so the AI has context.", "info");
+        return;
+    }
+    setIsGeneratingMetadata(true);
+    try {
+        const textContext = seriesDecks.map(d => `${d?.name}: ${stripHtml(d?.description)}`).join('\n');
+        const { name, description } = await generateMetadata(textContext, 'series');
+        setEditedName(name);
+        setEditedDescription(description);
+        // FIX: addToast is now correctly accessible.
+        addToast("Details generated!", "success");
+    } catch (e) {
+        // FIX: addToast is now correctly accessible.
+        addToast("Failed to generate details.", "error");
+    } finally {
+        setIsGeneratingMetadata(false);
+    }
   };
 
   // --- Level Management Handlers ---
@@ -218,7 +247,15 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
       <div className={`bg-surface rounded-xl shadow-sm border border-border ${isEditing ? 'overflow-hidden' : ''}`}>
         {isEditing ? (
             <div className="p-6 space-y-4 animate-fade-in bg-background/50">
-                <h2 className="text-xl font-bold text-text mb-4">Edit Series Details</h2>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-text">Edit Series Details</h2>
+                    {aiFeaturesEnabled && (
+                        <Button variant="ghost" size="sm" onClick={handleAutoMetadata} disabled={isGeneratingMetadata} className="text-primary hover:text-primary-hover">
+                            {isGeneratingMetadata ? <Spinner size="sm" /> : <Icon name="bot" className="w-4 h-4 mr-2" />}
+                            Auto-generate with AI
+                        </Button>
+                    )}
+                </div>
                 <div>
                     <label htmlFor="series-name-edit" className="block text-sm font-medium text-text-muted mb-1">Series Name</label>
                     <input 
@@ -246,17 +283,17 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                 </div>
             </div>
         ) : (
-            <div className="p-6 md:p-8 flex flex-col md:flex-row items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
+            <div className="p-6 md:p-8 flex items-start justify-between gap-4 relative">
+                <div className="flex-1 min-w-0 pr-10 md:pr-0">
                     <div className="flex items-start gap-4">
-                        <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0">
+                        <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0 hidden sm:block">
                             <Icon name="layers" className="w-8 h-8 text-primary" />
                         </div>
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center text-xs font-semibold text-text-muted mb-1 uppercase tracking-wider">
                                 <span>Learning Series</span>
                             </div>
-                            <h1 className="text-3xl font-extrabold text-text break-words leading-tight">{series.name}</h1>
+                            <h1 className="text-2xl sm:text-3xl font-extrabold text-text break-words leading-tight">{series.name}</h1>
                             {series.description && (
                                 <div className="mt-2 text-text-muted">
                                     <TruncatedText html={series.description} className="prose prose-sm dark:prose-invert max-w-none text-text-muted leading-relaxed" />
@@ -266,12 +303,12 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                     </div>
                 </div>
                 
-                <div className="relative flex-shrink-0 self-start mt-2 md:mt-0" ref={menuRef}>
+                <div className="absolute top-6 right-6 md:static md:flex-shrink-0 md:self-start" ref={menuRef}>
                     <Button variant="ghost" onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 rounded-full hover:bg-border/50">
                         <Icon name="more-vertical" className="w-6 h-6 text-text-muted" />
                     </Button>
                     {isMenuOpen && (
-                        <div className="absolute right-0 mt-2 w-64 bg-surface rounded-lg shadow-xl border border-border z-20 py-1 animate-fade-in origin-top-right">
+                        <div className="absolute right-0 mt-2 w-56 bg-surface rounded-lg shadow-xl border border-border z-30 py-1 animate-fade-in origin-top-right">
                             <button onClick={() => { setIsEditing(true); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
                                 <Icon name="edit" className="w-4 h-4 mr-3" /> Edit Details
                             </button>
@@ -314,14 +351,14 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                   {isCompleted ? "Great job! Review due items to maintain mastery." : (nextUpDeckId ? "Pick up where you left off." : "Begin the first level.")}
               </p>
           </div>
-          <div className="flex flex-wrap gap-3 justify-center md:justify-end">
+          <div className="flex flex-wrap gap-3 justify-center md:justify-end w-full md:w-auto">
               {!isCompleted && nextUpDeckId && (
                 <Link
                   href={`/decks/${nextUpDeckId}/study?seriesId=${series.id}`}
                   passAs={Button}
                   variant="primary"
                   size="lg"
-                  className="font-bold px-8 shadow-md"
+                  className="font-bold px-8 shadow-md flex-1 md:flex-none"
                 >
                   <Icon name="zap" className="w-5 h-5 mr-2" />
                   {completedCount > 0 ? 'Continue' : 'Start Series'}
@@ -332,7 +369,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                   variant={!isCompleted && nextUpDeckId ? 'secondary' : 'primary'}
                   size="lg"
                   onClick={() => props.onStartSeriesStudy(series.id)}
-                  className="font-bold"
+                  className="font-bold flex-1 md:flex-none"
                 >
                   <Icon name="refresh-ccw" className="w-5 h-5 mr-2" />
                   Study Due ({dueCount})
@@ -344,12 +381,12 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
       {/* Dashboard Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
            <QuickStatCard icon="layers" label="Total Decks" value={totalCount} color="blue" />
-           <QuickStatCard icon="check-circle" label="Progress" value={`${completedCount} / ${totalCount}`} subtext={`${Math.round((completedCount / (totalCount || 1)) * 100)}% Complete`} color="green" />
+           <QuickStatCard icon="check-circle" label="Progress" value={`${completedCount}/${totalCount}`} subtext={`${Math.round((completedCount / (totalCount || 1)) * 100)}% Complete`} color="green" />
            <QuickStatCard icon="zap" label="Due Today" value={dueCount} color="orange" />
       </div>
 
       {/* Levels List */}
-      <div className="space-y-8 mt-8">
+      <div className="space-y-6 sm:space-y-8 mt-4 sm:mt-8">
         {(series.levels || []).map((level, index) => (
           <div key={index} className="bg-surface rounded-xl p-4 border border-border shadow-sm">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-border pb-2 gap-2">

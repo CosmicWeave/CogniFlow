@@ -1,6 +1,5 @@
 
-
-import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, ImportedCard, ImportedQuizDeck, LearningDeck } from '../types';
+import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, ImportedCard, ImportedQuizDeck, LearningDeck } from '../types.ts';
 import Papa from 'papaparse';
 
 function triggerDownload(content: string, filename: string, mimeType: string) {
@@ -39,6 +38,7 @@ export const exportDeck = (deck: Deck): void => {
         const importedQuizDeck: ImportedQuizDeck = {
             name: quizDeck.name,
             description: quizDeck.description,
+            type: quizDeck.type,
             questions: (quizDeck.questions || []).map(q => ({
                 questionType: q.questionType,
                 questionText: q.questionText,
@@ -48,6 +48,13 @@ export const exportDeck = (deck: Deck): void => {
                 tags: q.tags,
             })),
         };
+
+        if (deck.type === DeckType.Learning) {
+            const learningDeck = deck as LearningDeck;
+            importedQuizDeck.infoCards = learningDeck.infoCards;
+            importedQuizDeck.learningMode = learningDeck.learningMode;
+        }
+
         exportData = importedQuizDeck;
     } else {
         throw new Error(`Unsupported deck type for export: ${(deck as any).type}`);
@@ -100,8 +107,8 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
                     };
                 } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
                     const quizDeck = deck as QuizDeck | LearningDeck;
-                    return {
-                        type: DeckType.Quiz, // Treat Learning as Quiz for export simplicity
+                    const result: any = {
+                        type: quizDeck.type,
                         name: quizDeck.name,
                         description: quizDeck.description,
                         questions: (quizDeck.questions || []).map(q => ({
@@ -113,6 +120,13 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
                             tags: q.tags,
                         })),
                     };
+
+                    if (deck.type === DeckType.Learning) {
+                        const learningDeck = deck as LearningDeck;
+                        result.infoCards = learningDeck.infoCards;
+                        result.learningMode = learningDeck.learningMode;
+                    }
+                    return result;
                 }
                 return null;
             }).filter(Boolean);

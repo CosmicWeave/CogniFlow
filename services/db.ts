@@ -782,6 +782,7 @@ export async function clearReviews(): Promise<void> {
     });
 }
 
+// FIX: Ensure ID matching in deleteReviewsForDecks uses correct string conversion for IDs.
 export async function deleteReviewsForDecks(deckIds: string[]): Promise<void> {
     if (deckIds.length === 0) return;
     const db = await initDB();
@@ -795,7 +796,7 @@ export async function deleteReviewsForDecks(deckIds: string[]): Promise<void> {
         request.onsuccess = () => {
             const cursor = request.result;
             if (cursor) {
-                if (deckIdSet.has(cursor.value.deckId)) {
+                if (deckIdSet.has(String(cursor.value.deckId))) {
                     cursor.delete();
                 }
                 cursor.continue();
@@ -986,7 +987,8 @@ export async function exportAllData(): Promise<string | null> {
     
     // Gather settings from localStorage
     const settings: AppSettings = {};
-    const keys: (keyof AppSettings)[] = ['themeId', 'disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'backupApiKey', 'syncOnCellular', 'notificationsEnabled', 'leechThreshold', 'leechAction'];
+    const keys: (keyof AppSettings)[] = ['themeId', 'disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'backupApiKey', 'syncOnCellular', 'notificationsEnabled', 'leechThreshold', 'leechAction', 'fontFamily', 'encryptionPassword'];
+    // FIX: Added fontFamily and encryptionPassword to lsKeys to satisfy Record type constraint
     const lsKeys: Record<keyof AppSettings, string> = {
         themeId: 'cogniflow-themeId',
         disableAnimations: 'cogniflow-disableAnimations',
@@ -998,6 +1000,8 @@ export async function exportAllData(): Promise<string | null> {
         notificationsEnabled: 'cogniflow-notificationsEnabled',
         leechThreshold: 'cogniflow-leechThreshold',
         leechAction: 'cogniflow-leechAction',
+        fontFamily: 'cogniflow-fontFamily',
+        encryptionPassword: 'cogniflow-encryptionPassword',
     };
     keys.forEach(key => {
         const lsKey = lsKeys[key];

@@ -59,6 +59,9 @@ const AddDeckToSeriesModal: React.FC<AddDeckToSeriesModalProps> = ({ isOpen, onC
             interval: 0,
             easeFactor: 2.5,
             suspended: false,
+            // FIX: Added missing lapses and masteryLevel properties
+            lapses: 0,
+            masteryLevel: 0,
             detailedExplanation: q.detailedExplanation || '',
             options: q.options.map(o => ({
                 id: o.id || crypto.randomUUID(),
