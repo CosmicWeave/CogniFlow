@@ -1,1 +1,0 @@
-import{r}from"./index-D_FLfjBw.js";const d=e=>{const o=r.useRef(e);r.useEffect(()=>{o.current=e},[e]),r.useEffect(()=>{const a=t=>{const n=t.target;if(n.tagName==="INPUT"||n.tagName==="TEXTAREA"||n.isContentEditable)return;const s=o.current[t.code];s&&s(t)};return window.addEventListener("keydown",a),()=>window.removeEventListener("keydown",a)},[])};export{d as u};

@@ -1,0 +1,1 @@
+import{j as s}from"./index-Bo0ygskk.js";const n=({current:e,total:r})=>{const a=r>0?e/r*100:0;return s.jsx("div",{className:"w-full bg-border/30 rounded-full h-2.5",children:s.jsx("div",{className:"bg-primary h-2.5 rounded-full transition-all duration-500",style:{width:`${a}%`}})})};export{n as P};
