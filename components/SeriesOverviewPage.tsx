@@ -14,6 +14,7 @@ import Link from './ui/Link.tsx';
 import { generateMetadata } from '../services/aiService.ts';
 // FIX: Imported useToast hook.
 import { useToast } from '../hooks/useToast.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
 
 interface SeriesOverviewPageProps {
   series: DeckSeries;
@@ -57,6 +58,7 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
   const { aiFeaturesEnabled } = useSettings();
   // FIX: Obtained addToast from the useToast hook.
   const { addToast } = useToast();
+  const dataHandlers = useData();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(series.name);
@@ -327,6 +329,9 @@ const SeriesOverviewPage: React.FC<SeriesOverviewPageProps> = (props) => {
                                     <Icon name="zap" className="w-4 h-4 mr-3" /> {isGeneratingThisSeries ? 'Generating...' : 'Generate All Questions'}
                                 </button>
                             )}
+                            <button onClick={() => { dataHandlers.handleViewSeriesJson(series); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                                <Icon name="code" className="w-4 h-4 mr-3" /> View JSON
+                            </button>
                             <button onClick={() => { props.onExportSeries(series); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
                                 <Icon name="download" className="w-4 h-4 mr-3" /> Export JSON
                             </button>

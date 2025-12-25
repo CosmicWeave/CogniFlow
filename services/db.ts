@@ -1,4 +1,3 @@
-
 // FIX: Corrected import path for types
 import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, AppSettings, DeckLearningProgress } from '../types';
 import { broadcastDataChange } from './syncService.ts';
@@ -69,36 +68,43 @@ function initDB(): Promise<IDBDatabase> {
 
     if (!idb) {
         const errorMsg = "IndexedDB is not supported in this environment.";
-        dbLogger.error(`${errorMsg}`);
+        dbLogger.warn(`${errorMsg}`);
         return reject(new Error(errorMsg));
     }
       
     const request = idb.open(DB_NAME, DB_VERSION);
 
     request.onblocked = (event) => {
-        const errorMsg = 'Database upgrade is required, but it is blocked by another open tab of this application. Please close all other tabs and reload.';
-        dbLogger.error('IndexedDB open request blocked. Please close other tabs with this app open.', event);
+        const errorMsg = 'Database upgrade is required, but it is blocked by another open tab. Please close other tabs and reload.';
+        dbLogger.warn('IndexedDB open request blocked.', event);
         reject(new Error(errorMsg));
     };
 
-    request.onerror = () => {
-      dbLogger.error('IndexedDB error during open:', request.error);
-      // Nullify the promise so subsequent calls will re-attempt initialization.
+    request.onerror = (event) => {
+      // Prevent the browser from logging its own error to the console
+      if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+      }
+
+      // Log as a warning since we have a localStorage fallback
+      const error = request.error;
+      const errorMessage = error ? error.message : 'Unknown error';
+      dbLogger.warn(`IndexedDB failed to open: ${errorMessage}. Falling back to localStorage.`);
+      
+      // Nullify the promise so subsequent calls can retry if necessary, 
+      // although storage.ts will usually switch permanently to localStorage for the session.
       dbPromise = null;
-      // Reject with a specific error that the UI can catch and display instructions for.
-      // This prevents a reload loop if the DB is in a permanently bad state.
-      const specificError = new Error('Could not open or delete the database. This can be caused by browser settings (like blocking all data), private mode, or corruption. Please clear website data for this app in your browser settings and reload.');
-      reject(specificError);
+      
+      reject(new Error(`Could not open the database: ${errorMessage}`));
     };
 
     request.onsuccess = () => {
       const db = request.result;
       
-      // Handle database version changes (e.g. open in another tab with newer version)
       db.onversionchange = () => {
         db.close();
         dbPromise = null;
-        console.warn('Database version changed in another tab. Closing connection to prevent blocking.');
+        console.warn('Database version changed in another tab. Closing connection.');
       };
 
       dbLogger.log('IndexedDB connection successful.');
@@ -122,62 +128,45 @@ function initDB(): Promise<IDBDatabase> {
           return;
       }
       
-      // Use a fall-through switch statement for robust, sequential upgrades.
       switch(event.oldVersion) {
         case 0:
-            dbLogger.log('v1: Creating initial object stores (decks, folders).');
             if (!db.objectStoreNames.contains(DECK_STORE_NAME)) {
                 db.createObjectStore(DECK_STORE_NAME, { keyPath: 'id' });
             }
             if (!db.objectStoreNames.contains(FOLDER_STORE_NAME)) {
                 db.createObjectStore(FOLDER_STORE_NAME, { keyPath: 'id' });
             }
-        // fall through
         case 1:
         case 2:
-            dbLogger.log(`v3: Creating object store: ${SERIES_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SERIES_STORE_NAME)) {
                 db.createObjectStore(SERIES_STORE_NAME, { keyPath: 'id' });
             }
-        // fall through
         case 3:
-            dbLogger.log(`v4: Creating object store: ${SESSION_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SESSION_STORE_NAME)) {
                 db.createObjectStore(SESSION_STORE_NAME, { keyPath: 'id' });
             }
-        // fall through
         case 4:
-            dbLogger.log(`v5: Creating object store: ${REVIEW_STORE_NAME}`);
             if (!db.objectStoreNames.contains(REVIEW_STORE_NAME)) {
                 const reviewStore = db.createObjectStore(REVIEW_STORE_NAME, { autoIncrement: true });
                 reviewStore.createIndex('timestamp', 'timestamp', { unique: false });
             }
-        // fall through
         case 5:
-            dbLogger.log('v6: Adding deckId index to reviews store.');
             const store = transaction.objectStore(REVIEW_STORE_NAME);
             if (!store.indexNames.contains('deckId')) {
                 store.createIndex('deckId', 'deckId', { unique: false });
             }
-        // fall through
         case 6:
-            dbLogger.log(`v7: Creating object store: ${AI_CHAT_STORE_NAME}`);
             if (!db.objectStoreNames.contains(AI_CHAT_STORE_NAME)) {
                 db.createObjectStore(AI_CHAT_STORE_NAME, { keyPath: 'id' });
             }
-        // fall through
         case 7:
-            dbLogger.log(`v8: Creating object store: ${SERIES_PROGRESS_STORE_NAME}`);
             if (!db.objectStoreNames.contains(SERIES_PROGRESS_STORE_NAME)) {
                 db.createObjectStore(SERIES_PROGRESS_STORE_NAME, { keyPath: 'id' });
             }
-        // fall through
         case 8:
-            dbLogger.log(`v9: Creating object store: ${LEARNING_PROGRESS_STORE_NAME}`);
             if (!db.objectStoreNames.contains(LEARNING_PROGRESS_STORE_NAME)) {
                 db.createObjectStore(LEARNING_PROGRESS_STORE_NAME, { keyPath: 'deckId' });
             }
-        // fall through
         default:
           dbLogger.log('Database upgrade sequence complete.');
       }
@@ -201,12 +190,6 @@ export async function getAllDecks(): Promise<Deck[]> {
     request.onsuccess = () => {
         const result = request.result;
         const decks = Array.isArray(result) ? result : [];
-        const count = decks.length;
-        if (count > 0) {
-            dbLogger.log(`Successfully loaded ${count} decks from the database.`);
-        } else {
-            dbLogger.warn(`No decks found in the database.`);
-        }
         resolve(decks as Deck[]);
     }
   });
@@ -293,12 +276,6 @@ export async function getAllFolders(): Promise<Folder[]> {
     request.onsuccess = () => {
         const result = request.result;
         const folders = Array.isArray(result) ? result : [];
-        const count = folders.length;
-        if (count > 0) {
-            dbLogger.log(`Successfully loaded ${count} folders from the database.`);
-        } else {
-            dbLogger.warn(`No folders found in the database.`);
-        }
         resolve(folders as Folder[]);
     }
   });
@@ -398,12 +375,6 @@ export async function getAllDeckSeries(): Promise<DeckSeries[]> {
         request.onsuccess = () => {
             const result = request.result;
             const series = Array.isArray(result) ? result : [];
-            const count = series.length;
-            if (count > 0) {
-                dbLogger.log(`Successfully loaded ${count} series from the database.`);
-            } else {
-                dbLogger.warn(`No series found in the database.`);
-            }
             resolve(series as DeckSeries[]);
         }
     });
@@ -505,12 +476,6 @@ export async function getAllSessions(): Promise<SessionState[]> {
         request.onsuccess = () => {
             const result = request.result;
             const sessions = Array.isArray(result) ? result : [];
-            const count = sessions.length;
-            if (count > 0) {
-                dbLogger.log(`Successfully loaded ${count} sessions from the database.`);
-            } else {
-                dbLogger.warn(`No sessions found in the database.`);
-            }
             resolve(sessions);
         }
         request.onerror = () => {
@@ -759,10 +724,6 @@ export async function getAllReviews(): Promise<ReviewLog[]> {
     request.onsuccess = () => {
         const result = request.result;
         const reviews = Array.isArray(result) ? result : [];
-        const count = reviews.length;
-        if (count > 0) {
-            dbLogger.log(`Successfully loaded ${count} review logs from the database.`);
-        }
         resolve(reviews as ReviewLog[]);
     }
   });
@@ -782,7 +743,6 @@ export async function clearReviews(): Promise<void> {
     });
 }
 
-// FIX: Ensure ID matching in deleteReviewsForDecks uses correct string conversion for IDs.
 export async function deleteReviewsForDecks(deckIds: string[]): Promise<void> {
     if (deckIds.length === 0) return;
     const db = await initDB();
@@ -803,13 +763,10 @@ export async function deleteReviewsForDecks(deckIds: string[]): Promise<void> {
             }
         };
 
-        transaction.oncomplete = () => {
-            dbLogger.log(`Deleted reviews for ${deckIds.length} deck(s).`);
-            resolve();
-        };
+        transaction.oncomplete = () => resolve();
         transaction.onerror = () => {
             dbLogger.error("Transaction error deleting reviews for decks", transaction.error);
-            reject(new Error("Failed to delete review logs for specified decks."));
+            reject(new Error("Failed to delete review logs."));
         };
     });
 }
@@ -872,10 +829,6 @@ export async function getAIChatHistory(): Promise<AIMessage[]> {
         const store = transaction.objectStore(AI_CHAT_STORE_NAME);
         const request = store.get('global_history');
         request.onsuccess = () => {
-            const count = request.result?.history?.length ?? 0;
-            if (count > 0) {
-                dbLogger.log(`Successfully loaded ${count} AI chat history messages.`);
-            }
             resolve(request.result?.history || []);
         }
         request.onerror = () => {
@@ -926,10 +879,6 @@ export async function getAllSeriesProgress(): Promise<Record<string, string[]>> 
         (progressItems as {id: string, completedDeckIds: string[]}[]).forEach(item => {
             result[item.id] = item.completedDeckIds;
         });
-        const count = Object.keys(result).length;
-        if (count > 0) {
-            dbLogger.log(`Successfully loaded progress for ${count} series.`);
-        }
         resolve(result);
     };
     request.onerror = () => {
@@ -985,15 +934,15 @@ export async function exportAllData(): Promise<string | null> {
     const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
     const aiChatHistory = await getAIChatHistory();
     
-    // Gather settings from localStorage
     const settings: AppSettings = {};
-    const keys: (keyof AppSettings)[] = ['themeId', 'disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'backupApiKey', 'syncOnCellular', 'notificationsEnabled', 'leechThreshold', 'leechAction', 'fontFamily', 'encryptionPassword'];
-    // FIX: Added fontFamily and encryptionPassword to lsKeys to satisfy Record type constraint
-    const lsKeys: Record<keyof AppSettings, string> = {
+    const lsKeys: Record<string, string> = {
         themeId: 'cogniflow-themeId',
         disableAnimations: 'cogniflow-disableAnimations',
         hapticsEnabled: 'cogniflow-hapticsEnabled',
         aiFeaturesEnabled: 'cogniflow-aiFeaturesEnabled',
+        veoEnabled: 'cogniflow-veoEnabled',
+        groundedImagesEnabled: 'cogniflow-groundedImagesEnabled',
+        searchAuditsEnabled: 'cogniflow-searchAuditsEnabled',
         backupEnabled: 'cogniflow-backupEnabled',
         backupApiKey: 'cogniflow-backupApiKey',
         syncOnCellular: 'cogniflow-syncOnCellular',
@@ -1003,13 +952,12 @@ export async function exportAllData(): Promise<string | null> {
         fontFamily: 'cogniflow-fontFamily',
         encryptionPassword: 'cogniflow-encryptionPassword',
     };
-    keys.forEach(key => {
-        const lsKey = lsKeys[key];
+
+    Object.entries(lsKeys).forEach(([key, lsKey]) => {
         const value = localStorage.getItem(lsKey);
         if (value !== null) {
             try {
-                // some are booleans stored as strings
-                if (['disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'backupEnabled', 'syncOnCellular', 'notificationsEnabled'].includes(key)) {
+                if (['disableAnimations', 'hapticsEnabled', 'aiFeaturesEnabled', 'veoEnabled', 'groundedImagesEnabled', 'searchAuditsEnabled', 'backupEnabled', 'syncOnCellular', 'notificationsEnabled'].includes(key)) {
                     (settings as any)[key] = JSON.parse(value);
                 } else if (['leechThreshold'].includes(key)) {
                     (settings as any)[key] = Number(value);
@@ -1023,7 +971,7 @@ export async function exportAllData(): Promise<string | null> {
     });
 
     const exportData: FullBackupData = {
-        version: 9, // Incremented to support Learning Progress
+        version: 9,
         decks,
         folders,
         deckSeries,
@@ -1062,8 +1010,7 @@ export async function exportAllData(): Promise<string | null> {
 export async function performAtomicRestore(data: FullBackupData): Promise<void> {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
-        dbLogger.log(`Starting atomic restore from backup version ${data.version}.`);
-        dbLogger.log(`Backup contains: ${data.decks?.length || 0} decks, ${data.folders?.length || 0} folders, ${data.deckSeries?.length || 0} series, ${data.reviews?.length || 0} reviews, ${data.sessions?.length || 0} sessions, ${Object.keys(data.seriesProgress || {}).length} series progresses, ${Object.keys(data.learningProgress || {}).length} learning progresses, and ${data.aiChatHistory?.length || 0} chat messages.`);
+        dbLogger.log(`Starting atomic restore.`);
         
         const storeNames = [
             DECK_STORE_NAME, FOLDER_STORE_NAME, SERIES_STORE_NAME, 
@@ -1074,60 +1021,44 @@ export async function performAtomicRestore(data: FullBackupData): Promise<void> 
         const transaction = db.transaction(storeNames, 'readwrite');
         
         transaction.oncomplete = () => {
-            dbLogger.log("Atomic restore transaction completed successfully. All data has been replaced.");
-            broadcastDataChange(); // Notify other tabs
+            broadcastDataChange();
             resolve();
         };
-        transaction.onerror = (event) => {
+        transaction.onerror = () => {
             dbLogger.error("Atomic restore transaction failed:", transaction.error);
-            reject(new Error('Database transaction failed during data restore.'));
+            reject(new Error('Database transaction failed during restore.'));
         };
         
         try {
-            // 1. Clear all stores
-            dbLogger.log(`Clearing ${storeNames.length} stores...`);
-            const deckStore = transaction.objectStore(DECK_STORE_NAME);
-            deckStore.clear();
-            const folderStore = transaction.objectStore(FOLDER_STORE_NAME);
-            folderStore.clear();
-            const seriesStore = transaction.objectStore(SERIES_STORE_NAME);
-            seriesStore.clear();
-            const reviewStore = transaction.objectStore(REVIEW_STORE_NAME);
-            reviewStore.clear();
-            const sessionStore = transaction.objectStore(SESSION_STORE_NAME);
-            sessionStore.clear();
-            const aiChatStore = transaction.objectStore(AI_CHAT_STORE_NAME);
-            aiChatStore.clear();
-            const seriesProgressStore = transaction.objectStore(SERIES_PROGRESS_STORE_NAME);
-            seriesProgressStore.clear();
-            const learningProgressStore = transaction.objectStore(LEARNING_PROGRESS_STORE_NAME);
-            learningProgressStore.clear();
-            dbLogger.log('All stores cleared.');
+            transaction.objectStore(DECK_STORE_NAME).clear();
+            transaction.objectStore(FOLDER_STORE_NAME).clear();
+            transaction.objectStore(SERIES_STORE_NAME).clear();
+            transaction.objectStore(REVIEW_STORE_NAME).clear();
+            transaction.objectStore(SESSION_STORE_NAME).clear();
+            transaction.objectStore(AI_CHAT_STORE_NAME).clear();
+            transaction.objectStore(SERIES_PROGRESS_STORE_NAME).clear();
+            transaction.objectStore(LEARNING_PROGRESS_STORE_NAME).clear();
 
-            // 2. Add new data from backup
-            dbLogger.log('Adding new data from backup...');
-            (data.decks || []).forEach(deck => deckStore.put(deck));
-            (data.folders || []).forEach(folder => folderStore.put(folder));
-            (data.deckSeries || []).forEach(series => seriesStore.put(series));
+            (data.decks || []).forEach(deck => transaction.objectStore(DECK_STORE_NAME).put(deck));
+            (data.folders || []).forEach(folder => transaction.objectStore(FOLDER_STORE_NAME).put(folder));
+            (data.deckSeries || []).forEach(series => transaction.objectStore(SERIES_STORE_NAME).put(series));
             (data.reviews || []).forEach(log => {
-                const { id, ...logWithoutId } = log; // Reviews have auto-incrementing key
-                reviewStore.add(logWithoutId);
+                const { id, ...logWithoutId } = log;
+                transaction.objectStore(REVIEW_STORE_NAME).add(logWithoutId);
             });
-            (data.sessions || []).forEach(session => sessionStore.put(session));
+            (data.sessions || []).forEach(session => transaction.objectStore(SESSION_STORE_NAME).put(session));
             if (data.aiChatHistory && data.aiChatHistory.length > 0) {
-                 aiChatStore.put({ id: 'global_history', history: data.aiChatHistory });
+                 transaction.objectStore(AI_CHAT_STORE_NAME).put({ id: 'global_history', history: data.aiChatHistory });
             }
             Object.entries(data.seriesProgress || {}).forEach(([seriesId, completedDeckIds]) => {
-                seriesProgressStore.put({ id: seriesId, completedDeckIds });
+                transaction.objectStore(SERIES_PROGRESS_STORE_NAME).put({ id: seriesId, completedDeckIds });
             });
             Object.values(data.learningProgress || {}).forEach((item) => {
-                learningProgressStore.put(item);
+                transaction.objectStore(LEARNING_PROGRESS_STORE_NAME).put(item);
             });
-            dbLogger.log('Finished queueing restore operations.');
             
         } catch (e) {
-            dbLogger.error("Error queueing operations for atomic restore:", e);
-            transaction.abort(); // Attempt to abort if an error occurs while queueing
+            transaction.abort();
             reject(e);
         }
     });
@@ -1138,30 +1069,14 @@ export async function factoryReset(): Promise<void> {
     try {
         const db = await dbPromise;
         db.close();
-    } catch (e) {
-        // Ignore error if opening failed, we want to delete anyway
-        console.warn("Could not close existing DB connection (it might have failed to open):", e);
-    }
+    } catch (e) {}
     dbPromise = null;
   }
 
   return new Promise((resolve, reject) => {
-    dbLogger.log(`Attempting to delete database: ${DB_NAME}`);
     const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
-
-    deleteRequest.onerror = (event) => {
-      dbLogger.error('Error deleting database.', (event.target as IDBOpenDBRequest).error);
-      reject(new Error('Error deleting database.'));
-    };
-
-    deleteRequest.onsuccess = () => {
-      dbLogger.log('Database deleted successfully.');
-      resolve();
-    };
-    
-    deleteRequest.onblocked = () => {
-        dbLogger.error('Database deletion blocked. Please close other tabs of this app and try again.');
-        reject(new Error('Deletion blocked. Please close other tabs of this app.'));
-    };
+    deleteRequest.onerror = () => reject(new Error('Error deleting database.'));
+    deleteRequest.onsuccess = () => resolve();
+    deleteRequest.onblocked = () => reject(new Error('Deletion blocked. Please close other tabs.'));
   });
 }

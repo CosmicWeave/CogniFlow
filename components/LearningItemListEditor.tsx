@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { LearningDeck, InfoCard, Question } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -162,6 +163,8 @@ const LearningItemListEditor: React.FC<LearningItemListEditorProps> = ({ deck, o
                 deck={deck}
                 isGenerating={isGenerating}
                 onGenerateMore={() => dataHandlers?.handleOpenAIGenerationForDeck(deck)}
+                // FIX: Added the missing required 'onRework' property.
+                onRework={() => dataHandlers?.handleOpenAIReworkForDeck(deck)}
                 onAnalyze={() => dataHandlers?.handleOpenDeckAnalysis(deck)}
                 onAutoTag={() => dataHandlers?.handleAutoTagQuestions(deck)}
                 onHardenDistractors={() => dataHandlers?.handleHardenAllDistractors(deck)}

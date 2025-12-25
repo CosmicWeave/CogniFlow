@@ -1,4 +1,3 @@
-
 import React, { ErrorInfo, ReactNode } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -17,14 +16,17 @@ interface ErrorBoundaryState {
  * ErrorBoundary component to catch rendering errors and display a fallback UI.
  * Inherits from React.Component to use lifecycle methods for error handling.
  */
-/* FIX: Explicitly extending React.Component to ensure properties like setState and props are inherited correctly in all environments. */
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // Initial state setup
-  public state: ErrorBoundaryState = {
-    hasError: false,
-    error: null,
-    errorInfo: null,
-  };
+  public state: ErrorBoundaryState;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    };
+  }
 
   /**
    * Static method to update state when an error occurs during rendering.
@@ -38,8 +40,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
    */
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
-    /* FIX: Correctly accessing setState inherited from React.Component. */
-    this.setState({ errorInfo });
+    // FIX: Accessing setState through any cast to satisfy compiler inheritance resolution issues
+    (this as any).setState({ errorInfo });
   }
 
   private handleReload = () => {
@@ -47,7 +49,9 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   };
 
   private handleCopyReport = () => {
-    const { error, errorInfo } = this.state;
+    // FIX: Accessing state through any cast to satisfy compiler inheritance resolution issues
+    const state = (this as any).state as ErrorBoundaryState;
+    const { error, errorInfo } = state;
     const report = `
 Error Report
 Date: ${new Date().toISOString()}
@@ -75,9 +79,11 @@ ${errorInfo?.componentStack}
    * Renders the children or the fallback error UI.
    */
   public render(): ReactNode {
-    const { hasError, error } = this.state;
-    /* FIX: Correctly accessing props inherited from React.Component. */
-    const { children } = this.props;
+    // FIX: Accessing state and props through any cast to satisfy compiler inheritance resolution issues
+    const state = (this as any).state as ErrorBoundaryState;
+    const props = (this as any).props as ErrorBoundaryProps;
+    const { hasError, error } = state;
+    const { children } = props;
 
     if (hasError) {
       return (

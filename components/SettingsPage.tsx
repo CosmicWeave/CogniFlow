@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Button from './ui/Button.tsx';
 import Icon from './ui/Icon.tsx';
@@ -12,6 +11,8 @@ import { getSyncLog, clearSyncLog } from '../services/syncLogService.ts';
 import { SyncLogEntry } from '../types';
 import ThemeBuilderModal from './ThemeBuilderModal.tsx';
 import { useData } from '../contexts/DataManagementContext.tsx';
+import * as aiService from '../services/aiService';
+import Spinner from './ui/Spinner';
 
 interface SettingsPageProps {
   onExport: () => void;
@@ -83,6 +84,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const { addToast } = useToast();
   const dataHandlers = useData();
   
+  // AI Service State
+  const [isTestingApi, setIsTestingApi] = useState(false);
+  const [apiStatus, setApiStatus] = useState<{ type: 'idle' | 'ok' | 'error', message?: string }>({ type: 'idle' });
+  const [hasAiStudioKey, setHasAiStudioKey] = useState<boolean | null>(null);
+
   // Local state for password input to allow typing without constant re-renders/commits
   const [passwordInput, setPasswordInput] = useState(settings.encryptionPassword);
 
@@ -91,12 +97,38 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         setHasRevertBackup(true);
     }
     setSyncLog(getSyncLog());
+    
+    // Check AI Studio state
+    if ((window as any).aistudio?.hasSelectedApiKey) {
+        (window as any).aistudio.hasSelectedApiKey().then(setHasAiStudioKey);
+    }
   }, []);
+
+  const handleTestApi = async () => {
+      setIsTestingApi(true);
+      setApiStatus({ type: 'idle' });
+      try {
+          const result = await aiService.testConnectivity();
+          setApiStatus({ type: result.status === 'ok' ? 'ok' : 'error', message: result.message });
+      } catch (e) {
+          setApiStatus({ type: 'error', message: 'Failed to initiate connectivity test.' });
+      } finally {
+          setIsTestingApi(false);
+      }
+  };
+
+  const handleOpenAiStudioKey = async () => {
+      if ((window as any).aistudio?.openSelectKey) {
+          await (window as any).aistudio.openSelectKey();
+          const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+          setHasAiStudioKey(hasKey);
+      }
+  };
 
   const handleClearLog = () => {
     clearSyncLog();
     setSyncLog([]);
-    addToast('Sync log cleared.', 'success');
+    addToast('sync log cleared.', 'success');
   };
   
   const handlePasswordBlur = () => {
@@ -116,7 +148,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     <div className="max-w-3xl mx-auto animate-fade-in space-y-8">
       <h1 className="text-3xl font-bold text-text border-b border-border pb-4">Settings</h1>
 
-      <Accordion type="multiple" defaultValue={['srs', 'appearance', 'general', 'cloud-sync', 'gdrive-backup', 'data-management', 'cache-management']} className="w-full space-y-4">
+      <Accordion type="multiple" defaultValue={['srs', 'appearance', 'ai-engine', 'general', 'cloud-sync', 'gdrive-backup', 'data-management', 'cache-management']} className="w-full space-y-4">
         
         <AccordionItem value="srs" className="border border-border rounded-lg overflow-hidden">
             <AccordionTrigger>
@@ -172,6 +204,85 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                             <Icon name="calendar" className="w-4 h-4 mr-2" /> Shift Schedule
                         </Button>
                     </div>
+                </div>
+            </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="ai-engine" className="border border-border rounded-lg overflow-hidden">
+            <AccordionTrigger>
+                <h2 className="text-2xl font-semibold text-text">AI Engine & Quota</h2>
+            </AccordionTrigger>
+            <AccordionContent className="bg-surface p-6 space-y-6">
+                <div>
+                    <h3 className="text-base font-semibold text-text mb-2">Gemini Service Status</h3>
+                    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-background rounded-lg border border-border">
+                        <div className={`p-3 rounded-full ${apiStatus.type === 'ok' ? 'bg-green-100 text-green-600' : apiStatus.type === 'error' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'}`}>
+                            <Icon name={apiStatus.type === 'ok' ? 'check-circle' : apiStatus.type === 'error' ? 'x-circle' : 'zap'} className="w-8 h-8" />
+                        </div>
+                        <div className="flex-grow text-center sm:text-left">
+                            <p className="font-bold text-text">
+                                {apiStatus.type === 'ok' ? 'Service Connected' : apiStatus.type === 'error' ? 'Connection Error' : 'Ready to Test'}
+                            </p>
+                            <p className="text-xs text-text-muted mt-1 leading-relaxed">
+                                {apiStatus.message || 'The Gemini API handles course synthesis, factual grounding, and diagram generation.'}
+                            </p>
+                            {hasAiStudioKey !== null && (
+                                <p className="text-[10px] uppercase font-bold mt-2 tracking-widest text-primary">
+                                    {hasAiStudioKey ? 'Personal API Key Selected' : 'Using Global Shared Key'}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex flex-col gap-2 flex-shrink-0">
+                            <Button variant="primary" size="sm" onClick={handleTestApi} disabled={isTestingApi}>
+                                {isTestingApi ? <Spinner size="sm" /> : 'Verify Connection'}
+                            </Button>
+                            {(window as any).aistudio?.openSelectKey && (
+                                <Button variant="secondary" size="sm" onClick={handleOpenAiStudioKey}>
+                                    Change API Key
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-border">
+                    <h3 className="text-base font-semibold text-text mb-4">Standard Rate Limits (Free Tier)</h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-border">
+                                    <th className="pb-2 font-bold text-text-muted uppercase tracking-tighter">Model / Feature</th>
+                                    <th className="pb-2 font-bold text-text-muted uppercase tracking-tighter">RPM</th>
+                                    <th className="pb-2 font-bold text-text-muted uppercase tracking-tighter">TPM</th>
+                                    <th className="pb-2 font-bold text-text-muted uppercase tracking-tighter">RPD</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/50">
+                                <tr>
+                                    <td className="py-2 pr-4 font-semibold text-text">Gemini 3 Flash (Core Engine)</td>
+                                    <td className="py-2 pr-4 text-text-muted">15</td>
+                                    <td className="py-2 pr-4 text-text-muted">1M</td>
+                                    <td className="py-2 text-text-muted">1,500</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 pr-4 font-semibold text-text">Gemini 3 Pro (Hyper-Reasoning)</td>
+                                    <td className="py-2 pr-4 text-text-muted">2</td>
+                                    <td className="py-2 pr-4 text-text-muted">32K</td>
+                                    <td className="py-2 text-text-muted">50</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 pr-4 font-semibold text-text">Imagen / Grounded Media</td>
+                                    <td className="py-2 pr-4 text-text-muted">5</td>
+                                    <td className="py-2 pr-4 text-text-muted">-</td>
+                                    <td className="py-2 text-text-muted">1,500</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p className="text-[10px] text-text-muted mt-3 italic leading-relaxed">
+                        RPM: Requests Per Minute. TPM: Tokens Per Minute. RPD: Requests Per Day. 
+                        Limits apply per API key. If you hit these, CogniFlow will pause and retry automatically.
+                    </p>
                 </div>
             </AccordionContent>
         </AccordionItem>
@@ -349,12 +460,39 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               checked={settings.notificationsEnabled}
               onChange={settings.setNotificationsEnabled}
             />
-            <ToggleSwitch
-              label="Enable AI Features"
-              description="Allows content generation using the Gemini API."
-              checked={settings.aiFeaturesEnabled}
-              onChange={settings.setAiFeaturesEnabled}
-            />
+            
+            <div className="pt-4 border-t border-border">
+                <ToggleSwitch
+                label="Enable AI Features"
+                description="Allows basic content generation using the Gemini API."
+                checked={settings.aiFeaturesEnabled}
+                onChange={settings.setAiFeaturesEnabled}
+                />
+                
+                {settings.aiFeaturesEnabled && (
+                    <div className="mt-6 space-y-4 pl-4 border-l-2 border-primary/20 animate-fade-in">
+                        <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest mb-2">Hyper-Course Advanced Features</h3>
+                        <ToggleSwitch
+                            label="Process Visualization Loops (Veo)"
+                            description="Use Veo 3.1 to generate educational cinematic loops for complex transformations."
+                            checked={settings.veoEnabled}
+                            onChange={settings.setVeoEnabled}
+                        />
+                        <ToggleSwitch
+                            label="Grounded Fidelity Images"
+                            description="Use Search-grounded image agents for historically and scientifically accurate illustrations."
+                            checked={settings.groundedImagesEnabled}
+                            onChange={settings.setGroundedImagesEnabled}
+                        />
+                        <ToggleSwitch
+                            label="Epistemic Search Audits"
+                            description="Use Agentic Search to verify every technical and scientific claim made during course synthesis."
+                            checked={settings.searchAuditsEnabled}
+                            onChange={settings.setSearchAuditsEnabled}
+                        />
+                    </div>
+                )}
+            </div>
           </AccordionContent>
         </AccordionItem>
         

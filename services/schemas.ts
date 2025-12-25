@@ -89,6 +89,7 @@ const DeckBaseSchema = z.object({
   icon: z.string().nullable().optional(),
   aiGenerationParams: z.any().optional(),
   suggestedQuestionCount: z.number().nullable().optional(),
+  generationStatus: z.enum(['idle', 'generating', 'paused', 'error', 'complete']).optional(),
 });
 
 export const FlashcardDeckSchema = DeckBaseSchema.extend({
@@ -106,6 +107,15 @@ export const LearningDeckSchema = DeckBaseSchema.extend({
   infoCards: z.array(InfoCardSchema).nullable().optional().transform(val => val ?? []),
   questions: z.array(QuestionSchema).nullable().optional().transform(val => val ?? []),
   learningMode: z.enum(['mixed', 'separate']).optional().transform(val => val ?? 'separate'),
+  curriculum: z.object({
+      name: z.string(),
+      description: z.string(),
+      chapters: z.array(z.object({
+          title: z.string(),
+          learningObjectives: z.array(z.string()),
+          topics: z.array(z.string()),
+      }))
+  }).optional(),
 });
 
 // Preprocess function to handle legacy data structure issues before strict validation

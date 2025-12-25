@@ -1,15 +1,15 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import { useAIOptions } from '../hooks/useAIOptions';
+import { useAIOptions } from '../hooks/useAIOptions.ts';
 import AIOptionsManager from './AIOptionsManager';
-import { AIGenerationParams, DeckType } from '../types';
-import { getTopicSuggestions } from '../services/aiService';
-import { useToast } from '../hooks/useToast';
+import { AIGenerationParams, DeckType } from '../types.ts';
+import { getTopicSuggestions } from '../services/aiService.ts';
+import { useToast } from '../hooks/useToast.ts';
 import Spinner from './ui/Spinner';
-import { useData } from '../contexts/DataManagementContext';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
 
 interface AIGenerationModalProps {
   isOpen: boolean;
@@ -29,7 +29,7 @@ interface AIGenerationModalProps {
   };
 }
 
-type GenerationScope = 'deck' | 'series';
+type GenerationScope = 'deck' | 'series' | 'deep-course';
 type ContentStyle = 'quiz' | 'flashcard' | 'vocab' | 'atomic' | 'blooms' | 'course' | 'learning' | 'scaffold';
 
 export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, onClose, onStartAIGeneration, initialTopic, initialGenerationType, context }) => {
@@ -42,11 +42,16 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
   const [contentStyle, setContentStyle] = useState<ContentStyle>('quiz');
   const [count, setCount] = useState<number>(10);
   
+  // Deep Course Power User Settings
+  const [chapterCount, setChapterCount] = useState<number>(12);
+  const [targetWordCount, setTargetWordCount] = useState<number>(10000);
+
   const [imageStyle, setImageStyle] = useState<'none' | 'realistic' | 'creative'>('none');
   const [persona, setPersona] = useState('default');
   const [understanding, setUnderstanding] = useState('Auto');
   const [comprehensiveness, setComprehensiveness] = useState('Standard');
   const { options } = useAIOptions();
+  const { veoEnabled, groundedImagesEnabled, searchAuditsEnabled } = useSettings();
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, isOpen);
   const { addToast } = useToast();
@@ -119,6 +124,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
 
   const getGenerationTypeString = (): AIGenerationParams['generationType'] => {
       if (mode === 'rework') return 'rework-deck';
+      if (scope === 'deep-course') return 'deep-course';
       
       if (scope === 'series') {
           if (contentStyle === 'flashcard') return 'series-flashcard';
@@ -148,7 +154,9 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
       seriesId: context?.seriesId,
       levelIndex: context?.levelIndex,
       deckId: context?.deckId,
-      reworkInstructions: reworkInstructions.trim()
+      reworkInstructions: reworkInstructions.trim(),
+      chapterCount: scope === 'deep-course' ? chapterCount : undefined,
+      targetWordCount: scope === 'deep-course' ? targetWordCount : undefined
   });
 
   const handleChatAndRefine = () => {
@@ -176,7 +184,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
           <div className="flex flex-col h-full overflow-hidden">
             <header className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <Icon name={mode === 'rework' ? 'refresh-ccw' : 'bot'} className="w-6 h-6 text-primary" />
+                <Icon name={mode === 'rework' ? 'refresh-ccw' : (scope === 'deep-course' ? 'book-open' : 'bot')} className="w-6 h-6 text-primary" />
                 <h2 className="text-xl font-bold">
                     {mode === 'rework' ? `Rework "${context?.deckName}"` : (context?.deckId ? `Expand "${context.deckName}"` : 'Generate with AI')}
                 </h2>
@@ -201,6 +209,13 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
                           className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${scope === 'series' ? 'bg-primary text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}
                       >
                           Full Series
+                      </button>
+                      <button 
+                          type="button"
+                          onClick={() => setScope('deep-course')}
+                          className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${scope === 'deep-course' ? 'bg-indigo-600 text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}
+                      >
+                          Deep Course ✨
                       </button>
                   </div>
               )}
@@ -257,8 +272,45 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
                   </div>
               )}
 
+              {/* Deep Course Settings (Power User) */}
+              {scope === 'deep-course' && (
+                  <div className="space-y-4 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-lg border border-indigo-200 dark:border-indigo-800 animate-fade-in">
+                      <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                          <Icon name="settings" className="w-3 h-3" /> Course Architect Settings
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-sm font-medium text-text-muted mb-2 flex justify-between">
+                                  <span>Chapters</span>
+                                  <span className="font-bold text-indigo-600">{chapterCount}</span>
+                              </label>
+                              <input 
+                                  type="range" min="5" max="30" step="1" 
+                                  value={chapterCount} onChange={(e) => setChapterCount(Number(e.target.value))}
+                                  className="w-full accent-indigo-600"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-text-muted mb-2 flex justify-between">
+                                  <span>Target Word Count</span>
+                                  <span className="font-bold text-indigo-600">{(targetWordCount / 1000).toFixed(1)}k</span>
+                              </label>
+                              <input 
+                                  type="range" min="3000" max="30000" step="1000" 
+                                  value={targetWordCount} onChange={(e) => setTargetWordCount(Number(e.target.value))}
+                                  className="w-full accent-indigo-600"
+                              />
+                          </div>
+                      </div>
+                      <p className="text-[10px] text-text-muted italic">
+                          This mode uses a multi-stage generation process to create a complete course book. 
+                          It may take several minutes to complete.
+                      </p>
+                  </div>
+              )}
+
               {/* Content Style Selection - Locked if context provided */}
-              {!context?.deckId && (
+              {!isContextLocked && scope !== 'deep-course' && (
                 <div>
                     <label className="block text-sm font-medium text-text-muted mb-2">Content Style</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -324,11 +376,6 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
                                     ))}
                                 </div>
                             </div>
-                            {count >= 30 && (
-                                <p className="text-[10px] text-orange-500 mt-2 flex items-center gap-1">
-                                    <Icon name="info" className="w-3 h-3" /> Note: Large generations use more powerful models and take longer.
-                                </p>
-                            )}
                         </div>
                     )}
                 </div>
@@ -336,7 +383,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
 
               {/* Advanced Options */}
               <div className="space-y-4 pt-4 border-t border-border">
-                  {(contentStyle === 'flashcard' || contentStyle === 'vocab' || contentStyle === 'atomic') && (
+                  {(contentStyle === 'flashcard' || contentStyle === 'vocab' || contentStyle === 'atomic') && scope !== 'deep-course' && (
                     <div className="animate-fade-in">
                       <label htmlFor="image-style" className="block text-sm font-medium text-text-muted mb-1">Image Generation</label>
                       <select id="image-style" value={imageStyle} onChange={(e) => setImageStyle(e.target.value as any)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
@@ -361,7 +408,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
                       </select>
                     </div>
                   </div>
-                  {!(contentStyle === 'learning' || contentStyle === 'course') && (
+                  {!(contentStyle === 'learning' || contentStyle === 'course' || scope === 'deep-course') && (
                     <div>
                         <label htmlFor="comprehensiveness-shared" className="block text-sm font-medium text-text-muted mb-1">Desired Comprehensiveness</label>
                         <select id="comprehensiveness-shared" value={comprehensiveness} onChange={(e) => setComprehensiveness(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">

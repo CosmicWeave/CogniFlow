@@ -185,6 +185,26 @@ export const useDataManagement = (props: any) => {
         }
     }, [seriesHandlers, deckAndFolderHandlers, backupHandlers, addToast, closeModal]);
 
+    const handleViewDeckJson = useCallback((deck: Deck) => {
+        openModal('viewJson', {
+            title: `View Deck JSON: ${deck.name}`,
+            data: deck,
+            filename: `deck-${deck.id}.json`
+        });
+    }, [openModal]);
+
+    const handleViewSeriesJson = useCallback((series: DeckSeries) => {
+        // FIX: Explicitly cast values to Deck[] for proper type inference in filter callback
+        const seriesDecks = (Object.values(useStore.getState().decks) as Deck[]).filter(d => 
+            series.levels.some(l => l.deckIds.includes(d.id))
+        );
+        openModal('viewJson', {
+            title: `View Series JSON: ${series.name}`,
+            data: { series, decks: seriesDecks },
+            filename: `series-${series.id}.json`
+        });
+    }, [openModal]);
+
     return useMemo(() => ({
         ...props, // Pass through state variables passed as props
         ...deckAndFolderHandlers,
@@ -193,10 +213,12 @@ export const useDataManagement = (props: any) => {
         ...backupHandlers,
         ...driveHandlers,
         ...aiHandlers,
+        handleViewDeckJson,
+        handleViewSeriesJson,
         openModal,
         closeModal,
         handleDroppedFileConfirm,
         openConfirmModal: (p: any) => openModal('confirm', p),
         addToast,
-    }), [props, deckAndFolderHandlers, seriesHandlers, sessionHandlers, backupHandlers, driveHandlers, aiHandlers, openModal, closeModal, handleDroppedFileConfirm, addToast]);
+    }), [props, deckAndFolderHandlers, seriesHandlers, sessionHandlers, backupHandlers, driveHandlers, aiHandlers, handleViewDeckJson, handleViewSeriesJson, openModal, closeModal, handleDroppedFileConfirm, addToast]);
 };

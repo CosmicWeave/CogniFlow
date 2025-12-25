@@ -1,8 +1,7 @@
-
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { 
     AIGenerationParams, Deck, DeckType, FlashcardDeck, QuizDeck, 
-    LearningDeck, Question, Card, DeckAnalysisSuggestion 
+    LearningDeck, Question, Card, DeckAnalysisSuggestion, InfoCard 
 } from "../types.ts";
 
 // Helper to get AI client safely
@@ -12,13 +11,74 @@ const getAiClient = () => {
     return new GoogleGenAI({ apiKey });
 };
 
-// Helper for robust JSON parsing.
-export const robustJsonParse = (text: string) => {
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned);
+/**
+ * Verifies if the API key is valid by performing a minimal request.
+ */
+export const testConnectivity = async (): Promise<{ status: 'ok' | 'error'; message: string }> => {
+    try {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: 'ping',
+            config: { maxOutputTokens: 5, thinkingConfig: { thinkingBudget: 0 } }
+        });
+        if (response.text) {
+            return { status: 'ok', message: 'Connection established successfully.' };
+        }
+        return { status: 'error', message: 'Received empty response from AI.' };
+    } catch (e: any) {
+        console.error("AI Connectivity Test Failed:", e);
+        return { status: 'error', message: e.message || 'Unknown error occurred.' };
+    }
 };
 
-export const generateMetadata = async (itemsText: string, contextType: 'deck' | 'series') => {
+/**
+ * Robust JSON parsing that handles:
+ * 1. Markdown code blocks (```json ... ```)
+ * 2. Leading/Trailing conversational text
+ */
+export const robustJsonParse = (text: string): any => {
+    if (!text) return null;
+    
+    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    try {
+        return JSON.parse(cleaned);
+    } catch (initialError) {
+        const firstBrace = text.indexOf('{');
+        const firstBracket = text.indexOf('[');
+        
+        let start = -1;
+        let endChar = '';
+
+        if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+            start = firstBrace;
+            endChar = '}';
+        } else if (firstBracket !== -1) {
+            start = firstBracket;
+            endChar = ']';
+        }
+
+        if (start !== -1) {
+            const end = text.lastIndexOf(endChar);
+            if (end > start) {
+                const potentialJson = text.substring(start, end + 1);
+                try {
+                    return JSON.parse(potentialJson);
+                } catch (retryError) {
+                    console.error("JSON repair extraction failed:", retryError);
+                    const err = new Error("Malformed JSON response from AI.") as any;
+                    err.jsonString = text;
+                    throw err;
+                }
+            }
+        }
+        const err = new Error("No JSON structure found in AI response.") as any;
+        err.jsonString = text;
+        throw err;
+    }
+};
+
+export const generateMetadata = async (itemsText: string, contextType: 'deck' | 'series'): Promise<any> => {
     const ai = getAiClient();
     const prompt = `
         Analyze the following educational content and suggest a high-quality name and a detailed, engaging HTML description.
@@ -47,6 +107,508 @@ export const generateMetadata = async (itemsText: string, contextType: 'deck' | 
     return robustJsonParse(response.text || '{}');
 };
 
+export const generateCourseCurriculum = async (params: AIGenerationParams, persona: any): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        You are a world-class instructional designer. Create a detailed curriculum for a deep-dive Hyper-Course on: "${params.topic}".
+        Target Level: ${params.understanding}
+        Persona: ${persona.instruction}
+        Target length: Approximately ${params.chapterCount || 12} chapters.
+        
+        TASK:
+        1. Generate a professional name and a 3-5 sentence HTML summary.
+        2. Design a sequence of ${params.chapterCount || 12} chapters (InfoCards).
+        3. For each chapter, provide a unique 'id' (e.g., 'chap-intro'), a title, and a detailed bulleted list of sub-topics.
+        4. Define prerequisites using 'prerequisiteChapterIds'.
+        5. CRITICAL: Generate a "sharedDictionary" of 10-20 core technical terms and their canonical definitions for this course. This serves as a "Terminology Lock" to ensure consistency across chapters.
+        
+        JSON SCHEMA:
+        {
+            "name": "Course Title",
+            "description": "Full course summary (HTML)",
+            "sharedDictionary": { "TermA": "Definition A", "TermB": "Definition B" },
+            "chapters": [
+                {
+                    "id": "chap-1",
+                    "title": "Chapter Title",
+                    "learningObjectives": ["Obj 1", "Obj 2"],
+                    "topics": ["Topic A", "Topic B"],
+                    "prerequisiteChapterIds": []
+                }
+            ]
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+export const generateLogicalStateVector = async (topic: string, previousChapters: string[], sharedDictionary: any): Promise<string> => {
+    const ai = getAiClient();
+    const prompt = `
+        You are an Educational Archivist. Review the following summaries of chapters already completed in a course on "${topic}".
+        
+        SHARED TERMINOLOGY LOCK:
+        ${JSON.stringify(sharedDictionary)}
+        
+        CHAPTER SUMMARIES:
+        ${previousChapters.join('\n\n')}
+        
+        TASK:
+        Generate a concise "Logical State Vector". This is a dense summary of:
+        1. Core concepts already defined.
+        2. Prerequisites established.
+        3. Specific narrative threads or case studies introduced.
+        
+        This vector will be fed into the next chapter's generation agent to prevent redundant introductions and ensure narrative flow.
+        
+        OUTPUT: Return only the plain text summary (max 500 words).
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt
+    });
+    return response.text || '';
+};
+
+/**
+ * Live Synthesis Engine: Streaming Chapter Draft
+ */
+export async function* generateChapterDeepContentStream(
+    topic: string, 
+    chapterInfo: any, 
+    totalChapters: number, 
+    chapterIndex: number, 
+    persona: any, 
+    targetChapterWords: number,
+    sharedDictionary: any,
+    logicalStateVector: string
+) {
+    const ai = getAiClient();
+    const prompt = `
+        Act as an expert subject matter expert and the following persona: ${persona.name}.
+        Persona Instructions: ${persona.instruction}
+        
+        COURSE TOPIC: "${topic}"
+        CHAPTER ${chapterIndex + 1}/${totalChapters}: "${chapterInfo.title}"
+        LEARNING OBJECTIVES: ${chapterInfo.learningObjectives.join(', ')}
+        TOPICS TO COVER: ${chapterInfo.topics.join(', ')}
+        
+        TERMINOLOGY LOCK (You MUST adhere to these definitions):
+        ${JSON.stringify(sharedDictionary)}
+        
+        COURSE PROGRESS STATE (What has already been covered):
+        ${logicalStateVector}
+        
+        TASK:
+        Generate the full, detailed text for this chapter. 
+        Target word count: ${targetChapterWords} words.
+        
+        REQUIREMENTS:
+        1. Use aggressive HTML formatting (h2, h3 headers, bolding for key terms, blockquotes for important quotes/principles).
+        2. The text MUST be dense, informative, and flow like a high-quality textbook. 
+        3. Include historical context, theoretical foundations, and practical edge-cases.
+        
+        OUTPUT FORMAT: Return raw HTML content. Do NOT wrap in JSON for this stream.
+    `;
+
+    const stream = await ai.models.generateContentStream({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            thinkingConfig: { thinkingBudget: 32768 }
+        }
+    });
+
+    for await (const chunk of stream) {
+        if (chunk.text) {
+            yield (chunk as GenerateContentResponse).text;
+        }
+    }
+}
+
+export const generateChapterDeepContent = async (
+    topic: string, 
+    chapterInfo: any, 
+    totalChapters: number, 
+    chapterIndex: number, 
+    persona: any, 
+    targetChapterWords: number,
+    sharedDictionary: any,
+    logicalStateVector: string
+): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        Act as an expert subject matter expert and the following persona: ${persona.name}.
+        Persona Instructions: ${persona.instruction}
+        
+        COURSE TOPIC: "${topic}"
+        CHAPTER ${chapterIndex + 1}/${totalChapters}: "${chapterInfo.title}"
+        LEARNING OBJECTIVES: ${chapterInfo.learningObjectives.join(', ')}
+        TOPICS TO COVER: ${chapterInfo.topics.join(', ')}
+        
+        TERMINOLOGY LOCK (You MUST adhere to these definitions):
+        ${JSON.stringify(sharedDictionary)}
+        
+        COURSE PROGRESS STATE (What has already been covered):
+        ${logicalStateVector}
+        
+        TASK:
+        Generate the full, detailed text for this chapter. 
+        Target word count: ${targetChapterWords} words.
+        
+        REQUIREMENTS:
+        1. Use aggressive HTML formatting (h2, h3 headers, bolding for key terms, blockquotes for important quotes/principles).
+        2. The text MUST be dense, informative, and flow like a high-quality textbook. 
+        3. Do not re-introduce concepts summarized in the COURSE PROGRESS STATE unless deepening the explanation.
+        4. Include historical context, theoretical foundations, practical edge-cases, and deep-dive technical nuances.
+        
+        OUTPUT: Return only the HTML content string inside a JSON object.
+        {
+            "content": "Full HTML Content Here...",
+            "summaryForArchivist": "A 1-paragraph summary of what was covered for the next chapter's state vector."
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 32768 }
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+export const verifyContentWithSearch = async (topic: string, chapterTitle: string, content: string): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        You are a Fact-Checker (Agent B). Analyze this chapter about "${chapterTitle}" in a course on "${topic}".
+        
+        CONTENT:
+        ${content}
+        
+        TASK:
+        1. Use Google Search to verify every technical, historical, and scientific claim.
+        2. Identify any inaccuracies, oversimplifications, or hallucinations.
+        3. Provide a detailed list of required corrections with citations if possible.
+        
+        JSON SCHEMA:
+        {
+            "isAccurate": boolean,
+            "corrections": [
+                { "originalClaim": "...", "correction": "...", "source": "..." }
+            ],
+            "overallQualityScore": number (1-10)
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            tools: [{ googleSearch: {} }],
+            responseMimeType: 'application/json' 
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+export const refineContentWithCorrections = async (topic: string, originalContent: string, corrections: any[]): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        Refine the following educational content about "${topic}" by applying the verified corrections provided.
+        
+        ORIGINAL CONTENT:
+        ${originalContent}
+        
+        CORRECTIONS TO APPLY:
+        ${JSON.stringify(corrections)}
+        
+        TASK:
+        Rewrite the content to be 100% factually accurate while maintaining the original tone and formatting.
+        
+        JSON SCHEMA:
+        {
+            "refinedContent": "Full HTML..."
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 16384 }
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+export const generateFactualSVG = async (topic: string, content: string): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        Based on the following educational content about "${topic}", identify ONE complex process, structure, or system that needs a visual aid.
+        
+        CONTENT:
+        ${content}
+        
+        TASK:
+        1. Design a factual, clean, and pedagogical SVG diagram (e.g., a process flow, a structural diagram, or a timeline).
+        2. The diagram MUST be factually accurate and use standard conventions.
+        3. **CRITICAL (Animated Kinetics)**: Include CSS <style> block inside the SVG using @keyframes to animate motion (e.g., arrows moving along a path, pulse effects on key nodes, spinning orbits). The animations should be slow and educational.
+        4. **CRITICAL (Explorable Visuals)**: Assign unique, descriptive \`id\` attributes to every major component, group (\`<g>\`), or node in the SVG (e.g., \`id="vascular-bundle"\`, \`id="electron-transport-chain"\`).
+        5. Use professional, modern design with clear labels. 
+        6. Return the SVG code embedded in a JSON object.
+        
+        JSON SCHEMA:
+        {
+            "hasDiagram": boolean,
+            "svgCode": "<svg ...>...</svg>",
+            "caption": "Factual description of the diagram"
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 32768 }
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+/**
+ * Veo Process Integration: Generates a 5s high-fidelity loop for complex dynamic transformations.
+ */
+export const generateProcessVideo = async (topic: string, content: string): Promise<any> => {
+    const ai = getAiClient();
+    
+    // Step 1: Filter - Identify if a dynamic video loop is pedagogy-enhancing
+    const analysisResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Analyze this educational text about "${topic}". Identify ONE highly complex dynamic transformation or microscopic process that is difficult to visualize with a static image but would be perfect for a 5-second educational video loop.
+        
+        TEXT:
+        ${content}
+        
+        If found, provide a detailed, cinematic video prompt for Veo 3.1.
+        
+        JSON SCHEMA:
+        {
+            "isHighComplexity": boolean,
+            "videoPrompt": "Cinematic 3D render of [process]...",
+            "educationalReasoning": "How this video helps the learner..."
+        }`,
+        config: { responseMimeType: 'application/json' }
+    });
+    
+    const analysis = robustJsonParse(analysisResponse.text);
+    if (!analysis?.isHighComplexity || !analysis.videoPrompt) return null;
+
+    // Step 2: Veo Generation
+    let operation = await ai.models.generateVideos({
+        model: 'veo-3.1-fast-generate-preview',
+        prompt: `Educational scientific animation: ${analysis.videoPrompt}. High fidelity, 4K render style, slow motion, detailed textures, clear visualization.`,
+        config: {
+            numberOfVideos: 1,
+            resolution: '720p',
+            aspectRatio: '16:9'
+        }
+    });
+
+    // Step 3: Poll for Completion
+    while (!operation.done) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        operation = await ai.operations.getVideosOperation({ operation });
+    }
+
+    // Step 4: Fetch and convert to Data URL for offline storage
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : '';
+    const videoResponse = await fetch(`${downloadLink}&key=${apiKey}`);
+    const blob = await videoResponse.blob();
+    
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve({ 
+            dataUrl: reader.result, 
+            caption: analysis.educationalReasoning 
+        });
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+};
+
+/**
+ * Global Course Consistency Auditor Pass.
+ * Runs after the entire course has been synthesized.
+ */
+export const globalCourseAudit = async (topic: string, courseName: string, chapters: InfoCard[], sharedDictionary: any): Promise<any> => {
+    const ai = getAiClient();
+    const courseSkeleton = chapters.map((c, i) => `Chapter ${i+1}: ${c.content.substring(0, 300)}...`).join('\n\n');
+    
+    const prompt = `
+        You are a Master Epistemic Auditor. Review the following synthesized course on "${topic}".
+        
+        COURSE NAME: "${courseName}"
+        TERMINOLOGY LOCK: ${JSON.stringify(sharedDictionary)}
+        
+        CHAPTER SUMMARIES:
+        ${courseSkeleton}
+        
+        TASK:
+        1. Ensure consistent use of Technical Terminology throughout all chapters.
+        2. Identify any logical contradictions between Chapter 1 and subsequent chapters.
+        3. Check for thematic cohesion and narrative flow.
+        4. If issues are found, provide a list of refinement suggestions for specific chapters.
+        
+        JSON SCHEMA:
+        {
+            "isConsistent": boolean,
+            "suggestions": [
+                { "chapterId": "string", "issue": "string", "fix": "string" }
+            ],
+            "finalSummary": "Final verdict on course quality."
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 16384 }
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+/**
+ * Agentic Self-Correction: Apply global audit suggestions to a specific chapter.
+ */
+export const applyAuditRefinement = async (topic: string, content: string, suggestion: any): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        Refine the following educational text about "${topic}" based on a Global Consistency Audit suggestion.
+        
+        ORIGINAL TEXT:
+        ${content}
+        
+        AUDIT ISSUE: ${suggestion.issue}
+        REQUIRED FIX: ${suggestion.fix}
+        
+        TASK:
+        Rewrite the text to resolve the issue while maintaining style, formatting, and all pedagogical elements (diagrams, etc).
+        
+        JSON SCHEMA:
+        {
+            "refinedContent": "Full HTML..."
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 16384 }
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
+/**
+ * High-Fidelity Grounded Image Generation Agent.
+ * Uses gemini-3-pro-image-preview with googleSearch for maximum factual accuracy.
+ */
+export const generateGroundedFidelityImage = async (topic: string, content: string): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        Based on the following educational text about "${topic}", identify a key historical figure, artifact, scientific entity, or landscape that would benefit from a high-fidelity photographic or realistic illustration.
+        
+        TEXT:
+        ${content}
+        
+        TASK:
+        1. Use Google Search to research the AUTHENTIC visual appearance of this entity (e.g., correct clothing for the period, correct biological colors, specific geological features).
+        2. Generate a high-fidelity, realistic image of this entity. 
+        3. The image MUST be scientifically or historically accurate based on your search findings.
+        4. Provide a text explanation of the factual details included.
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
+        contents: prompt,
+        config: { 
+            tools: [{ googleSearch: {} }],
+            imageConfig: { aspectRatio: "16:9", imageSize: "1K" }
+        }
+    });
+
+    let imageUrl = null;
+    let description = "";
+
+    for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+            imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+        } else if (part.text) {
+            description = part.text;
+        }
+    }
+
+    return { imageUrl, description };
+};
+
+export const generateChapterQuestionsAndAudit = async (topic: string, chapterTitle: string, htmlContent: string): Promise<any> => {
+    const ai = getAiClient();
+    const prompt = `
+        You are a pedagogical auditor. Analyze the following chapter from a course on "${topic}".
+        CHAPTER TITLE: "${chapterTitle}"
+        CONTENT: 
+        ${htmlContent}
+        
+        TASK 1: GENERATE QUESTIONS
+        Generate 3-5 challenging, high-quality multiple-choice questions that specifically test the deep nuances presented in the text.
+        CRITICAL: Classify each question using Bloom's Taxonomy: 'Recall', 'Comprehension', 'Application', 'Analysis', 'Synthesis', or 'Evaluation'. Ensure a mix of levels.
+        
+        TASK 2: QUALITY AUDIT
+        Refine the provided HTML content to ensure maximum pedagogical clarity. Ensure key terms are consistently bolded and headers are logically nested.
+        
+        JSON SCHEMA:
+        {
+            "refinedContent": "...",
+            "questions": [
+                {
+                    "questionText": "...",
+                    "bloomsLevel": "Recall | Comprehension | Application | Analysis | Synthesis | Evaluation",
+                    "options": [{ "id": "o1", "text": "...", "explanation": "..." }],
+                    "correctAnswerId": "o1",
+                    "detailedExplanation": "Thorough explanation citing the chapter's specific details."
+                }
+            ]
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 16384 }
+        }
+    });
+    return robustJsonParse(response.text || '{}');
+};
+
 export const generateOutlineWithAI = async (params: AIGenerationParams, persona: any, seriesContext?: any) => {
     const ai = getAiClient();
     const prompt = `Generate a learning outline for ${params.topic} at ${params.understanding} level. ${params.generationType.includes('learning') ? `Requested comprehensiveness: ${params.comprehensiveness}.` : ''} ${params.generationType === 'rework-deck' ? `USER REWORK INSTRUCTIONS: ${params.reworkInstructions}` : ''}`;
@@ -66,7 +628,7 @@ export const refineOutlineWithAI = async (messages: any[], params: AIGenerationP
     return response.text || '';
 };
 
-export const generateDeckFromOutline = async (outline: string, metadata: any) => {
+export const generateDeckFromOutline = async (outline: string, metadata: any): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -76,7 +638,7 @@ export const generateDeckFromOutline = async (outline: string, metadata: any) =>
     return robustJsonParse(response.text || '{}');
 };
 
-export const generateScaffoldFromOutline = async (outline: string, targetType: DeckType) => {
+export const generateScaffoldFromOutline = async (outline: string, targetType: DeckType): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -86,7 +648,7 @@ export const generateScaffoldFromOutline = async (outline: string, targetType: D
     return robustJsonParse(response.text || '{}');
 };
 
-export const generateFlashcardDeckWithAI = async (params: AIGenerationParams, persona: any) => {
+export const generateFlashcardDeckWithAI = async (params: AIGenerationParams, persona: any): Promise<any> => {
     const ai = getAiClient();
     const prompt = `
         Create a high-quality flashcard deck for the topic: "${params.topic}".
@@ -115,7 +677,7 @@ export const generateFlashcardDeckWithAI = async (params: AIGenerationParams, pe
     return robustJsonParse(response.text || '{}');
 };
 
-export const generateLearningDeckContent = async (topic: string, comprehensiveness: string = 'Standard', isCourse?: boolean) => {
+export const generateLearningDeckContent = async (topic: string, comprehensiveness: string = 'Standard', isCourse?: boolean): Promise<any> => {
     const ai = getAiClient();
     
     let countInstruction = "Generate 8-12 instructional chapters (InfoCards).";
@@ -123,12 +685,12 @@ export const generateLearningDeckContent = async (topic: string, comprehensivene
 
     if (comprehensiveness === 'Exhaustive') {
         countInstruction = "Generate a TRULY EXHAUSTIVE and MASTER-LEVEL curriculum. You MUST provide at least 20 detailed instructional chapters (InfoCards).";
-        detailInstruction = "CRITICAL: Each InfoCard (chapter) MUST be extremely thorough and lengthy. A single chapter should feel like several pages of high-quality textbook material. Use multiple headers, deep-dive into nuances, include historical context, edge cases, and practical examples. Do not hold back on word count.";
+        detailInstruction = "CRITICAL: Each InfoCard (chapter) MUST be extremely thorough and lengthy. A single chapter should feel like many pages of high-quality textbook material. Use multiple headers (h2, h3), deep-dive into nuances, include historical context, edge cases, and practical examples. Word count for each card should be substantial (500-1000 words).";
     } else if (comprehensiveness === 'Quick Overview') {
         countInstruction = "Generate 3-5 concise instructional chapters (InfoCards).";
     } else if (comprehensiveness === 'Comprehensive') {
         countInstruction = "Generate 15-20 detailed instructional chapters (InfoCards).";
-        detailInstruction = "Each InfoCard should be a substantial read, covering topics in significant depth.";
+        detailInstruction = "Each InfoCard should be a substantial read, covering topics in significant depth with rich detail.";
     }
 
     const prompt = `
@@ -139,10 +701,10 @@ export const generateLearningDeckContent = async (topic: string, comprehensivene
         
         REQUIREMENTS:
         1. Each InfoCard MUST use rich HTML formatting (h2, h3 headers, bolding, lists, blockquotes).
-        2. For EACH InfoCard, generate 1 to 4 multiple-choice questions that specifically test the nuanced content introduced in that card. The number of questions should vary depending on the density and importance of the card's information.
-        3. Ensure a logical progression from foundational concepts to advanced, interdisciplinary applications.
+        2. For EACH InfoCard, generate 1 to 4 multiple-choice questions that specifically test the nuanced content introduced in that card.
+        3. Ensure a logical progression from foundational concepts to advanced applications.
         4. Every question must have high-quality, pedagogical explanations for every option.
-        5. Generate a compelling, professional name for this course and a detailed HTML description summarizing the learning objectives.
+        5. Generate a professional name for this course and a detailed HTML description summarizing the learning objectives.
         
         JSON SCHEMA:
         {
@@ -151,7 +713,7 @@ export const generateLearningDeckContent = async (topic: string, comprehensivene
             "infoCards": [
                 {
                     "id": "chap-1",
-                    "content": "EXTENSIVE HTML instructional text (aim for 500-1000 words per card if Exhaustive)...",
+                    "content": "EXTENSIVE HTML instructional text (textbook chapter style)...",
                     "unlocksQuestionIds": ["q-1", "q-2"]
                 }
             ],
@@ -173,38 +735,37 @@ export const generateLearningDeckContent = async (topic: string, comprehensivene
         model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { 
-            responseMimeType: 'application/json',
             thinkingConfig: { thinkingBudget: 32768 } 
         }
     });
     return robustJsonParse(response.text || '{}');
 };
 
-export const reworkDeckContent = async (deck: Deck, params: AIGenerationParams) => {
+export const reworkDeckContent = async (deck: Deck, params: AIGenerationParams, persona: any, seriesContext?: string): Promise<any> => {
     const ai = getAiClient();
     
-    const contentDescription = deck.type === DeckType.Flashcard 
-        ? `${(deck as FlashcardDeck).cards.length} flashcards` 
-        : (deck.type === DeckType.Learning 
-            ? `${(deck as LearningDeck).infoCards.length} chapters and ${(deck as LearningDeck).questions.length} questions`
-            : `${(deck as QuizDeck).questions.length} questions`);
-
     const prompt = `
-        You are an expert instructional designer. Rework the following deck titled "${deck.name}".
+        Act as a world-class instructional designer and the following persona: ${persona.name}.
+        Persona Instructions: ${persona.instruction}
+
+        TASK: Rework and improve the following deck titled "${deck.name}".
         
         CURRENT DECK TYPE: ${deck.type}
-        CURRENT CONTENT SUMMARY: ${contentDescription}
         USER REWORK INSTRUCTIONS: "${params.reworkInstructions}"
         COMPREHENSIVENESS: ${params.comprehensiveness}
         TARGET AUDIENCE LEVEL: ${params.understanding}
         
-        TASK:
-        1. Fully regenerate the deck content (infoCards, questions, or cards) while maintaining the original theme but improving quality according to the instructions.
-        2. If instructions specify a shift in focus or difficulty, apply that shift.
-        3. Maintain the original IDs if possible for items that are being refined rather than replaced, but feel free to add/remove items to match the requested comprehensiveness.
-        4. Use rich HTML formatting for all text.
-        5. Generate a new, improved name and description based on the reworked content.
+        ${seriesContext ? `SERIES CONTEXT: This deck is part of a larger series. Related decks/structure:\n${seriesContext}\n` : ''}
         
+        CRITICAL INSTRUCTIONS:
+        1. Fully regenerate the deck content (infoCards, questions, or cards) improving quality according to the instructions and persona.
+        2. If the user asks to "expand", significantly increase the depth. InfoCards should become extensive textbook-style chapters (multi-page equivalent).
+        3. Maintain original IDs where possible, but feel free to add/remove items to match the requested depth.
+        4. Generate a new, improved name and description based on the reworked content.
+        
+        CURRENT CONTENT:
+        ${JSON.stringify(deck)}
+
         JSON SCHEMA (MUST MATCH ORIGINAL TYPE ${deck.type}):
         {
           "name": "...",
@@ -221,12 +782,15 @@ export const reworkDeckContent = async (deck: Deck, params: AIGenerationParams) 
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: prompt,
-        config: { responseMimeType: 'application/json' }
+        config: { 
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 32768 }
+        }
     });
     return robustJsonParse(response.text || '{}');
 };
 
-export const generateQuestionsForDeck = async (deck: Deck, count: number, seriesContext?: any) => {
+export const generateQuestionsForDeck = async (deck: Deck, count: number, seriesContext?: any): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -236,10 +800,9 @@ export const generateQuestionsForDeck = async (deck: Deck, count: number, series
     return robustJsonParse(response.text || '[]');
 };
 
-export const upgradeDeckToLearning = async (deck: Deck) => {
+export const upgradeDeckToLearning = async (deck: Deck): Promise<any> => {
     const ai = getAiClient();
     
-    // Extract item text for context
     let itemsText = '';
     if (deck.type === DeckType.Flashcard) {
         itemsText = deck.cards.map(c => `Card Front: ${c.front}`).join('\n');
@@ -255,10 +818,8 @@ export const upgradeDeckToLearning = async (deck: Deck) => {
         
         TASK:
         1. Analyze the concepts covered in the items.
-        2. Generate 3-8 instructional "InfoCards" (chapters) that explain these concepts in a structured, progressive way.
-        3. Use high-quality HTML formatting for the InfoCards (bolding, headers, lists).
-        4. For each InfoCard, you MUST decide which of the existing question/card IDs should be "unlocked" after reading it.
-        5. Map existing item IDs to the new InfoCards using the "unlocksQuestionIds" field.
+        2. Generate 3-8 instructional "InfoCards" (chapters) that explain these concepts in a structured way.
+        3. For each InfoCard, map existing item IDS to the "unlocksQuestionIds" field.
         
         EXISTING IDS:
         ${(deck.type === DeckType.Flashcard ? deck.cards : (deck as QuizDeck).questions).map(i => `- ${i.id}: ${('front' in i ? i.front : (i as Question).questionText)}`).join('\n')}
@@ -325,7 +886,7 @@ export const suggestDeckIcon = async (name: string, description: string) => {
     return (response.text || 'book').trim() as any;
 };
 
-export const generateTagsForQuestions = async (questions: { id: string, text: string }[]) => {
+export const generateTagsForQuestions = async (questions: { id: string, text: string }[]): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -344,7 +905,7 @@ export const generateConcreteExamples = async (front: string, back: string, cont
     return response.text || '';
 };
 
-export const hardenDistractors = async (question: string, correct: string, distractors: string[], context?: string) => {
+export const hardenDistractors = async (question: string, correct: string, distractors: string[], context?: string): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -363,7 +924,7 @@ export const expandText = async (topic: string, originalContent: string, selecte
     return response.text || '';
 };
 
-export const generateSeriesStructure = async (name: string, description: string, currentStructure?: string) => {
+export const generateSeriesStructure = async (name: string, description: string, currentStructure?: string): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -373,7 +934,7 @@ export const generateSeriesStructure = async (name: string, description: string,
     return robustJsonParse(response.text || '{}');
 };
 
-export const generateLevelDecks = async (seriesName: string, seriesDesc: string, levelTitle: string, currentDecks: string[]) => {
+export const generateLevelDecks = async (seriesName: string, seriesDesc: string, levelTitle: string, currentDecks: string[]): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -383,7 +944,7 @@ export const generateLevelDecks = async (seriesName: string, seriesDesc: string,
     return robustJsonParse(response.text || '[]');
 };
 
-export const regenerateQuestionWithAI = async (question: Question, deckName: string) => {
+export const regenerateQuestionWithAI = async (question: Question, deckName: string): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -393,37 +954,16 @@ export const regenerateQuestionWithAI = async (question: Question, deckName: str
     return robustJsonParse(response.text || '{}');
 };
 
-export const analyzeDeckContent = async (deck: Deck) => {
+export const analyzeDeckContent = async (deck: Deck): Promise<any> => {
     const ai = getAiClient();
     
-    let contentSummary = '';
-    if (deck.type === DeckType.Flashcard) {
-        contentSummary = `Flashcard Deck with ${deck.cards.length} cards.`;
-    } else if (deck.type === DeckType.Quiz) {
-        contentSummary = `Quiz Deck with ${deck.questions.length} questions.`;
-    } else if (deck.type === DeckType.Learning) {
-        const d = deck as LearningDeck;
-        contentSummary = `Learning Deck (Course) with ${d.infoCards.length} chapters (InfoCards) and ${d.questions.length} questions.`;
-    }
-
     const prompt = `
         You are a pedagogical expert analyzing educational content for a spaced repetition app.
         Analyze the following deck named "${deck.name}" and provide specific, actionable improvement suggestions.
         
         DECK TYPE: ${deck.type}
-        CONTENT SUMMARY: ${contentSummary}
         DECK DATA:
         ${JSON.stringify(deck)}
-        
-        TASK:
-        Identify issues such as:
-        1. Ambiguous questions or answers.
-        2. Factual inaccuracies.
-        3. Spelling/Grammar errors.
-        4. Poor HTML formatting (lack of bolding for key terms).
-        5. (For Learning Decks) Misalignment between InfoCards (instructional text) and the Questions they are supposed to "unlock".
-        6. (For Learning Decks) Important concepts mentioned in InfoCards that lack a corresponding quiz question.
-        7. (For Learning Decks) Questions that test material not covered in the InfoCards.
         
         OUTPUT FORMAT:
         Return an array of suggestion objects with the following schema:
@@ -447,7 +987,7 @@ export const analyzeDeckContent = async (deck: Deck) => {
     return robustJsonParse(response.text || '[]') as DeckAnalysisSuggestion[];
 };
 
-export const applyDeckImprovements = async (deck: Deck, suggestions: DeckAnalysisSuggestion[]) => {
+export const applyDeckImprovements = async (deck: Deck, suggestions: DeckAnalysisSuggestion[]): Promise<any> => {
     const ai = getAiClient();
     
     const prompt = `
@@ -462,9 +1002,7 @@ export const applyDeckImprovements = async (deck: Deck, suggestions: DeckAnalysi
         INSTRUCTIONS:
         1. Rewrite or restructure the deck content based on the suggestions.
         2. Ensure the output is a single valid JSON object matching the original deck's schema (${deck.type}).
-        3. Maintain all existing IDs (deck, question, card, infoCard) unless the suggestion explicitly asks to remove/add items.
-        4. If it's a Learning Deck, ensure the mapping of 'unlocksQuestionIds' in InfoCards and 'infoCardIds' in Questions is accurate and consistent with the new content.
-        5. Generate a new, improved name and description based on the reworked content.
+        3. Maintain all existing IDs where possible.
         
         ONLY return the raw JSON for the updated deck.
     `;
@@ -477,7 +1015,7 @@ export const applyDeckImprovements = async (deck: Deck, suggestions: DeckAnalysi
     return robustJsonParse(response.text || '{}') as Deck;
 };
 
-export const generateDeckFromImage = async (base64Data: string, mimeType: string, hint: string) => {
+export const generateDeckFromImage = async (base64Data: string, mimeType: string, hint: string): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -491,7 +1029,7 @@ export const generateDeckFromImage = async (base64Data: string, mimeType: string
     return robustJsonParse(response.text || '{}');
 };
 
-export const getTopicSuggestions = async (context: any) => {
+export const getTopicSuggestions = async (context: any): Promise<any> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',

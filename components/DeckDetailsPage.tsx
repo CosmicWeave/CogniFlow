@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -393,7 +392,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   }, [allItems, deck.type, unlockedSet]);
   
   const studyButtonText = useMemo(() => {
-    if (allItems.length === 0) return "No Items to Study";
+    if (allItems.length === 0 && !isGeneratingThisDeck) return "No Items to Study";
     if (deck.locked) return "Deck is Locked";
     
     if (deck.type === DeckType.Quiz) return canResume ? 'Resume Quiz' : `Start Quiz`;
@@ -405,7 +404,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     }
 
     return canResume ? 'Resume Study' : `Study Cards`;
-  }, [deck.type, canResume, deck.locked, allItems.length, (deck as LearningDeck).learningMode]);
+  }, [deck.type, canResume, deck.locked, allItems.length, (deck as LearningDeck).learningMode, isGeneratingThisDeck]);
 
   const progressBarData = [
     { value: progressStats.new, color: 'bg-blue-500', label: 'New' },
@@ -560,6 +559,9 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                         <Link href={`/decks/${deck.id}/print`} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
                             <Icon name="printer" className="w-4 h-4 mr-3" /> Print / PDF
                         </Link>
+                        <button onClick={() => { dataHandlers.handleViewDeckJson(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
+                            <Icon name="code" className="w-4 h-4 mr-3" /> View JSON
+                        </button>
                         <button onClick={() => { onExportDeck(deck); setIsMenuOpen(false); }} className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/5 hover:text-primary transition-colors">
                             <Icon name="download" className="w-4 h-4 mr-3" /> Export JSON
                         </button>
@@ -605,9 +607,10 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                     <div className="flex flex-wrap gap-3 justify-center md:justify-end w-full md:w-auto">
                         {isDeckEmpty && aiFeaturesEnabled ? (
                             isGeneratingThisDeck ? (
-                                <div className="flex items-center justify-center py-3 px-6 bg-surface rounded-md border border-border w-full md:w-auto">
+                                <div className="flex items-center justify-center py-3 px-6 bg-surface rounded-md border border-border w-full md:w-auto shadow-sm">
                                     <Spinner size="sm" />
-                                    <span className="ml-3 text-text-muted text-sm font-semibold">{relevantTask.statusText || 'Generating...'}</span>
+                                    <span className="ml-3 text-text-muted text-sm font-semibold">{relevantTask.statusText || 'Architecting...'}</span>
+                                    <Button variant="ghost" size="sm" onClick={onCancelAIGeneration} className="ml-2 text-red-500 p-1 h-auto"><Icon name="x-circle" className="w-5 h-5"/></Button>
                                 </div>
                             ) : (
                                 <Button 
@@ -653,7 +656,7 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
                                     variant={(deck.type !== DeckType.Learning || !hasUnreadContent || (deck as LearningDeck).learningMode === 'mixed') ? 'primary' : 'secondary'} 
                                     size="lg" 
                                     onClick={() => onUpdateLastOpened(deck.id)} 
-                                    disabled={(dueCount === 0 && !canResume) || !!deck.locked || allItems.length === 0} 
+                                    disabled={(dueCount === 0 && !canResume) || !!deck.locked || (allItems.length === 0 && !isGeneratingThisDeck)} 
                                     className="font-bold px-8 shadow-md flex-1 md:flex-none"
                                 >
                                     <Icon name="refresh-ccw" className="w-5 h-5 mr-2" /> {studyButtonText}
@@ -715,7 +718,8 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         {activeTab === 'items' && (
             <div className="bg-surface rounded-lg shadow-md border border-border animate-fade-in">
              {deck.type === DeckType.Flashcard ? (
-                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} deckName={deck.name} />
+                // FIX: Added missing 'lapses: 0' property when creating a new flashcard in the onAddCard callback.
+                <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, lapses: 0 }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} deckName={deck.name} deck={deck as FlashcardDeck} />
              ) : deck.type === DeckType.Quiz ? (
                 <QuestionListEditor
                     deck={deck as QuizDeck}

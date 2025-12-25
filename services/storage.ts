@@ -1,6 +1,7 @@
 
 import { Deck, Folder, DeckSeries, ReviewLog, SessionState, AIMessage, FullBackupData, DeckLearningProgress } from '../types.ts';
 import * as db from './db.ts';
+import { localStorageDB } from './localStorageDB.ts';
 
 export interface StorageService {
   // Decks
@@ -72,9 +73,90 @@ export interface StorageService {
   factoryReset(): Promise<void>;
 }
 
-// Default implementation using IndexedDB
-const dbStorage: StorageService = {
-  ...db
+// Proxy to detect IndexedDB failure and switch to localStorage
+const createProxyStorage = (): StorageService => {
+  let activeStorage: StorageService | null = null;
+  let initPromise: Promise<StorageService> | null = null;
+
+  const getStorage = async (): Promise<StorageService> => {
+    if (activeStorage) return activeStorage;
+    if (initPromise) return initPromise;
+
+    initPromise = (async () => {
+      try {
+        // Test if IndexedDB is available
+        const idb = typeof indexedDB !== 'undefined' ? indexedDB : (typeof window !== 'undefined' ? window.indexedDB : undefined);
+        if (!idb) throw new Error('No IndexedDB support');
+        
+        // Probe the DB by attempting to initialize and call a lightweight method.
+        // If this rejects, we fallback to localStorage.
+        await db.getAllDecks();
+        activeStorage = db;
+        console.log('Using IndexedDB for primary storage.');
+      } catch (e) {
+        console.warn('IndexedDB initialization failed. Falling back to localStorage.', e);
+        activeStorage = localStorageDB;
+      }
+      return activeStorage;
+    })();
+
+    return initPromise;
+  };
+
+  // Wrap all methods to ensure the correct storage is loaded on first call
+  const wrap = (methodName: keyof StorageService) => {
+    return async (...args: any[]) => {
+      const s = await getStorage();
+      return (s[methodName] as Function)(...args);
+    };
+  };
+
+  return {
+    getAllDecks: wrap('getAllDecks'),
+    addDecks: wrap('addDecks'),
+    updateDeck: wrap('updateDeck'),
+    bulkUpdateDecks: wrap('bulkUpdateDecks'),
+    deleteDeck: wrap('deleteDeck'),
+    getAllFolders: wrap('getAllFolders'),
+    addFolder: wrap('addFolder'),
+    addFolders: wrap('addFolders'),
+    updateFolder: wrap('updateFolder'),
+    deleteFolder: wrap('deleteFolder'),
+    getAllDeckSeries: wrap('getAllDeckSeries'),
+    addDeckSeries: wrap('addDeckSeries'),
+    updateDeckSeries: wrap('updateDeckSeries'),
+    deleteDeckSeries: wrap('deleteDeckSeries'),
+    saveSessionState: wrap('saveSessionState'),
+    getSessionState: wrap('getSessionState'),
+    getAllSessions: wrap('getAllSessions'),
+    clearSessions: wrap('clearSessions'),
+    bulkAddSessions: wrap('bulkAddSessions'),
+    deleteSessionState: wrap('deleteSessionState'),
+    getAllSessionKeys: wrap('getAllSessionKeys'),
+    addReviewLog: wrap('addReviewLog'),
+    getReviewsSince: wrap('getReviewsSince'),
+    getAllReviews: wrap('getAllReviews'),
+    clearReviews: wrap('clearReviews'),
+    deleteReviewsForDecks: wrap('deleteReviewsForDecks'),
+    bulkAddReviews: wrap('bulkAddReviews'),
+    getReviewsForDeck: wrap('getReviewsForDeck'),
+    saveAIChatHistory: wrap('saveAIChatHistory'),
+    getAIChatHistory: wrap('getAIChatHistory'),
+    clearAIChatHistory: wrap('clearAIChatHistory'),
+    saveSeriesProgress: wrap('saveSeriesProgress'),
+    getAllSeriesProgress: wrap('getAllSeriesProgress'),
+    clearSeriesProgress: wrap('clearSeriesProgress'),
+    bulkAddSeriesProgress: wrap('bulkAddSeriesProgress'),
+    saveLearningProgress: wrap('saveLearningProgress'),
+    getAllLearningProgress: wrap('getAllLearningProgress'),
+    bulkAddLearningProgress: wrap('bulkAddLearningProgress'),
+    getAllDataForBackup: wrap('getAllDataForBackup'),
+    exportAllData: wrap('exportAllData'),
+    performAtomicRestore: wrap('performAtomicRestore'),
+    factoryReset: wrap('factoryReset'),
+  };
 };
 
-export default dbStorage;
+const storage: StorageService = createProxyStorage();
+
+export default storage;

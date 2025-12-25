@@ -1,4 +1,3 @@
-
 // types.ts
 
 export enum DeckType {
@@ -40,6 +39,8 @@ export interface QuestionOption {
   explanation?: string;
 }
 
+export type BloomsLevel = 'Recall' | 'Comprehension' | 'Application' | 'Analysis' | 'Synthesis' | 'Evaluation';
+
 export interface Question extends Reviewable {
   questionType: 'multipleChoice';
   questionText: string;
@@ -48,12 +49,14 @@ export interface Question extends Reviewable {
   detailedExplanation: string;
   infoCardIds?: string[];
   userSelectedAnswerId?: string;
+  bloomsLevel?: BloomsLevel;
 }
 
 export interface InfoCard {
   id: string;
   content: string;
   unlocksQuestionIds: string[];
+  prerequisiteIds?: string[]; // DAG: List of other InfoCard IDs that must be read first
 }
 
 export interface DeckBase {
@@ -68,6 +71,8 @@ export interface DeckBase {
   lastModified?: number;
   locked?: boolean;
   icon?: string;
+  // Track AI generation state
+  generationStatus?: 'idle' | 'generating' | 'paused' | 'error' | 'complete';
 }
 
 export interface FlashcardDeck extends DeckBase {
@@ -85,6 +90,17 @@ export interface LearningDeck extends DeckBase {
   infoCards: InfoCard[];
   questions: Question[];
   learningMode: 'mixed' | 'separate';
+  curriculum?: {
+      name: string;
+      description: string;
+      chapters: Array<{
+          id: string; // Course schema ID
+          title: string;
+          learningObjectives: string[];
+          topics: string[];
+          prerequisiteChapterIds?: string[]; // IDs from this same array
+      }>;
+  };
 }
 
 export type Deck = FlashcardDeck | QuizDeck | LearningDeck;
@@ -146,6 +162,9 @@ export interface AppSettings {
   disableAnimations?: boolean;
   hapticsEnabled?: boolean;
   aiFeaturesEnabled?: boolean;
+  veoEnabled?: boolean;
+  groundedImagesEnabled?: boolean;
+  searchAuditsEnabled?: boolean;
   backupEnabled?: boolean;
   backupApiKey?: string;
   syncOnCellular?: boolean;
@@ -220,7 +239,7 @@ export interface AppRouterProps {
 export type SeriesProgress = Map<string, Set<string>>;
 
 export interface AIGenerationParams {
-  generationType: 'series-scaffold' | 'series-quiz' | 'series-flashcard' | 'series-vocab' | 'series-course' | 'series-auto-fill' | 'level-auto-fill' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-course' | 'deck-flashcard' | 'deck-vocab' | 'deck-atomic' | 'quiz-blooms' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck' | 'upgrade-to-learning' | 'rework-deck';
+  generationType: 'series-scaffold' | 'series-quiz' | 'series-flashcard' | 'series-vocab' | 'series-course' | 'series-auto-fill' | 'level-auto-fill' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-course' | 'deck-flashcard' | 'deck-vocab' | 'deck-atomic' | 'quiz-blooms' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck' | 'upgrade-to-learning' | 'rework-deck' | 'deep-course';
   topic: string;
   persona: string;
   understanding: string;
@@ -231,6 +250,17 @@ export interface AIGenerationParams {
   levelIndex?: number;
   deckId?: string;
   reworkInstructions?: string;
+  // Deep course specific
+  chapterCount?: number;
+  targetWordCount?: number;
+  // Resumable state
+  partialProgress?: {
+      deckId?: string;
+      curriculum?: any;
+      completedChaptersCount?: number;
+      currentChapterPhase?: 'drafting' | 'verifying' | 'illustrating' | 'finalizing';
+      currentChapterDraft?: string;
+  };
 }
 
 export interface AIGenerationTask {
@@ -254,6 +284,7 @@ export enum AIActionType {
   EXPAND_SERIES_ADD_DECKS = 'EXPAND_SERIES_ADD_DECKS',
   GENERATE_QUESTIONS_FOR_DECK = 'GENERATE_QUESTIONS_FOR_DECK',
   UPGRADE_TO_LEARNING = 'UPGRADE_TO_LEARNING',
+  REWORK_DECK = 'REWORK_DECK',
   NO_ACTION = 'NO_ACTION'
 }
 
@@ -278,7 +309,6 @@ export interface ImportedCard {
 }
 
 export interface ImportedQuestion {
-  // FIX: Added optional id to fix Property 'id' does not exist on type 'ImportedQuestion' error in importService.ts
   id?: string;
   questionType: 'multipleChoice';
   questionText: string;
@@ -286,8 +316,8 @@ export interface ImportedQuestion {
   correctAnswerId: string;
   detailedExplanation?: string;
   tags?: string[];
-  // FIX: Added optional infoCardIds to fix type errors in importService.ts where questions are linked back to info cards
   infoCardIds?: string[];
+  bloomsLevel?: BloomsLevel;
 }
 
 export interface ImportedQuizDeck {

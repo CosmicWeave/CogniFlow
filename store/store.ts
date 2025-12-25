@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { Deck, Folder, DeckSeries, SeriesProgress, DeckType, FlashcardDeck, QuizDeck, AIMessage, LearningDeck, FullBackupData, SeriesLevel, Reviewable, Card, Question, AIGenerationTask, DeckLearningProgress } from '../types.ts';
 
@@ -9,6 +8,8 @@ export interface AIGenerationStatus {
   generatingSeriesId: string | null;
   queue: AIGenerationTask[];
   currentTask: (AIGenerationTask & { abortController: AbortController }) | null;
+  streamingDrafts: Record<string, string>; // chapterId -> partial content string
+  chapterPhases: Record<string, 'queued' | 'drafting' | 'auditing' | 'illustrating' | 'finalizing' | 'complete' | 'failed'>;
 }
 
 
@@ -45,7 +46,10 @@ export type AppAction =
   | { type: 'RESTORE_DATA', payload: FullBackupData }
   | { type: 'ADD_AI_TASK_TO_QUEUE'; payload: AIGenerationTask }
   | { type: 'START_NEXT_AI_TASK'; payload: { task: AIGenerationTask, abortController: AbortController } }
-  | { type: 'UPDATE_CURRENT_AI_TASK_STATUS'; payload: { statusText: string, deckId?: string, seriesId?: string } }
+  | { type: 'UPDATE_CURRENT_AI_TASK_STATUS'; payload: { statusText?: string, deckId?: string, seriesId?: string, payload?: any } }
+  | { type: 'UPDATE_STREAMING_DRAFT'; payload: { chapterId: string, text: string } }
+  | { type: 'UPDATE_CHAPTER_PHASE'; payload: { chapterId: string, phase: AIGenerationStatus['chapterPhases'][string] } }
+  | { type: 'CLEAR_STREAMING_DRAFTS' }
   | { type: 'FINISH_CURRENT_AI_TASK' }
   | { type: 'CANCEL_AI_TASK'; payload?: { taskId?: string } }
   | { type: 'SET_AI_CHAT_HISTORY'; payload: AIMessage[] }
@@ -98,6 +102,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     case 'ADD_AI_TASK_TO_QUEUE': {
       const currentQueue = Array.isArray(state.aiGenerationStatus.queue) ? state.aiGenerationStatus.queue : [];
+      // If task with same ID exists, update it (useful for resuming/repairing)
+      const existingIndex = currentQueue.findIndex(t => t.id === action.payload.id);
+      if (existingIndex !== -1) {
+          const newQueue = [...currentQueue];
+          newQueue[existingIndex] = action.payload;
+          return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: newQueue } };
+      }
       return { ...state, aiGenerationStatus: { ...state.aiGenerationStatus, queue: [...currentQueue, action.payload] } };
     }
     case 'START_NEXT_AI_TASK': {
@@ -108,23 +119,65 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state.aiGenerationStatus, 
         queue: newQueue, 
         currentTask: { ...task, abortController },
-        isGenerating: true, // Explicitly set to true
+        isGenerating: true,
+        chapterPhases: {} // Reset for new task
       } };
     }
     case 'UPDATE_CURRENT_AI_TASK_STATUS': {
         if (!state.aiGenerationStatus.currentTask) return state;
-        const { statusText, deckId, seriesId } = action.payload;
-        const updatedTask = { ...state.aiGenerationStatus.currentTask, statusText, deckId, seriesId };
+        const { statusText, deckId, seriesId, payload } = action.payload;
+        const updatedTask = { 
+            ...state.aiGenerationStatus.currentTask, 
+            statusText: statusText !== undefined ? statusText : state.aiGenerationStatus.currentTask.statusText,
+            deckId: deckId !== undefined ? deckId : state.aiGenerationStatus.currentTask.deckId, 
+            seriesId: seriesId !== undefined ? seriesId : state.aiGenerationStatus.currentTask.seriesId,
+            payload: payload !== undefined ? payload : state.aiGenerationStatus.currentTask.payload,
+        };
         return { ...state, aiGenerationStatus: { 
           ...state.aiGenerationStatus, 
           currentTask: updatedTask,
         } };
     }
+    case 'UPDATE_STREAMING_DRAFT': {
+        const { chapterId, text } = action.payload;
+        return {
+            ...state,
+            aiGenerationStatus: {
+                ...state.aiGenerationStatus,
+                streamingDrafts: {
+                    ...state.aiGenerationStatus.streamingDrafts,
+                    [chapterId]: text
+                }
+            }
+        };
+    }
+    case 'UPDATE_CHAPTER_PHASE': {
+        const { chapterId, phase } = action.payload;
+        return {
+            ...state,
+            aiGenerationStatus: {
+                ...state.aiGenerationStatus,
+                chapterPhases: {
+                    ...state.aiGenerationStatus.chapterPhases,
+                    [chapterId]: phase
+                }
+            }
+        };
+    }
+    case 'CLEAR_STREAMING_DRAFTS':
+        return {
+            ...state,
+            aiGenerationStatus: {
+                ...state.aiGenerationStatus,
+                streamingDrafts: {},
+                chapterPhases: {}
+            }
+        };
     case 'FINISH_CURRENT_AI_TASK':
       return { ...state, aiGenerationStatus: { 
         ...state.aiGenerationStatus, 
         currentTask: null,
-        isGenerating: false, // Explicitly set to false
+        isGenerating: false,
       } };
     case 'CANCEL_AI_TASK':
         if (action.payload?.taskId) {
@@ -162,8 +215,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
           ...modifiedState, 
           decks: decksRecord, 
           folders: foldersRecord, 
-          deckSeries: seriesRecord 
-      };
+          deckSeries: seriesRecord, 
+          isLoading: false, 
+          lastModified: null 
+      }; // Reset dirty flag on fresh load
     }
     case 'DELETE_DECK': {
       const newDecks = { ...state.decks };
@@ -263,6 +318,8 @@ const initialState: AppState = {
     generatingSeriesId: null,
     queue: [],
     currentTask: null,
+    streamingDrafts: {},
+    chapterPhases: {}
   },
   aiChatHistory: [],
 };

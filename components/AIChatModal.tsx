@@ -1,14 +1,13 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AIAction, AIMessage, Deck, DeckSeries, Folder } from '../types';
+import { AIAction, AIMessage, Deck, DeckSeries, Folder } from '../types.ts';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
 import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer';
-import * as db from '../services/db';
-import { useDecksList, useFoldersList, useSeriesList, useStore } from '../store/store';
-import { getAIResponse } from '../services/aiChatService';
-import { useData } from '../contexts/DataManagementContext';
+import * as db from '../services/db.ts';
+import { useDecksList, useFoldersList, useSeriesList, useStore } from '../store/store.ts';
+import { getAIResponse } from '../services/aiChatService.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
 
 interface AIChatModalProps {
   isOpen: boolean;

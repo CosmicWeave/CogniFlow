@@ -1,9 +1,8 @@
-
 import React from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
-import { useModal } from '../contexts/ModalContext';
-import { useSettings } from '../hooks/useSettings';
+import { useModal } from '../contexts/ModalContext.tsx';
+import { useSettings } from '../hooks/useSettings.ts';
 
 const AIChatFab: React.FC = () => {
     const { openModal } = useModal();

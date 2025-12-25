@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, ReactNode, useCallback } from 'react';
 
 export type LeechAction = 'suspend' | 'tag' | 'warn';
@@ -10,6 +9,12 @@ interface SettingsContextType {
   setHapticsEnabled: (enabled: boolean) => void;
   aiFeaturesEnabled: boolean;
   setAiFeaturesEnabled: (enabled: boolean) => void;
+  veoEnabled: boolean;
+  setVeoEnabled: (enabled: boolean) => void;
+  groundedImagesEnabled: boolean;
+  setGroundedImagesEnabled: (enabled: boolean) => void;
+  searchAuditsEnabled: boolean;
+  setSearchAuditsEnabled: (enabled: boolean) => void;
   backupEnabled: boolean;
   setBackupEnabled: (enabled: boolean) => void;
   backupApiKey: string;
@@ -67,6 +72,12 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [disableAnimations, setDisableAnimationsState] = useState<boolean>(() => getInitialState('cogniflow-disableAnimations', false));
   const [hapticsEnabled, setHapticsEnabledState] = useState<boolean>(() => getInitialState('cogniflow-hapticsEnabled', true));
   const [aiFeaturesEnabled, setAiFeaturesEnabledState] = useState<boolean>(getInitialAiState);
+  
+  // Advanced AI Features - Off by default
+  const [veoEnabled, setVeoEnabledState] = useState<boolean>(() => getInitialState('cogniflow-veoEnabled', false));
+  const [groundedImagesEnabled, setGroundedImagesEnabledState] = useState<boolean>(() => getInitialState('cogniflow-groundedImagesEnabled', false));
+  const [searchAuditsEnabled, setSearchAuditsEnabledState] = useState<boolean>(() => getInitialState('cogniflow-searchAuditsEnabled', false));
+
   const [backupEnabled, setBackupEnabledState] = useState<boolean>(() => getInitialState('cogniflow-backupEnabled', true));
   const [backupApiKey, setBackupApiKeyState] = useState<string>(() => {
     try {
@@ -121,6 +132,33 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         window.localStorage.setItem('cogniflow-aiFeaturesEnabled', JSON.stringify(enabled));
     } catch (error) {
         console.error('Error writing AI features setting to localStorage', error);
+    }
+  }, []);
+
+  const setVeoEnabled = useCallback((enabled: boolean) => {
+    setVeoEnabledState(enabled);
+    try {
+        window.localStorage.setItem('cogniflow-veoEnabled', JSON.stringify(enabled));
+    } catch (error) {
+        console.error('Error writing veo setting to localStorage', error);
+    }
+  }, []);
+
+  const setGroundedImagesEnabled = useCallback((enabled: boolean) => {
+    setGroundedImagesEnabledState(enabled);
+    try {
+        window.localStorage.setItem('cogniflow-groundedImagesEnabled', JSON.stringify(enabled));
+    } catch (error) {
+        console.error('Error writing groundedImages setting to localStorage', error);
+    }
+  }, []);
+
+  const setSearchAuditsEnabled = useCallback((enabled: boolean) => {
+    setSearchAuditsEnabledState(enabled);
+    try {
+        window.localStorage.setItem('cogniflow-searchAuditsEnabled', JSON.stringify(enabled));
+    } catch (error) {
+        console.error('Error writing searchAudits setting to localStorage', error);
     }
   }, []);
   
@@ -213,6 +251,9 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
       disableAnimations, setDisableAnimations, 
       hapticsEnabled, setHapticsEnabled, 
       aiFeaturesEnabled, setAiFeaturesEnabled, 
+      veoEnabled, setVeoEnabled,
+      groundedImagesEnabled, setGroundedImagesEnabled,
+      searchAuditsEnabled, setSearchAuditsEnabled,
       backupEnabled, setBackupEnabled, 
       backupApiKey, setBackupApiKey, 
       encryptionPassword, setEncryptionPassword,

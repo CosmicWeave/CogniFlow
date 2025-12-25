@@ -26,6 +26,7 @@ import AIResponseFixModal from './AIResponseFixModal.tsx';
 import AIGenerationChatModal from './AIGenerationChatModal.tsx';
 import DeckAnalysisModal from './DeckAnalysisModal.tsx';
 import WorkloadSimulatorModal from './WorkloadSimulatorModal.tsx';
+import JsonViewerModal from './JsonViewerModal.tsx';
 
 interface ModalManagerProps {
     driveFiles: GoogleDriveFile[];
@@ -87,6 +88,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
       {modalType === 'aiResponseFix' && <AIResponseFixModal isOpen={true} onClose={closeModal} {...payload} />}
       {modalType === 'deckAnalysis' && <DeckAnalysisModal isOpen={true} onClose={closeModal} deck={payload.deck} onUpdateDeck={dataHandlers.handleUpdateDeck} />}
       {modalType === 'workloadSimulator' && <WorkloadSimulatorModal isOpen={true} onClose={closeModal} items={getAllReviewables()} />}
+      {modalType === 'viewJson' && <JsonViewerModal isOpen={true} onClose={closeModal} {...payload} />}
     </>
   );
 };

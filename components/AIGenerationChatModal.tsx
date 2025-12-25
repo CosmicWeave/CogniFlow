@@ -1,14 +1,13 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { AIMessage, AIGenerationParams, AIGenerationTask } from '../types';
+import { AIMessage, AIGenerationParams, AIGenerationTask } from '../types.ts';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
-import * as aiService from '../services/aiService';
-import { useAIOptions } from '../hooks/useAIOptions';
-import { useData } from '../contexts/DataManagementContext';
-import { useToast } from '../hooks/useToast';
-import { useStore } from '../store/store';
+import * as aiService from '../services/aiService.ts';
+import { useAIOptions } from '../hooks/useAIOptions.ts';
+import { useData } from '../contexts/DataManagementContext.tsx';
+import { useToast } from '../hooks/useToast.ts';
+import { useStore } from '../store/store.ts';
 import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer';
 
 interface AIGenerationChatModalProps {

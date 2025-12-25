@@ -38,6 +38,12 @@ const App: React.FC = () => {
 
                 try {
                     switch (nextTask.type) {
+                        case 'generateDeepCourse':
+                            await (dataHandlers as any).onGenerateDeepCourse(
+                                nextTask.payload,
+                                abortController.signal
+                            );
+                            break;
                         case 'generateDeckFromOutline':
                             await (dataHandlers as any).onGenerateDeckFromOutline(
                                 nextTask.payload.outline, 

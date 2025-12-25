@@ -21,7 +21,8 @@ export type ModalType =
   | 'aiResponseFix'
   | 'aiGenerationChat'
   | 'deckAnalysis'
-  | 'workloadSimulator'; // Added
+  | 'workloadSimulator'
+  | 'viewJson'; // Added
 
 // Define the shape of the modal payload. It can be anything.
 export type ModalPayload = any;
