@@ -1,4 +1,6 @@
 
+// services/exportService.ts
+
 import { Deck, DeckSeries, DeckType, FlashcardDeck, QuizDeck, ImportedCard, ImportedQuizDeck, LearningDeck } from '../types.ts';
 import Papa from 'papaparse';
 
@@ -28,17 +30,35 @@ export const exportDeck = (deck: Deck): void => {
 
     if (deck.type === DeckType.Flashcard) {
         const flashcardDeck = deck as FlashcardDeck;
-        const importedCards: ImportedCard[] = (flashcardDeck.cards || []).map(card => ({
-            front: card.front,
-            back: card.back,
-        }));
-        exportData = importedCards;
+        // If the flashcard deck has meta-data worth preserving (synthesis status or icon), 
+        // export as a full object, otherwise stick to simple array for inter-app compatibility
+        if (flashcardDeck.generationStatus || flashcardDeck.icon || flashcardDeck.description) {
+            exportData = {
+                name: flashcardDeck.name,
+                description: flashcardDeck.description,
+                type: flashcardDeck.type,
+                icon: flashcardDeck.icon,
+                generationStatus: flashcardDeck.generationStatus,
+                cards: (flashcardDeck.cards || []).map(card => ({
+                    front: card.front,
+                    back: card.back,
+                })),
+            };
+        } else {
+            const importedCards: ImportedCard[] = (flashcardDeck.cards || []).map(card => ({
+                front: card.front,
+                back: card.back,
+            }));
+            exportData = importedCards;
+        }
     } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
         const quizDeck = deck as QuizDeck | LearningDeck;
         const importedQuizDeck: ImportedQuizDeck = {
             name: quizDeck.name,
             description: quizDeck.description,
             type: quizDeck.type,
+            generationStatus: quizDeck.generationStatus,
+            icon: quizDeck.icon,
             questions: (quizDeck.questions || []).map(q => ({
                 questionType: q.questionType,
                 questionText: q.questionText,
@@ -46,6 +66,8 @@ export const exportDeck = (deck: Deck): void => {
                 correctAnswerId: q.correctAnswerId,
                 detailedExplanation: q.detailedExplanation,
                 tags: q.tags,
+                infoCardIds: q.infoCardIds,
+                bloomsLevel: q.bloomsLevel,
             })),
         };
 
@@ -53,6 +75,7 @@ export const exportDeck = (deck: Deck): void => {
             const learningDeck = deck as LearningDeck;
             importedQuizDeck.infoCards = learningDeck.infoCards;
             importedQuizDeck.learningMode = learningDeck.learningMode;
+            importedQuizDeck.curriculum = learningDeck.curriculum;
         }
 
         exportData = importedQuizDeck;
@@ -94,12 +117,18 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
             .map(deckId => seriesDecks.get(deckId))
             .filter((deck): deck is Deck => !!deck)
             .map(deck => {
+                const base = {
+                    type: deck.type,
+                    name: deck.name,
+                    description: deck.description,
+                    icon: deck.icon,
+                    generationStatus: deck.generationStatus,
+                };
+
                 if (deck.type === DeckType.Flashcard) {
                     const flashcardDeck = deck as FlashcardDeck;
                     return {
-                        type: DeckType.Flashcard,
-                        name: flashcardDeck.name,
-                        description: flashcardDeck.description,
+                        ...base,
                         cards: (flashcardDeck.cards || []).map(card => ({
                             front: card.front,
                             back: card.back,
@@ -108,9 +137,7 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
                 } else if (deck.type === DeckType.Quiz || deck.type === DeckType.Learning) {
                     const quizDeck = deck as QuizDeck | LearningDeck;
                     const result: any = {
-                        type: quizDeck.type,
-                        name: quizDeck.name,
-                        description: quizDeck.description,
+                        ...base,
                         questions: (quizDeck.questions || []).map(q => ({
                             questionType: q.questionType,
                             questionText: q.questionText,
@@ -118,6 +145,8 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
                             correctAnswerId: q.correctAnswerId,
                             detailedExplanation: q.detailedExplanation,
                             tags: q.tags,
+                            infoCardIds: q.infoCardIds,
+                            bloomsLevel: q.bloomsLevel,
                         })),
                     };
 
@@ -125,6 +154,7 @@ export const exportSeries = (series: DeckSeries, allDecks: Deck[]): void => {
                         const learningDeck = deck as LearningDeck;
                         result.infoCards = learningDeck.infoCards;
                         result.learningMode = learningDeck.learningMode;
+                        result.curriculum = learningDeck.curriculum;
                     }
                     return result;
                 }

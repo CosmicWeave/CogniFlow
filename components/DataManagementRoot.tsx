@@ -1,4 +1,6 @@
 
+// components/DataManagementRoot.tsx
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useStore } from '../store/store.ts';
 import { useRouter } from '../contexts/RouterContext.tsx';
@@ -7,7 +9,7 @@ import { useModal } from '../contexts/ModalContext.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
 import { useDataManagement } from '../hooks/useDataManagement.ts';
 import { DataManagementProvider } from '../contexts/DataManagementContext.tsx';
-import { QuizDeck } from '../types.ts';
+import { QuizDeck, FullBackupData } from '../types.ts';
 import * as googleDriveService from '../services/googleDriveService.ts';
 import storage from '../services/storage.ts';
 import { onDataChange } from '../services/syncService.ts';
@@ -49,7 +51,7 @@ const DataManagementRoot: React.FC<DataManagementRootProps> = ({ children }) => 
   const [gapiUser, setGapiUser] = useState<any>(null);
 
   // --- Data Loading Logic ---
-  const loadInitialData = useCallback(async () => {
+  const loadInitialData = useCallback(async (customBackup?: FullBackupData) => {
     try {
         const [decks, folders, deckSeries, seriesProgress, learningProgress, chatHistory, sessionKeys] = await Promise.all([
             storage.getAllDecks(),
@@ -72,6 +74,14 @@ const DataManagementRoot: React.FC<DataManagementRootProps> = ({ children }) => 
         dispatch({ type: 'SET_LEARNING_PROGRESS', payload: learningProgress });
         dispatch({ type: 'SET_AI_CHAT_HISTORY', payload: chatHistory });
         
+        // Handle AI Tasks from backup if this is a restore event
+        if (customBackup?.aiTasks && customBackup.aiTasks.length > 0) {
+            customBackup.aiTasks.forEach(task => {
+                dispatch({ type: 'ADD_AI_TASK_TO_QUEUE', payload: task });
+            });
+            addToast(`Resumed ${customBackup.aiTasks.length} background AI tasks.`, 'info');
+        }
+
         // Identify which decks have active sessions to resume
         const resumeSet = new Set<string>();
         sessionKeys.forEach(key => {
@@ -147,6 +157,8 @@ const DataManagementRoot: React.FC<DataManagementRootProps> = ({ children }) => 
     setDraggedDeckId,
     openFolderIds,
     onToggleFolder,
+    // Add special restore handler to pickup AI tasks
+    onDataRestoreComplete: (data: FullBackupData) => loadInitialData(data)
   });
 
   return (

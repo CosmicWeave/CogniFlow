@@ -1,4 +1,6 @@
 
+// components/ModalManager.tsx
+
 import React from 'react';
 import { useModal } from '../contexts/ModalContext.tsx';
 import { useDecksList, useStore } from '../store/store.ts';
@@ -27,6 +29,7 @@ import AIGenerationChatModal from './AIGenerationChatModal.tsx';
 import DeckAnalysisModal from './DeckAnalysisModal.tsx';
 import WorkloadSimulatorModal from './WorkloadSimulatorModal.tsx';
 import JsonViewerModal from './JsonViewerModal.tsx';
+import SynthesisConfigModal from './SynthesisConfigModal.tsx';
 
 interface ModalManagerProps {
     driveFiles: GoogleDriveFile[];
@@ -89,6 +92,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({ driveFiles }) => {
       {modalType === 'deckAnalysis' && <DeckAnalysisModal isOpen={true} onClose={closeModal} deck={payload.deck} onUpdateDeck={dataHandlers.handleUpdateDeck} />}
       {modalType === 'workloadSimulator' && <WorkloadSimulatorModal isOpen={true} onClose={closeModal} items={getAllReviewables()} />}
       {modalType === 'viewJson' && <JsonViewerModal isOpen={true} onClose={closeModal} {...payload} />}
+      {modalType === 'synthesisConfig' && <SynthesisConfigModal isOpen={true} onClose={closeModal} {...payload} />}
     </>
   );
 };

@@ -1,4 +1,6 @@
 
+// components/CardListEditor.tsx
+
 import React, { useState, useRef, useMemo, useCallback } from 'react';
 import { Card, DeckType, FlashcardDeck } from '../types';
 import Button from './ui/Button.tsx';
@@ -11,6 +13,9 @@ import AIActionsMenu from './AIActionsMenu.tsx';
 import { useStore } from '../store/store.ts';
 import { useSettings } from '../hooks/useSettings.ts';
 import { useData } from '../contexts/DataManagementContext.tsx';
+import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer.tsx';
+import Spinner from './ui/Spinner.tsx';
+import { useModal } from '../contexts/ModalContext.tsx';
 
 interface CardListEditorProps {
   cards: Card[];
@@ -57,23 +62,59 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
   const [isOpen, setIsOpen] = useState(true);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [draggedCardIndex, setDraggedCardIndex] = useState<number | null>(null);
+  const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set());
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const { aiFeaturesEnabled } = useSettings();
   const dataHandlers = useData();
+  const { openModal } = useModal();
   
-  const relevantTask = useStore(useCallback(state => {
-      const { currentTask, queue } = state.aiGenerationStatus;
-      if (currentTask?.deckId === deck.id) return currentTask;
-      return (queue || []).find(task => task.deckId === deck.id);
-  }, [deck.id]));
+  const currentTask = useStore(state => state.aiGenerationStatus.currentTask);
+  const queue = useStore(state => state.aiGenerationStatus.queue);
 
-  const isGenerating = !!relevantTask;
+  const isGeneratingItem = useCallback((itemId: string) => {
+      if (currentTask?.payload?.itemId === itemId && currentTask?.type === 'holistic-expand-item') return true;
+      return (queue || []).some(t => t.payload?.itemId === itemId && t.type === 'holistic-expand-item');
+  }, [currentTask, queue]);
+
+  const isGeneratingGlobal = !!currentTask && currentTask.deckId === deck.id;
 
   const visibleCards = useMemo(() => cards.slice(0, visibleCount), [cards, visibleCount]);
 
   const handleShowMore = () => {
     setVisibleCount(prev => Math.min(prev + PAGE_SIZE, cards.length));
+  };
+
+  const toggleExpand = (id: string) => {
+    const newSet = new Set(expandedCardIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setExpandedCardIds(newSet);
+  };
+
+  const handleExpandAll = () => {
+    setExpandedCardIds(new Set(cards.map(c => c.id)));
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedCardIds(new Set());
+  };
+
+  const handleIndividualSynthesis = (e: React.MouseEvent, itemId: string) => {
+      e.stopPropagation();
+      openModal('synthesisConfig', {
+          title: 'Custom Card Synthesis',
+          type: 'text',
+          onConfirm: (config: any) => {
+              dataHandlers?.handleImmediateAIGeneration({
+                  generationType: 'holistic-expand-item',
+                  topic: deck.name,
+                  deckId: deck.id,
+                  itemId: itemId,
+                  ...config
+              });
+          }
+      });
   };
 
   const openEditModal = (card: Card | null, e?: React.MouseEvent<HTMLButtonElement>) => {
@@ -138,16 +179,26 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
 
   return (
     <div>
-      <div className="border-b border-border">
+      <div className="border-b border-border flex justify-between items-center bg-surface sticky top-0 z-10">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full flex justify-between items-center text-left p-6"
+          className="flex-grow flex justify-between items-center text-left p-6"
           aria-expanded={isOpen}
           aria-controls="card-list-content"
         >
           <h3 className="text-xl font-semibold text-text">Cards ({cards.length})</h3>
           <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
         </button>
+        {isOpen && cards.length > 0 && (
+            <div className="pr-6 flex gap-2">
+                <Button variant="ghost" size="sm" onClick={handleExpandAll} title="Expand All">
+                    <Icon name="maximize" className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleCollapseAll} title="Collapse All">
+                    <Icon name="minimize" className="w-4 h-4" />
+                </Button>
+            </div>
+        )}
       </div>
 
       {isOpen && (
@@ -159,44 +210,80 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
                   {visibleCards.map((card, index) => {
                       const { text: dueDateText, isDue } = getDueDateInfo(card.dueDate);
                       const isDragging = draggedCardIndex === index;
+                      const isExpanded = expandedCardIds.has(card.id);
+                      const isSynthesizing = isGeneratingItem(card.id);
                       
                       return (
                         <li 
                             key={card.id} 
-                            className={`p-4 rounded-lg flex items-start justify-between transition-all border border-transparent ${card.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'} ${isDragging ? 'opacity-50 ring-2 ring-primary' : 'hover:border-border'}`}
+                            className={`p-4 rounded-lg flex flex-col transition-all border border-transparent ${card.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'} ${isDragging ? 'opacity-50 ring-2 ring-primary' : 'hover:border-border'} ${isSynthesizing ? 'ring-2 ring-indigo-500/50 animate-pulse' : ''}`}
                             draggable
                             onDragStart={(e) => handleDragStart(index, e)}
                             onDragOver={(e) => handleDragOver(index, e)}
                             onDrop={(e) => handleDrop(index, e)}
                         >
-                          <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text">
-                              <Icon name="grip-vertical" className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1 min-w-0 mr-4">
-                            <p className="text-sm font-medium text-text truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
-                            <p className="text-sm text-text-muted truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
-                             <div className="mt-3 space-y-2">
-                                  <MasteryBar level={getEffectiveMasteryLevel(card)} />
-                                  <div className="flex items-center gap-4 text-xs text-text-muted">
-                                      <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
-                                          <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
-                                      </span>
+                          <div className="flex items-start justify-between w-full">
+                              <div className="flex items-start flex-1 min-w-0">
+                                  <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text" onClick={e => e.stopPropagation()}>
+                                      <Icon name="grip-vertical" className="w-5 h-5" />
+                                  </div>
+                                  <div className="flex-1 min-w-0 mr-4">
+                                    {isExpanded ? (
+                                        <div className="space-y-4 py-2">
+                                            <div>
+                                                <p className="text-xs font-bold text-text-muted uppercase mb-1">Front</p>
+                                                <DangerousHtmlRenderer html={card.front} className="prose prose-sm dark:prose-invert max-w-none" />
+                                            </div>
+                                            <div className="pt-2 border-t border-border/50">
+                                                <p className="text-xs font-bold text-text-muted uppercase mb-1">Back</p>
+                                                <DangerousHtmlRenderer html={card.back} className="prose prose-sm dark:prose-invert max-w-none" />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <p className="text-sm font-medium text-text truncate"><strong>Front:</strong> {card.front.replace(/<[^>]+>/g, '')}</p>
+                                            <p className="text-sm text-text-muted truncate"><strong>Back:</strong> {card.back.replace(/<[^>]+>/g, '')}</p>
+                                        </>
+                                    )}
+                                     <div className="mt-3 flex flex-wrap gap-4 items-center">
+                                          <div className="flex-grow max-w-[150px]">
+                                            <MasteryBar level={getEffectiveMasteryLevel(card)} />
+                                          </div>
+                                          <div className="flex items-center gap-4 text-xs text-text-muted">
+                                              <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
+                                                  <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
+                                              </span>
+                                          </div>
+                                          {aiFeaturesEnabled && (
+                                              <button 
+                                                onClick={(e) => handleIndividualSynthesis(e, card.id)}
+                                                disabled={isSynthesizing}
+                                                className={`text-[10px] flex items-center gap-1 font-bold uppercase tracking-widest transition-colors ${isSynthesizing ? 'text-primary' : 'text-indigo-500 hover:text-indigo-700'}`}
+                                              >
+                                                  {isSynthesizing ? <Spinner size="sm" /> : <Icon name="zap" className="w-3 h-3" />}
+                                                  {isSynthesizing ? 'Synthesizing' : 'AI Enhance'}
+                                              </button>
+                                          )}
+                                      </div>
                                   </div>
                               </div>
-                          </div>
-                          <div className="flex-shrink-0 flex items-center gap-2">
-                            {card.suspended ? (
-                              <Button variant="ghost" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnsuspendCard(card.id)} title="Unsuspend this card">
-                                  <Icon name="eye" className="w-4 h-4" />
-                              </Button>
-                            ) : (
-                              <Button variant="ghost" className="p-2 h-auto" onClick={(e) => openEditModal(card, e)} title="Edit this card">
-                                <Icon name="edit" className="w-4 h-4" />
-                              </Button>
-                            )}
-                            <Button variant="ghost" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
-                              <Icon name="trash-2" className="w-4 h-4" />
-                            </Button>
+                              <div className="flex-shrink-0 flex items-center gap-1">
+                                <Button variant="ghost" size="sm" className="p-2 h-auto text-text-muted" onClick={() => toggleExpand(card.id)} title={isExpanded ? "Collapse" : "Expand"}>
+                                    <Icon name={isExpanded ? "minimize" : "maximize"} className="w-4 h-4" />
+                                </Button>
+                                {card.suspended ? (
+                                  <Button variant="ghost" size="sm" className="p-2 h-auto text-yellow-600 dark:text-yellow-400" onClick={() => handleUnsuspendCard(card.id)} title="Unsuspend this card">
+                                      <Icon name="eye" className="w-4 h-4" />
+                                  </Button>
+                                ) : (
+                                  <Button variant="ghost" size="sm" className="p-2 h-auto" onClick={(e) => openEditModal(card, e)} title="Edit this card">
+                                    <Icon name="edit" className="w-4 h-4" />
+                                  </Button>
+                                )}
+                                <Button variant="ghost" size="sm" className="p-2 h-auto text-text-muted hover:text-red-500" onClick={(e) => openConfirmDelete(card, e)} title="Delete this card">
+                                  <Icon name="trash-2" className="w-4 h-4" />
+                                </Button>
+                              </div>
                           </div>
                         </li>
                       )
@@ -240,11 +327,12 @@ const CardListEditor: React.FC<CardListEditorProps> = ({ cards, onCardsChange, o
             {aiFeaturesEnabled && (
                 <AIActionsMenu 
                     deck={deck}
-                    isGenerating={isGenerating}
+                    isGenerating={isGeneratingGlobal}
                     onGenerateMore={() => dataHandlers?.handleOpenAIGenerationForDeck(deck)}
                     onRework={() => dataHandlers?.handleOpenAIReworkForDeck(deck)}
                     onAnalyze={() => dataHandlers?.handleOpenDeckAnalysis(deck)}
                     onGenerateAudio={() => dataHandlers?.handleGenerateAudioForAllCards(deck)}
+                    onHolisticUpgrade={(type, config) => (dataHandlers as any).handleHolisticUpgrade(deck, type, config)}
                 />
             )}
           </div>

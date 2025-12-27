@@ -1,3 +1,4 @@
+
 # CogniFlow Development Roadmap & Todo
 
 ## 🔥 High Priority (Immediate Fixes & Performance)
@@ -9,6 +10,26 @@
 - [x] **Database Concurrency**: Review `services/db.ts` for transaction safety.
 - [x] **Prevent Duplicate Imports**: Logic to detect duplicate content.
 - [x] **Strict TypeScript Config**: Resolve all remaining `strict: true` errors.
+
+## 📖 E-Reader Experience (Learning Decks)
+
+### 🎨 Visual & Immersive UI (Books App Style)
+- [x] **Edge-to-Edge Layout**: Removed the "contained card" look in Reader Mode. Text flows beautifully with high-readability margins.
+- [x] **Glassmorphism Header/Footer**: Implemented blur-heavy, iOS-inspired navigation bars that auto-hide on scroll.
+- [ ] **Page-Turn Animations**: Add subtle horizontal "slide" or "curl" transitions between chapters instead of vertical jumps.
+- [x] **Refined Typography Engine**:
+    - [x] **Dynamic Kerning & Tracking**: Optimized for long-form reading.
+    - [x] **Serif vs Sans Toggle**: Dedicated serif choice for a book-like feel.
+    - [x] **Drop Caps**: Implemented automatic drop caps for chapter starts.
+- [x] **iOS-Inspired Themes**:
+    - [x] **Sepia**: Warm, low-blue-light mode.
+    - [x] **Charcoal**: Soft dark mode.
+    - [x] **Black**: True OLED black mode.
+
+### 🛠 Functional Reading Tools
+- [x] **Persistent Reading Position**: Automatically saves the last read card index and restores it on return.
+- [x] **Interactive Table of Contents (TOC)**: Swipe-from-left sidebar with chapter progression and quick jumping.
+- [ ] **Reading Time Estimation**: Show "X minutes left in chapter" at the bottom of the screen.
 
 ## 🚀 Next Generation: The "Hyper-Course" Engine
 
@@ -64,12 +85,6 @@ The "Hyper-Course" engine leverages Gemini 3 Pro's deep reasoning and multi-agen
 - [x] **Smart Deck Builder**: Auto-generate Vocab/Atomic decks.
 - [x] **Distractor Hardening**: AI-generated challenging incorrect answers.
 - [x] **Concrete Example Generator**: Real-world usage examples for cards.
-
-## 🎨 UI/UX Polish
-
-- [x] **Swipe Gestures**: Mobile-first review interactions.
-- [x] **Keyboard Shortcuts**: Power-user study hotkeys.
-- [x] **Zen Mode**: Distraction-free toggle for study sessions.
 
 ## 📦 Data & Sync
 

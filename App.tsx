@@ -1,4 +1,5 @@
 
+// ... (imports remain same)
 import React, { useEffect, useState, useCallback } from 'react';
 import { useStore } from './store/store.ts';
 import { useData } from './contexts/DataManagementContext.tsx';
@@ -40,6 +41,18 @@ const App: React.FC = () => {
                     switch (nextTask.type) {
                         case 'generateDeepCourse':
                             await (dataHandlers as any).onGenerateDeepCourse(
+                                nextTask.payload,
+                                abortController.signal
+                            );
+                            break;
+                        case 'holistic-expand-item':
+                            await (dataHandlers as any).onHolisticExpandItem(
+                                nextTask.payload,
+                                abortController.signal
+                            );
+                            break;
+                        case 'deep-expand-questions':
+                            await (dataHandlers as any).onDeepExpandQuestions(
                                 nextTask.payload,
                                 abortController.signal
                             );
@@ -149,7 +162,8 @@ const App: React.FC = () => {
         processNextTask();
     }, [aiGenerationStatus, dispatch, dataHandlers]);
 
-    // Global Drag and Drop Handlers
+    // ... (rest of App component preserved)
+// Global Drag and Drop Handlers
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();

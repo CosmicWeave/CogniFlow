@@ -1,3 +1,4 @@
+// services/schemas.ts
 
 import { z } from 'zod';
 import { DeckType, ReviewRating } from '../types.ts';
@@ -25,12 +26,15 @@ export const ImportedQuestionSchema = z.object({
   correctAnswerId: z.preprocess(val => val ? String(val) : "", z.string()),
   detailedExplanation: z.string().nullable().optional().transform(val => val ?? ""),
   tags: z.array(z.string()).optional(),
+  infoCardIds: z.array(z.string()).optional(),
+  bloomsLevel: z.string().optional(),
 });
 
 export const InfoCardSchema = z.object({
   id: z.coerce.string(),
   content: z.string().nullable().optional().transform(val => val ?? ""),
   unlocksQuestionIds: z.array(z.string()).nullable().optional().transform(val => val ?? []),
+  prerequisiteIds: z.array(z.string()).nullable().optional().transform(val => val ?? []),
 });
 
 export const ImportedQuizDeckSchema = z.object({
@@ -40,6 +44,9 @@ export const ImportedQuizDeckSchema = z.object({
   type: z.string().optional(), // permissive for initial analysis
   infoCards: z.array(z.any()).optional(),
   learningMode: z.string().optional(),
+  curriculum: z.any().optional(),
+  generationStatus: z.string().optional(),
+  icon: z.string().optional(),
 });
 
 // --- Internal Data Structures (for Backup Validation) ---
@@ -111,9 +118,11 @@ export const LearningDeckSchema = DeckBaseSchema.extend({
       name: z.string(),
       description: z.string(),
       chapters: z.array(z.object({
+          id: z.string(),
           title: z.string(),
           learningObjectives: z.array(z.string()),
           topics: z.array(z.string()),
+          prerequisiteChapterIds: z.array(z.string()).optional(),
       }))
   }).optional(),
 });
@@ -216,8 +225,6 @@ export const DeckSeriesSchema = z.object({
   archived: z.boolean().nullable().optional(),
   deletedAt: z.string().nullable().optional(),
   lastModified: z.number().nullable().optional(),
-  aiGenerationParams: z.any().optional(),
-  aiChatHistory: z.array(z.any()).optional(),
 });
 
 export const ReviewLogSchema = z.object({
@@ -264,11 +271,21 @@ export const AIMessageSchema = z.object({
   isLoading: z.boolean().optional(),
 });
 
+export const AIGenerationTaskSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  payload: z.any(),
+  statusText: z.string().optional(),
+  deckId: z.string().optional(),
+  seriesId: z.string().optional(),
+});
+
 export const DeckLearningProgressSchema = z.object({
   deckId: z.string(),
   readInfoCardIds: z.array(z.string()).nullable().optional().transform(val => val ?? []),
   unlockedQuestionIds: z.array(z.string()).nullable().optional().transform(val => val ?? []),
   lastReadCardId: z.string().optional(),
+  cardScrollIndices: z.record(z.string(), z.number()).nullable().optional().transform(val => val ?? {}),
 });
 
 export const FullBackupDataSchema = z.object({
@@ -281,6 +298,7 @@ export const FullBackupDataSchema = z.object({
   seriesProgress: z.record(z.string(), z.array(z.string())).nullable().optional().transform(val => val ?? {}),
   learningProgress: z.record(z.string(), DeckLearningProgressSchema).nullable().optional().transform(val => val ?? {}),
   aiChatHistory: z.array(AIMessageSchema).nullable().optional().transform(val => val ?? []),
+  aiTasks: z.array(AIGenerationTaskSchema).nullable().optional().transform(val => val ?? []),
   aiOptions: z.any().optional(),
   settings: z.any().optional(),
 });

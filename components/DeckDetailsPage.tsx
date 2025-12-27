@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, Deck, DeckType, Question, ImportedCard, ImportedQuestion, Reviewable, Folder, FlashcardDeck, QuizDeck, ReviewLog, ReviewRating, LearningDeck, InfoCard } from '../types.ts';
 import Button from './ui/Button.tsx';
@@ -211,6 +212,14 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   }, [aiGenerationStatus, deck.id]);
 
   const isGeneratingThisDeck = !!relevantTask;
+  const isHyperCourse = deck.type === DeckType.Learning && !!(deck as LearningDeck).curriculum;
+  
+  // Stall detection: generating status but no task in queue
+  const isSynthesisStalled = useMemo(() => {
+      return isHyperCourse && 
+             (deck.generationStatus === 'generating' || deck.generationStatus === 'error') && 
+             !isGeneratingThisDeck;
+  }, [isHyperCourse, deck.generationStatus, isGeneratingThisDeck]);
 
   const parentSeries = useMemo(() => {
       return seriesList.find(s => !s.deletedAt && (s.levels || []).some(l => l.deckIds?.includes(deck.id)));
@@ -273,6 +282,30 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
     } finally {
         setIsGeneratingMetadata(false);
     }
+  };
+
+  const handleResumeSynthesis = () => {
+      if (!isHyperCourse) return;
+      const learningDeck = deck as LearningDeck;
+      const curriculum = learningDeck.curriculum!;
+      
+      const params = {
+          generationType: 'deep-course' as const,
+          topic: learningDeck.name,
+          persona: 'default', // Ideally we'd store the original params, but we can default or derive
+          understanding: 'Intermediate',
+          comprehensiveness: 'Standard',
+          chapterCount: curriculum.chapters?.length || 12,
+          deckId: deck.id,
+          partialProgress: {
+              curriculum,
+              deckId: deck.id,
+              completedChapterIds: learningDeck.infoCards.map(ic => ic.id),
+              previousSummariesMap: {} // Handler will reconstruct as needed or start fresh
+          }
+      };
+      
+      dataHandlers?.handleImmediateAIGeneration(params);
   };
   
   const handleBulkAddItems = (items: ImportedCard[] | ImportedQuestion[]) => {
@@ -418,11 +451,42 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
   const isDeckEmpty = allItems.length === 0 && (deck.type !== DeckType.Learning || (deck as LearningDeck).infoCards.length === 0);
   const showReadButton = deck.type === DeckType.Learning && (deck as LearningDeck).learningMode !== 'mixed';
 
+  const blueprintChapters = useMemo(() => {
+      if (!isHyperCourse) return [];
+      const learningDeck = deck as LearningDeck;
+      const completedIds = new Set(learningDeck.infoCards.map(ic => ic.id));
+      return (learningDeck.curriculum?.chapters || []).map(ch => ({
+          ...ch,
+          status: completedIds.has(ch.id) ? 'complete' : 'pending'
+      }));
+  }, [deck, isHyperCourse]);
+
   return (
     <div className="max-w-5xl mx-auto animate-fade-in space-y-6 pb-20">
       
+      {/* Hyper-Course Resume Banner */}
+      {isSynthesisStalled && (
+          <div className="bg-indigo-600 text-white rounded-xl shadow-lg p-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-fade-in border-b-4 border-indigo-800">
+              <div className="flex items-center gap-4">
+                  <div className="bg-white/20 p-3 rounded-full animate-pulse">
+                      <Icon name="zap" className="w-8 h-8" />
+                  </div>
+                  <div>
+                      <h3 className="text-xl font-bold">Synthesis Interrupted</h3>
+                      <p className="text-indigo-100 text-sm">This master course is incomplete. Resume now to finish generating chapters and assessments.</p>
+                  </div>
+              </div>
+              <Button 
+                onClick={handleResumeSynthesis} 
+                className="bg-white text-indigo-600 hover:bg-indigo-50 border-none font-bold py-3 px-8 shadow-md transition-all active:scale-95"
+              >
+                  Resume Synthesis
+              </Button>
+          </div>
+      )}
+
       {/* Hero Header Section */}
-      <div className={`bg-surface rounded-xl shadow-sm border border-border ${isEditing ? 'overflow-hidden' : ''}`}>
+      <div className={`bg-surface rounded-xl shadow-sm border border-border ${isEditing ? 'overflow-hidden' : ''} ${isHyperCourse ? 'border-indigo-500/30' : ''}`}>
         {isEditing ? (
           <div className="p-6 space-y-4 animate-fade-in bg-background/50">
             <div className="flex justify-between items-center mb-4">
@@ -497,34 +561,31 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
           <div className="p-6 md:p-8 flex items-start justify-between gap-4 relative">
             <div className="flex-1 min-w-0 pr-10 sm:pr-0">
                 <div className="flex items-start gap-4">
-                    <div className="p-3 bg-primary/10 rounded-xl flex-shrink-0 hidden sm:block">
-                        <Icon name={(deck.icon as IconName) || (deck.type === 'flashcard' ? 'laptop' : (deck.type === 'learning' ? 'book-open' : 'help-circle'))} className="w-8 h-8 text-primary" />
+                    <div className={`p-3 rounded-xl flex-shrink-0 hidden sm:block ${isHyperCourse ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'bg-primary/10'}`}>
+                        <Icon name={(deck.icon as IconName) || (deck.type === 'flashcard' ? 'laptop' : (deck.type === 'learning' ? 'book-open' : 'help-circle'))} className={`w-8 h-8 ${isHyperCourse ? 'text-indigo-600 dark:text-indigo-400' : 'text-primary'}`} />
                     </div>
                     <div className="min-w-0 flex-1">
-                        {parentSeries ? (
-                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                            {isHyperCourse && (
+                                <span className="flex items-center gap-1 bg-indigo-600 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded tracking-tighter shadow-sm">
+                                    <Icon name="bot" className="w-3 h-3" />
+                                    Hyper-Course
+                                </span>
+                            )}
+                            {parentSeries ? (
                                 <Link href={`/series/${parentSeries.id}`} className="flex items-center text-xs font-bold text-primary uppercase tracking-wider hover:underline whitespace-nowrap">
                                     <Icon name="layers" className="w-3 h-3 mr-1" />
                                     <span>{parentSeries.name}</span>
                                 </Link>
-                                {deck.folderId && folders[deck.folderId] && (
-                                    <>
-                                        <span className="text-text-muted/30 text-xs hidden sm:inline">•</span>
-                                        <div className="flex items-center text-xs font-medium text-text-muted uppercase tracking-wider whitespace-nowrap">
-                                            <Icon name="folder" className="w-3 h-3 mr-1" />
-                                            <span>{folders[deck.folderId].name}</span>
-                                        </div>
-                                    </>
-                                )}
-                             </div>
-                        ) : (
-                            deck.folderId && (
-                                <div className="flex items-center text-xs font-semibold text-text-muted mb-2 uppercase tracking-wider">
-                                    <Icon name="folder" className="w-3 h-3 mr-1" />
-                                    <span>{folders[deck.folderId]?.name || 'Uncategorized'}</span>
-                                </div>
-                            )
-                        )}
+                            ) : (
+                                deck.folderId && (
+                                    <div className="flex items-center text-xs font-semibold text-text-muted uppercase tracking-wider">
+                                        <Icon name="folder" className="w-3 h-3 mr-1" />
+                                        <span>{folders[deck.folderId]?.name || 'Uncategorized'}</span>
+                                    </div>
+                                )
+                            )}
+                        </div>
                         <h1 className="text-2xl sm:text-3xl font-extrabold text-text break-words leading-tight">{deck.name}</h1>
                         {deck.description && (
                             <div className="mt-2 text-text-muted">
@@ -594,6 +655,43 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
        <div className="min-h-[300px]">
         {activeTab === 'overview' && (
             <div className="space-y-6 sm:space-y-8 animate-fade-in">
+                
+                {/* Hyper-Course Project Blueprint */}
+                {isHyperCourse && (
+                    <div className="bg-surface rounded-xl p-6 border border-indigo-500/20 shadow-sm">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-sm font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+                                <Icon name="layers" className="w-4 h-4 text-indigo-500" />
+                                Project Blueprint
+                            </h3>
+                            <div className="flex gap-4 text-[10px] font-bold text-text-muted uppercase">
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Synthesized</div>
+                                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-border"></span> Pending</div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
+                            {blueprintChapters.map((ch, idx) => (
+                                <div 
+                                    key={ch.id} 
+                                    title={`${idx + 1}. ${ch.title} (${ch.status})`}
+                                    className={`aspect-square rounded-lg flex items-center justify-center text-xs font-black transition-all ${
+                                        ch.status === 'complete' 
+                                        ? 'bg-green-500 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' 
+                                        : 'bg-background text-text-muted border border-border border-dashed'
+                                    }`}
+                                >
+                                    {idx + 1}
+                                </div>
+                            ))}
+                        </div>
+                        {isSynthesisStalled && (
+                            <p className="mt-4 text-xs text-indigo-600 dark:text-indigo-400 font-medium italic">
+                                * Project paused at chapter {totalInfoCards + 1}. Resume synthesis to complete the blueprint.
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 {/* Primary Actions Area */}
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-6 bg-primary/5 rounded-xl border border-primary/10">
                     <div className="flex-1 text-center md:text-left">
@@ -718,7 +816,6 @@ const DeckDetailsPage: React.FC<DeckDetailsPageProps> = ({ deck, sessionsToResum
         {activeTab === 'items' && (
             <div className="bg-surface rounded-lg shadow-md border border-border animate-fade-in">
              {deck.type === DeckType.Flashcard ? (
-                // FIX: Added missing 'lapses: 0' property when creating a new flashcard in the onAddCard callback.
                 <CardListEditor cards={(deck as FlashcardDeck).cards || []} onCardsChange={(newCards) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: newCards }, { silent: true })} onAddCard={(d) => onUpdateDeck({ ...(deck as FlashcardDeck), cards: [...((deck as FlashcardDeck).cards || []), {...d, id: crypto.randomUUID(), dueDate: new Date().toISOString(), interval: 0, easeFactor: INITIAL_EASE_FACTOR, lapses: 0 }] }, { silent: true })} onBulkAdd={() => setIsBulkAddModalOpen(true)} deckName={deck.name} deck={deck as FlashcardDeck} />
              ) : deck.type === DeckType.Quiz ? (
                 <QuestionListEditor

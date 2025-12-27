@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Button from './ui/Button';
 import Icon from './ui/Icon';
@@ -10,6 +11,7 @@ import { useToast } from '../hooks/useToast.ts';
 import Spinner from './ui/Spinner';
 import { useData } from '../contexts/DataManagementContext.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
+import { extractTextFromFile } from '../services/importService.ts';
 
 interface AIGenerationModalProps {
   isOpen: boolean;
@@ -26,6 +28,7 @@ interface AIGenerationModalProps {
       seriesDescription?: string;
       deckType?: DeckType;
       mode?: 'generate' | 'expand' | 'rework';
+      sourceMaterial?: string;
   };
 }
 
@@ -37,12 +40,9 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
   const [topic, setTopic] = useState(initialTopic || context?.deckName || '');
   const [reworkInstructions, setReworkInstructions] = useState('');
   
-  // Selection State
-  const [scope, setScope] = useState<GenerationScope>(context?.seriesId ? 'series' : 'deck');
-  const [contentStyle, setContentStyle] = useState<ContentStyle>('quiz');
+  const [scope, setScope] = useState<GenerationScope>(context?.sourceMaterial ? 'deep-course' : (context?.seriesId ? 'series' : 'deck'));
+  const [contentStyle, setContentStyle] = useState<ContentStyle>(context?.sourceMaterial ? 'learning' : 'quiz');
   const [count, setCount] = useState<number>(10);
-  
-  // Deep Course Power User Settings
   const [chapterCount, setChapterCount] = useState<number>(12);
   const [targetWordCount, setTargetWordCount] = useState<number>(10000);
 
@@ -50,394 +50,202 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({ isOpen, on
   const [persona, setPersona] = useState('default');
   const [understanding, setUnderstanding] = useState('Auto');
   const [comprehensiveness, setComprehensiveness] = useState('Standard');
+  
+  // Source Material state
+  const [sourceMaterial, setSourceMaterial] = useState(context?.sourceMaterial || '');
+  const [showSourceMaterial, setShowSourceMaterial] = useState(!!context?.sourceMaterial);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const { options } = useAIOptions();
-  const { veoEnabled, groundedImagesEnabled, searchAuditsEnabled } = useSettings();
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, isOpen);
   const { addToast } = useToast();
   const dataHandlers = useData();
-  
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
   const mode = context?.mode || 'generate';
 
-  // Sync content style with deck type if provided
   useEffect(() => {
     if (context?.deckType) {
         if (context.deckType === DeckType.Flashcard) setContentStyle('flashcard');
         else if (context.deckType === DeckType.Learning) setContentStyle('learning');
-        else setContentStyle('quiz');
     }
   }, [context]);
 
-  useEffect(() => {
-    if (initialTopic) setTopic(initialTopic);
-    else if (context?.deckName) setTopic(context.deckName);
-  }, [initialTopic, context]);
-
-  const isContextLocked = !!context?.deckId; 
-
-  const availableStyles = useMemo(() => {
-      if (scope === 'deck') {
-          return [
-              { value: 'quiz', label: 'Interactive Quiz', icon: 'help-circle' },
-              { value: 'flashcard', label: 'Flashcards', icon: 'laptop' },
-              { value: 'vocab', label: 'Vocabulary Builder', icon: 'book-open' },
-              { value: 'atomic', label: 'Atomic Concepts', icon: 'zap' },
-              { value: 'blooms', label: "Bloom's Taxonomy Quiz", icon: 'trending-up' },
-              { value: 'learning', label: 'Learning Deck', icon: 'layers' },
-              { value: 'course', label: 'Course / Guide (Reader)', icon: 'file-text' },
-          ];
-      } else {
-          return [
-              { value: 'quiz', label: 'Interactive Quizzes', icon: 'help-circle' },
-              { value: 'flashcard', label: 'Flashcards', icon: 'laptop' },
-              { value: 'vocab', label: 'Vocabulary Builder', icon: 'book-open' },
-              { value: 'course', label: 'Course / Guide (Reader)', icon: 'file-text' },
-          ];
-      }
-  }, [scope]);
-
-  useEffect(() => {
-      if (!isContextLocked && !availableStyles.some(s => s.value === contentStyle)) {
-          setContentStyle(availableStyles[0].value as ContentStyle);
-      }
-  }, [scope, availableStyles, contentStyle, isContextLocked]);
-
-  const handleGetSuggestions = async () => {
-      if (!context?.deckName && !context?.seriesName) return;
-      setIsLoadingSuggestions(true);
-      try {
-          const suggestions = await getTopicSuggestions({
-              name: context.deckName || context.seriesName || '',
-              description: context.seriesDescription,
-              type: context.seriesId ? 'series' : 'deck'
-          });
-          setSuggestions(suggestions);
-      } catch (e) {
-          addToast("Failed to get suggestions.", "error");
-      } finally {
-          setIsLoadingSuggestions(false);
-      }
-  };
-
-  const getGenerationTypeString = (): AIGenerationParams['generationType'] => {
-      if (mode === 'rework') return 'rework-deck';
-      if (scope === 'deep-course') return 'deep-course';
-      
-      if (scope === 'series') {
-          if (contentStyle === 'flashcard') return 'series-flashcard';
-          if (contentStyle === 'vocab') return 'series-vocab';
-          if (contentStyle === 'course') return 'series-course';
-          return 'series-quiz';
-      } else {
-          if (contentStyle === 'quiz') return 'single-deck-quiz';
-          if (contentStyle === 'flashcard') return 'deck-flashcard';
-          if (contentStyle === 'vocab') return 'deck-vocab';
-          if (contentStyle === 'atomic') return 'deck-atomic';
-          if (contentStyle === 'blooms') return 'quiz-blooms';
-          if (contentStyle === 'learning') return 'single-deck-learning';
-          if (contentStyle === 'course') return 'deck-course';
-          return 'single-deck-quiz';
-      }
-  };
-
   const getParams = (): AIGenerationParams => ({
-      generationType: getGenerationTypeString(),
-      topic: topic,
-      persona,
-      understanding,
-      comprehensiveness,
-      count,
-      imageStyle: (contentStyle === 'flashcard' || contentStyle === 'vocab' || contentStyle === 'atomic') ? imageStyle : undefined,
+      generationType: mode === 'rework' ? 'rework-deck' : (scope === 'deep-course' ? 'deep-course' : (scope === 'series' ? 'series-quiz' : 'single-deck-quiz')),
+      topic, persona, understanding, comprehensiveness, count,
+      imageStyle: (contentStyle === 'flashcard') ? imageStyle : undefined,
       seriesId: context?.seriesId,
       levelIndex: context?.levelIndex,
       deckId: context?.deckId,
       reworkInstructions: reworkInstructions.trim(),
       chapterCount: scope === 'deep-course' ? chapterCount : undefined,
-      targetWordCount: scope === 'deep-course' ? targetWordCount : undefined
+      targetWordCount: scope === 'deep-course' ? targetWordCount : undefined,
+      sourceMaterial: sourceMaterial.trim() || undefined
   });
-
-  const handleChatAndRefine = () => {
-    if (!topic.trim()) return;
-    onStartAIGeneration(getParams());
-  };
 
   const handleImmediateGenerate = () => {
     if (!topic.trim()) return;
-    if (dataHandlers?.handleImmediateAIGeneration) {
-        dataHandlers.handleImmediateAIGeneration(getParams());
-        onClose();
-    }
+    dataHandlers.handleImmediateAIGeneration(getParams());
+    onClose();
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          try {
+              const text = await extractTextFromFile(file);
+              setSourceMaterial(text);
+              if (!topic) setTopic(file.name.replace(/\.[^/.]+$/, ""));
+              addToast("Material ingested successfully.", "success");
+          } catch (err) {
+              addToast((err as Error).message, "error");
+          }
+      }
+      if (e.target) e.target.value = '';
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-[60] p-4">
-      <div 
-        ref={modalRef} 
-        className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative h-full max-h-[90vh] overflow-hidden flex flex-col"
-      >
+      <div ref={modalRef} className="bg-surface rounded-lg shadow-xl w-full max-w-2xl transform transition-all relative h-full max-h-[95vh] overflow-hidden flex flex-col">
         {view === 'main' ? (
           <div className="flex flex-col h-full overflow-hidden">
             <header className="flex-shrink-0 flex justify-between items-center p-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <Icon name={mode === 'rework' ? 'refresh-ccw' : (scope === 'deep-course' ? 'book-open' : 'bot')} className="w-6 h-6 text-primary" />
+                <Icon name="bot" className="w-6 h-6 text-primary" />
                 <h2 className="text-xl font-bold">
-                    {mode === 'rework' ? `Rework "${context?.deckName}"` : (context?.deckId ? `Expand "${context.deckName}"` : 'Generate with AI')}
+                    {mode === 'rework' ? 'Rework Content' : 'AI Content Studio'}
                 </h2>
               </div>
-              <Button type="button" variant="ghost" onClick={onClose} className="p-1 h-auto"><Icon name="x" /></Button>
+              <Button variant="ghost" onClick={onClose} className="p-1 h-auto"><Icon name="x" /></Button>
             </header>
             <main className="flex-grow p-6 space-y-6 overflow-y-auto no-scrollbar">
               
+              {/* Project Context Summary */}
+              <div className="bg-primary/5 border border-primary/10 rounded-xl p-4 flex items-start gap-4">
+                <div className="bg-primary/10 p-2 rounded-lg text-primary">
+                    <Icon name={scope === 'deep-course' ? 'layers' : (scope === 'series' ? 'layers' : 'laptop')} className="w-6 h-6" />
+                </div>
+                <div className="flex-grow">
+                    <h3 className="font-bold text-sm text-text">Target Goal</h3>
+                    <p className="text-xs text-text-muted">
+                        Generating {scope === 'deep-course' ? 'a comprehensive master course' : (scope === 'series' ? 'a multi-level series' : 'a standalone deck')} on your chosen topic.
+                    </p>
+                </div>
+              </div>
+
               {/* Scope Selection */}
-              {!isContextLocked && !context?.seriesId && (
+              <div className="space-y-2">
+                  <label className="block text-xs font-bold text-text-muted uppercase tracking-widest">Generation Scope</label>
                   <div className="flex bg-background rounded-lg p-1 border border-border">
-                      <button 
-                          type="button"
-                          onClick={() => setScope('deck')}
-                          className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${scope === 'deck' ? 'bg-primary text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}
-                      >
-                          Single Deck
-                      </button>
-                      <button 
-                          type="button"
-                          onClick={() => setScope('series')}
-                          className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${scope === 'series' ? 'bg-primary text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}
-                      >
-                          Full Series
-                      </button>
-                      <button 
-                          type="button"
-                          onClick={() => setScope('deep-course')}
-                          className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${scope === 'deep-course' ? 'bg-indigo-600 text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}
-                      >
-                          Deep Course ✨
-                      </button>
+                      <button onClick={() => setScope('deck')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${scope === 'deck' ? 'bg-primary text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}>Standalone Deck</button>
+                      <button onClick={() => setScope('series')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${scope === 'series' ? 'bg-primary text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}>Full Series</button>
+                      <button onClick={() => setScope('deep-course')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${scope === 'deep-course' ? 'bg-indigo-600 text-on-primary shadow-sm' : 'text-text-muted hover:text-text'}`}>Hyper-Course ✨</button>
                   </div>
-              )}
+              </div>
 
               {/* Topic Input */}
               <div>
-                <div className="flex justify-between items-end mb-1">
-                    <label htmlFor="topic" className="block text-sm font-medium text-text-muted">
-                        {mode === 'rework' ? 'Base Topic (Derived from Deck)' : (context?.deckId ? 'Additional Topic / Context' : 'Topic')}
-                    </label>
-                    {(context?.deckName || context?.seriesName) && mode !== 'rework' && (
-                        <button 
-                            type="button" 
-                            onClick={handleGetSuggestions} 
-                            disabled={isLoadingSuggestions}
-                            className="text-xs text-primary hover:underline flex items-center gap-1"
-                        >
-                            {isLoadingSuggestions ? <Spinner size="sm" /> : <Icon name="zap" className="w-3 h-3" />}
-                            {suggestions.length > 0 ? 'Refresh Suggestions' : 'Get Suggestions'}
-                        </button>
-                    )}
-                </div>
-                <input id="topic" type="text" value={topic} onChange={(e) => setTopic(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none" placeholder="e.g., The History of Ancient Rome" autoFocus={mode !== 'rework'} />
-                
-                {suggestions.length > 0 && mode !== 'rework' && (
-                    <div className="flex flex-wrap gap-2 mt-2 animate-fade-in">
-                        {suggestions.map((s, i) => (
-                            <button
-                                key={i}
-                                type="button"
-                                onClick={() => setTopic(s)}
-                                className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-full hover:bg-primary/20 transition-colors border border-primary/20"
-                            >
-                                {s}
-                            </button>
-                        ))}
-                    </div>
-                )}
+                <label htmlFor="topic" className="block text-sm font-medium text-text-muted mb-1">Concept Topic / Title</label>
+                <input 
+                    id="topic" 
+                    type="text" 
+                    value={topic} 
+                    onChange={(e) => setTopic(e.target.value)} 
+                    placeholder="e.g., Quantum Mechanics, Conversational Spanish, AWS Solutions Architect..."
+                    className="w-full p-3 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none text-lg font-bold" 
+                />
               </div>
 
-              {/* Rework Focus (Only in rework mode) */}
-              {mode === 'rework' && (
-                  <div className="animate-fade-in">
-                      <label htmlFor="rework-instructions" className="block text-sm font-medium text-text-muted mb-1">Focus for Rework</label>
-                      <textarea
-                        id="rework-instructions"
-                        value={reworkInstructions}
-                        onChange={(e) => setReworkInstructions(e.target.value)}
-                        rows={3}
-                        className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none text-sm"
-                        placeholder="e.g., Make the questions much harder, add more practical examples, or simplify the language for a child."
-                        autoFocus
-                      />
+              {/* Source Material Section (NEW) */}
+              <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-text">
+                          <Icon name="file-text" className="w-4 h-4 text-indigo-500" />
+                          Knowledge Source
+                      </label>
+                      <button 
+                        onClick={() => setShowSourceMaterial(!showSourceMaterial)} 
+                        className={`text-xs font-bold px-2 py-1 rounded-md transition-all ${showSourceMaterial ? 'bg-indigo-100 text-indigo-600' : 'bg-background border border-border text-text-muted hover:border-indigo-300'}`}
+                      >
+                          {showSourceMaterial ? 'Using Custom Source' : 'Use Generic AI Knowledge'}
+                      </button>
                   </div>
-              )}
 
-              {/* Deep Course Settings (Power User) */}
-              {scope === 'deep-course' && (
-                  <div className="space-y-4 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-lg border border-indigo-200 dark:border-indigo-800 animate-fade-in">
-                      <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-                          <Icon name="settings" className="w-3 h-3" /> Course Architect Settings
-                      </h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-sm font-medium text-text-muted mb-2 flex justify-between">
-                                  <span>Chapters</span>
-                                  <span className="font-bold text-indigo-600">{chapterCount}</span>
-                              </label>
-                              <input 
-                                  type="range" min="5" max="30" step="1" 
-                                  value={chapterCount} onChange={(e) => setChapterCount(Number(e.target.value))}
-                                  className="w-full accent-indigo-600"
-                              />
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-text-muted mb-2 flex justify-between">
-                                  <span>Target Word Count</span>
-                                  <span className="font-bold text-indigo-600">{(targetWordCount / 1000).toFixed(1)}k</span>
-                              </label>
-                              <input 
-                                  type="range" min="3000" max="30000" step="1000" 
-                                  value={targetWordCount} onChange={(e) => setTargetWordCount(Number(e.target.value))}
-                                  className="w-full accent-indigo-600"
-                              />
+                  {showSourceMaterial && (
+                      <div className="animate-fade-in space-y-3 p-4 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800 rounded-xl">
+                          <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-widest">Ingested Material</p>
+                          <textarea
+                            value={sourceMaterial}
+                            onChange={(e) => setSourceMaterial(e.target.value)}
+                            placeholder="Paste your text, notes, or article content here. The AI will strictly follow this material for all chapters and questions."
+                            className="w-full h-32 p-3 bg-background border border-indigo-100 dark:border-indigo-900 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none"
+                          />
+                          <div className="flex items-center justify-between">
+                              <p className="text-[10px] text-text-muted font-mono">
+                                  {sourceMaterial ? `${sourceMaterial.split(/\s+/).length} words loaded` : 'No text entered'}
+                              </p>
+                              <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} className="text-indigo-600 hover:bg-indigo-100 h-auto py-1">
+                                  <Icon name="upload-cloud" className="w-3.5 h-3.5 mr-1.5" /> Upload Document
+                              </Button>
+                              <input type="file" ref={fileInputRef} className="hidden" accept=".txt,.md,.markdown,.rtf" onChange={handleFileUpload} />
                           </div>
                       </div>
-                      <p className="text-[10px] text-text-muted italic">
-                          This mode uses a multi-stage generation process to create a complete course book. 
-                          It may take several minutes to complete.
-                      </p>
+                  )}
+              </div>
+
+              {/* Hyper-Course Specific Config */}
+              {scope === 'deep-course' && (
+                  <div className="space-y-4 p-5 bg-indigo-600 text-white rounded-xl shadow-lg animate-fade-in relative overflow-hidden">
+                      <div className="absolute top-0 right-0 -mr-8 -mt-8 opacity-10">
+                          <Icon name="zap" className="w-32 h-32" />
+                      </div>
+                      <div className="relative flex flex-col gap-4">
+                          <div>
+                              <div className="flex justify-between items-center mb-2">
+                                  <span className="text-xs font-black uppercase tracking-tighter opacity-80">Depth of Curriculum</span>
+                                  <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{chapterCount} Chapters</span>
+                              </div>
+                              <input type="range" min="5" max="30" value={chapterCount} onChange={(e) => setChapterCount(Number(e.target.value))} className="w-full accent-white" />
+                          </div>
+                          <div>
+                              <div className="flex justify-between items-center mb-2">
+                                  <span className="text-xs font-black uppercase tracking-tighter opacity-80">Word Density</span>
+                                  <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">~{(targetWordCount / 1000).toFixed(0)}k total words</span>
+                              </div>
+                              <input type="range" min="3000" max="30000" step="1000" value={targetWordCount} onChange={(e) => setTargetWordCount(Number(e.target.value))} className="w-full accent-white" />
+                          </div>
+                      </div>
                   </div>
               )}
 
-              {/* Content Style Selection - Locked if context provided */}
-              {!isContextLocked && scope !== 'deep-course' && (
-                <div>
-                    <label className="block text-sm font-medium text-text-muted mb-2">Content Style</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {availableStyles.map(style => (
-                            <button
-                                key={style.value}
-                                type="button"
-                                onClick={() => setContentStyle(style.value as ContentStyle)}
-                                className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${contentStyle === style.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-background hover:border-primary/50'}`}
-                            >
-                                <div className={`p-2 rounded-full ${contentStyle === style.value ? 'bg-primary text-on-primary' : 'bg-surface text-text-muted'}`}>
-                                    <Icon name={style.icon as any} className="w-4 h-4" />
-                                </div>
-                                <span className={`text-sm font-medium ${contentStyle === style.value ? 'text-primary' : 'text-text'}`}>
-                                    {style.label}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
+              {/* Persona and Level */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border">
+                <div className="space-y-1">
+                  <label htmlFor="persona" className="block text-xs font-bold text-text-muted uppercase tracking-widest">Instructional Persona</label>
+                  <select id="persona" value={persona} onChange={(e) => setPersona(e.target.value)} className="w-full p-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary">
+                    {options.personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
                 </div>
-              )}
-
-              {/* Quantity or Comprehensiveness Selector */}
-              {scope === 'deck' && (
-                <div className="space-y-4">
-                    {contentStyle === 'learning' || contentStyle === 'course' ? (
-                        <div>
-                            <label htmlFor="comprehensiveness" className="block text-sm font-medium text-text-muted mb-1">Depth of Content</label>
-                            <select id="comprehensiveness" value={comprehensiveness} onChange={(e) => setComprehensiveness(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                                {options.comprehensivenessLevels.map(level => (
-                                    <option key={level} value={level}>
-                                        {level} {level === 'Exhaustive' ? '(Min 20 Chapters)' : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    ) : (
-                        <div>
-                            <label className="block text-sm font-medium text-text-muted mb-3 flex justify-between">
-                                <span>Number of items {mode === 'rework' ? 'to maintain' : 'to generate'}</span>
-                                <span className="font-bold text-primary">{count}</span>
-                            </label>
-                            <div className="flex items-center gap-4">
-                                <input 
-                                    type="range" 
-                                    min="5" 
-                                    max="50" 
-                                    step="5" 
-                                    value={count} 
-                                    onChange={(e) => setCount(Number(e.target.value))}
-                                    className="flex-grow accent-primary"
-                                />
-                                <div className="flex gap-1">
-                                    {[5, 10, 20, 50].map(v => (
-                                        <button 
-                                            key={v}
-                                            type="button"
-                                            onClick={() => setCount(v)}
-                                            className={`px-2 py-1 text-[10px] font-bold rounded border transition-colors ${count === v ? 'bg-primary text-on-primary border-primary' : 'border-border text-text-muted hover:border-primary'}`}
-                                        >
-                                            {v}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                <div className="space-y-1">
+                  <label htmlFor="understanding" className="block text-xs font-bold text-text-muted uppercase tracking-widest">Target Proficiency</label>
+                  <select id="understanding" value={understanding} onChange={(e) => setUnderstanding(e.target.value)} className="w-full p-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary">
+                    {options.understandingLevels.map(level => <option key={level} value={level}>{level}</option>)}
+                  </select>
                 </div>
-              )}
-
-              {/* Advanced Options */}
-              <div className="space-y-4 pt-4 border-t border-border">
-                  {(contentStyle === 'flashcard' || contentStyle === 'vocab' || contentStyle === 'atomic') && scope !== 'deep-course' && (
-                    <div className="animate-fade-in">
-                      <label htmlFor="image-style" className="block text-sm font-medium text-text-muted mb-1">Image Generation</label>
-                      <select id="image-style" value={imageStyle} onChange={(e) => setImageStyle(e.target.value as any)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                        <option value="none">No Images</option>
-                        <option value="realistic">Find Realistic Images</option>
-                        <option value="creative">Generate Creative Images</option>
-                      </select>
-                    </div>
-                  )}
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="persona" className="block text-sm font-medium text-text-muted mb-1">AI Persona</label>
-                      <select id="persona" value={persona} onChange={(e) => setPersona(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                        {options.personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="understanding" className="block text-sm font-medium text-text-muted mb-1">My Current Level Is</label>
-                      <select id="understanding" value={understanding} onChange={(e) => setUnderstanding(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                        {options.understandingLevels.map(level => <option key={level} value={level}>{level}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  {!(contentStyle === 'learning' || contentStyle === 'course' || scope === 'deep-course') && (
-                    <div>
-                        <label htmlFor="comprehensiveness-shared" className="block text-sm font-medium text-text-muted mb-1">Desired Comprehensiveness</label>
-                        <select id="comprehensiveness-shared" value={comprehensiveness} onChange={(e) => setComprehensiveness(e.target.value)} className="w-full p-2 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary focus:outline-none">
-                        {options.comprehensivenessLevels.map(level => <option key={level} value={level}>{level}</option>)}
-                        </select>
-                    </div>
-                  )}
               </div>
 
             </main>
-            <footer className="flex-shrink-0 flex flex-wrap justify-between items-center p-4 bg-background/50 border-t border-border gap-2">
-              <Button type="button" variant="ghost" onClick={() => setView('options')}>Options</Button>
-              <div className="flex gap-2">
-                  <Button type="button" variant="secondary" onClick={handleChatAndRefine} disabled={!topic.trim() || (mode === 'rework' && !reworkInstructions.trim())}>
-                    <Icon name="bot" className="w-4 h-4 mr-2" />
-                    Chat & Refine
-                  </Button>
-                  <Button type="button" variant="primary" onClick={handleImmediateGenerate} disabled={!topic.trim() || (mode === 'rework' && !reworkInstructions.trim())}>
-                    <Icon name="zap" className="w-5 h-5 mr-2" />
-                    Generate Now
-                  </Button>
-              </div>
+            <footer className="flex-shrink-0 flex justify-end items-center p-4 bg-background/50 border-t border-border gap-2">
+              <Button variant="secondary" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" onClick={handleImmediateGenerate} disabled={!topic.trim()} className="px-8 font-bold">
+                <Icon name="zap" className="w-5 h-5 mr-2" /> Start Synthesis
+              </Button>
             </footer>
           </div>
-        ) : (
-          <div className="flex flex-col h-full overflow-hidden">
-            <AIOptionsManager onBack={() => setView('main')} />
-          </div>
-        )}
+        ) : <AIOptionsManager onBack={() => setView('main')} />}
       </div>
     </div>
   );

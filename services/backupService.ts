@@ -6,6 +6,7 @@ import { Deck, Folder, GoogleDriveFile, DeckSeries, DeckType, FullBackupData, AI
 import { getStockholmFilenameTimestamp } from './time';
 import JSZip from 'jszip';
 import { encryptData, decryptData } from './encryptionService';
+import { useStore } from '../store/store';
 
 const BASE_URL = 'https://www.greenyogafestival.org/backup-api/api/v1';
 const APP_ID = 'cogniflow-data';
@@ -127,6 +128,10 @@ export async function syncDataToServer(dataToSync?: FullBackupData, force = fals
         const aiChatHistory = await db.getAIChatHistory();
         const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
         const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
+        
+        // Pick up active tasks from store
+        const aiTasks = useStore.getState().aiGenerationStatus.queue || [];
+
         backupData = {
             version: 9, // Incremented due to learningProgress
             decks,
@@ -138,6 +143,7 @@ export async function syncDataToServer(dataToSync?: FullBackupData, force = fals
             learningProgress,
             aiOptions,
             aiChatHistory,
+            aiTasks,
         };
     }
     
@@ -335,6 +341,7 @@ export async function createServerBackup(): Promise<CreateBackupResponse> {
     const aiOptionsString = localStorage.getItem('cogniflow-ai-options');
     const aiOptions = aiOptionsString ? JSON.parse(aiOptionsString) : undefined;
     const aiChatHistory = await db.getAIChatHistory();
+    const aiTasks = useStore.getState().aiGenerationStatus.queue || [];
 
     const backupData: FullBackupData = {
         version: 9, // Incremented
@@ -346,7 +353,8 @@ export async function createServerBackup(): Promise<CreateBackupResponse> {
         seriesProgress,
         learningProgress,
         aiOptions,
-        aiChatHistory
+        aiChatHistory,
+        aiTasks
     };
 
     // Use compression for manual backups as well

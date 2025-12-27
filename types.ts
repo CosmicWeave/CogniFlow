@@ -180,6 +180,10 @@ export interface DeckLearningProgress {
   readInfoCardIds: string[];
   unlockedQuestionIds: string[];
   lastReadCardId?: string;
+  scrollPosition?: number;
+  readerTheme?: 'white' | 'sepia' | 'charcoal' | 'black';
+  readerFont?: 'sans' | 'serif';
+  cardScrollIndices?: Record<string, number>; // Maps InfoCard ID to topmost element index
 }
 
 export interface FullBackupData {
@@ -193,6 +197,7 @@ export interface FullBackupData {
   learningProgress: Record<string, DeckLearningProgress>;
   aiOptions?: any;
   aiChatHistory?: AIMessage[];
+  aiTasks?: AIGenerationTask[]; 
   settings?: AppSettings;
 }
 
@@ -239,7 +244,7 @@ export interface AppRouterProps {
 export type SeriesProgress = Map<string, Set<string>>;
 
 export interface AIGenerationParams {
-  generationType: 'series-scaffold' | 'series-quiz' | 'series-flashcard' | 'series-vocab' | 'series-course' | 'series-auto-fill' | 'level-auto-fill' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-course' | 'deck-flashcard' | 'deck-vocab' | 'deck-atomic' | 'quiz-blooms' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck' | 'upgrade-to-learning' | 'rework-deck' | 'deep-course';
+  generationType: 'series-scaffold' | 'series-quiz' | 'series-flashcard' | 'series-vocab' | 'series-course' | 'series-auto-fill' | 'level-auto-fill' | 'single-deck-quiz' | 'single-deck-learning' | 'deck-course' | 'deck-flashcard' | 'deck-vocab' | 'deck-atomic' | 'quiz-blooms' | 'add-levels-to-series' | 'add-decks-to-level' | 'generate-questions-for-deck' | 'upgrade-to-learning' | 'rework-deck' | 'deep-course' | 'holistic-expand-item' | 'deep-expand-questions';
   topic: string;
   persona: string;
   understanding: string;
@@ -249,17 +254,18 @@ export interface AIGenerationParams {
   seriesId?: string;
   levelIndex?: number;
   deckId?: string;
+  itemId?: string; 
   reworkInstructions?: string;
-  // Deep course specific
   chapterCount?: number;
   targetWordCount?: number;
-  // Resumable state
+  sourceMaterial?: string; 
+  thinkingBudget?: number; // Added for customization
+  analogyIntensity?: 'none' | 'standard' | 'aggressive'; // Added
   partialProgress?: {
       deckId?: string;
       curriculum?: any;
-      completedChaptersCount?: number;
-      currentChapterPhase?: 'drafting' | 'verifying' | 'illustrating' | 'finalizing';
-      currentChapterDraft?: string;
+      completedChapterIds?: string[];
+      previousSummariesMap?: Record<string, string>;
   };
 }
 
@@ -327,4 +333,7 @@ export interface ImportedQuizDeck {
   type?: DeckType;
   infoCards?: InfoCard[];
   learningMode?: 'mixed' | 'separate';
+  curriculum?: LearningDeck['curriculum'];
+  generationStatus?: DeckBase['generationStatus'];
+  icon?: string;
 }

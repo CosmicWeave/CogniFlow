@@ -1,4 +1,6 @@
 
+// contexts/ModalContext.tsx
+
 import React, { createContext, useState, useContext, ReactNode, useCallback, useRef } from 'react';
 
 // Define all possible modal types
@@ -22,7 +24,8 @@ export type ModalType =
   | 'aiGenerationChat'
   | 'deckAnalysis'
   | 'workloadSimulator'
-  | 'viewJson'; // Added
+  | 'synthesisConfig' // Added
+  | 'viewJson'; 
 
 // Define the shape of the modal payload. It can be anything.
 export type ModalPayload = any;

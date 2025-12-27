@@ -1,4 +1,6 @@
 
+// hooks/useDataManagement.ts
+
 import { useCallback, useMemo } from 'react';
 import { useStore } from '../store/store.ts';
 import { useModal } from '../contexts/ModalContext.tsx';
@@ -51,7 +53,10 @@ export const useDataManagement = (props: any) => {
         ...props,
         openConfirmModal: (p: any) => openModal('confirm', p),
         openRestoreFromDriveModal: () => openModal('restoreFromDrive'),
-        onRestoreData: backupHandlers.onRestoreData,
+        onRestoreData: async (data: any) => {
+            await backupHandlers.onRestoreData(data);
+            if (props.onDataRestoreComplete) props.onDataRestoreComplete(data);
+        },
     });
     
     const aiHandlers = useAIHandlers({
@@ -79,13 +84,26 @@ export const useDataManagement = (props: any) => {
                 if (d.type === 'quiz') {
                   const newQuizDeck: QuizDeck = {
                     id: crypto.randomUUID(), name: d.name, description: d.description,
-                    type: DeckType.Quiz, questions: createQuestionsFromImport(d.questions || [])
+                    type: DeckType.Quiz, questions: createQuestionsFromImport(d.questions || []),
+                    generationStatus: d.generationStatus
                   };
                   return newQuizDeck;
+                } else if (d.type === 'learning') {
+                   const newLearningDeck: LearningDeck = {
+                        id: crypto.randomUUID(), name: d.name, description: d.description,
+                        type: DeckType.Learning, 
+                        infoCards: d.infoCards || [],
+                        questions: createQuestionsFromImport(d.questions || []),
+                        learningMode: d.learningMode || 'separate',
+                        curriculum: d.curriculum,
+                        generationStatus: d.generationStatus
+                    };
+                    return newLearningDeck;
                 } else if (d.type === 'flashcard') {
                   const newFlashcardDeck: FlashcardDeck = {
                     id: crypto.randomUUID(), name: d.name, description: d.description,
-                    type: DeckType.Flashcard, cards: createCardsFromImport(d.cards || [])
+                    type: DeckType.Flashcard, cards: createCardsFromImport(d.cards || []),
+                    generationStatus: d.generationStatus
                   };
                   return newFlashcardDeck;
                 }
@@ -103,7 +121,8 @@ export const useDataManagement = (props: any) => {
           } else if (analysis.type === 'quiz') {
             const newDeck: QuizDeck = {
               id: crypto.randomUUID(), name: deckName || analysis.data.name, description: analysis.data.description,
-              type: DeckType.Quiz, questions: createQuestionsFromImport(analysis.data.questions)
+              type: DeckType.Quiz, questions: createQuestionsFromImport(analysis.data.questions),
+              generationStatus: analysis.data.generationStatus
             };
             await deckAndFolderHandlers.handleAddDecks([newDeck]);
             addToast(`Deck "${newDeck.name}" imported successfully.`, 'success');
@@ -115,7 +134,9 @@ export const useDataManagement = (props: any) => {
                 type: DeckType.Learning,
                 infoCards: analysis.data.infoCards || [],
                 questions: createQuestionsFromImport(analysis.data.questions || []),
-                learningMode: analysis.data.learningMode || 'separate'
+                learningMode: analysis.data.learningMode || 'separate',
+                curriculum: analysis.data.curriculum,
+                generationStatus: analysis.data.generationStatus
             };
             await deckAndFolderHandlers.handleAddDecks([newDeck]);
             addToast(`Learning Deck "${newDeck.name}" imported successfully.`, 'success');
@@ -179,11 +200,12 @@ export const useDataManagement = (props: any) => {
           } else if (analysis.type === 'backup' && analysis.data) {
               // Redirect to standard restore logic
               await backupHandlers.onRestoreData(analysis.data);
+              if (props.onDataRestoreComplete) props.onDataRestoreComplete(analysis.data);
           }
         } catch (e) {
             addToast((e as Error).message, 'error');
         }
-    }, [seriesHandlers, deckAndFolderHandlers, backupHandlers, addToast, closeModal]);
+    }, [seriesHandlers, deckAndFolderHandlers, backupHandlers, addToast, closeModal, props]);
 
     const handleViewDeckJson = useCallback((deck: Deck) => {
         openModal('viewJson', {
@@ -204,6 +226,12 @@ export const useDataManagement = (props: any) => {
             filename: `series-${series.id}.json`
         });
     }, [openModal]);
+
+    const handleExportData = useCallback(async () => {
+        const fullData = await backupHandlers.handleExportData();
+        // Since handleExportData in hook usually doesn't return anything but triggers download,
+        // we assume the user's existing export logic is fine for individual files.
+    }, [backupHandlers]);
 
     return useMemo(() => ({
         ...props, // Pass through state variables passed as props

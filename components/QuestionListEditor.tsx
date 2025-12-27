@@ -12,8 +12,9 @@ import Spinner from './ui/Spinner.tsx';
 import { useSettings } from '../hooks/useSettings.ts';
 import { stripHtml } from '../services/utils.ts';
 import AIActionsMenu from './AIActionsMenu.tsx';
-import { useData } from '../contexts/DataManagementContext.tsx';
 import { useStore } from '../store/store.ts';
+import DangerousHtmlRenderer from './ui/DangerousHtmlRenderer.tsx';
+import { useData } from '../contexts/DataManagementContext.tsx';
 
 type NewQuestionData = Omit<Question, 'id' | 'dueDate' | 'interval' | 'easeFactor' | 'lapses'>;
 
@@ -65,6 +66,8 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
   const [menuOpenForQuestion, setMenuOpenForQuestion] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [draggedQuestionIndex, setDraggedQuestionIndex] = useState<number | null>(null);
+  const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(new Set());
+  
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -92,6 +95,18 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
         document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [menuOpenForQuestion]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedQuestionIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        return newSet;
+    });
+  };
+
+  const handleExpandAll = () => setExpandedQuestionIds(new Set(questions.map(q => q.id)));
+  const handleCollapseAll = () => setExpandedQuestionIds(new Set());
 
   const openEditModal = (question: Question | null, e?: React.MouseEvent<HTMLButtonElement>) => {
     setEditingQuestion(question);
@@ -177,16 +192,26 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
 
   return (
     <div>
-      <div className="border-b border-border">
+      <div className="border-b border-border flex justify-between items-center bg-surface sticky top-0 z-10">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full flex justify-between items-center text-left p-6"
+          className="flex-grow flex justify-between items-center text-left p-6"
           aria-expanded={isOpen}
           aria-controls="question-list-content"
         >
           <h3 className="text-xl font-semibold text-text">Questions ({questions.length})</h3>
           <Icon name="chevron-down" className={`w-6 h-6 transition-transform duration-300 ${isOpen ? '' : '-rotate-90'} text-text-muted`}/>
         </button>
+        {isOpen && questions.length > 0 && (
+            <div className="pr-6 flex gap-2">
+                <Button variant="ghost" size="sm" onClick={handleExpandAll} title="Expand All">
+                    <Icon name="maximize" className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleCollapseAll} title="Collapse All">
+                    <Icon name="minimize" className="w-4 h-4" />
+                </Button>
+            </div>
+        )}
       </div>
 
       {isOpen && (
@@ -196,86 +221,123 @@ const QuestionListEditor: React.FC<QuestionListEditorProps> = ({ deck, questions
               <ul className="space-y-4">
                 {questions.map((question, index) => {
                   const { text: dueDateText, isDue } = getDueDateInfo(question.dueDate);
-                  const plainTextQuestion = stripHtml(question.questionText);
                   const isDragging = draggedQuestionIndex === index;
+                  const isExpanded = expandedQuestionIds.has(question.id);
 
                   return (
                     <li 
                         key={question.id} 
-                        className={`p-4 rounded-lg flex items-start justify-between transition-all border border-transparent ${question.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'} ${isDragging ? 'opacity-50 ring-2 ring-primary' : 'hover:border-border'}`}
+                        className={`p-4 rounded-lg flex flex-col transition-all border border-transparent ${question.suspended ? 'bg-yellow-500/10 opacity-70' : 'bg-background'} ${isDragging ? 'opacity-50 ring-2 ring-primary' : 'hover:border-border'}`}
                         draggable
                         onDragStart={(e) => handleDragStart(index, e)}
                         onDragOver={(e) => handleDragOver(index, e)}
                         onDrop={(e) => handleDrop(index, e)}
                     >
-                        <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text">
-                            <Icon name="grip-vertical" className="w-5 h-5" />
-                        </div>
-                        <div className="flex-1 min-w-0 mr-4">
-                            <p className="text-base font-medium text-text break-words truncate" title={plainTextQuestion}>{plainTextQuestion}</p>
-                            <div className="mt-3 space-y-2">
-                                <MasteryBar level={getEffectiveMasteryLevel(question)} />
-                                <div className="flex items-center gap-4 text-xs text-text-muted">
-                                    <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
-                                        <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
-                                    </span>
-                                    <span>
-                                        <Icon name="list" className="w-3 h-3 inline-block mr-1" />{(question.options || []).length} options
-                                    </span>
+                        <div className="flex items-start justify-between w-full">
+                            <div className="flex items-start flex-1 min-w-0">
+                                <div className="mr-3 mt-1 cursor-grab active:cursor-grabbing text-text-muted hover:text-text" onClick={e => e.stopPropagation()}>
+                                    <Icon name="grip-vertical" className="w-5 h-5" />
                                 </div>
-                                {question.tags && question.tags.length > 0 && (
-                                    <div className="flex flex-wrap items-center gap-1 mt-2">
-                                        {question.tags.map(tag => (
-                                            <span key={tag} className="bg-border/50 text-text-muted text-xs px-2 py-0.5 rounded-full">{tag}</span>
-                                        ))}
+                                <div className="flex-1 min-w-0 mr-4">
+                                    {isExpanded ? (
+                                        <div className="py-2 space-y-4">
+                                            <div>
+                                                <p className="text-xs font-bold text-text-muted uppercase mb-1">Question</p>
+                                                <DangerousHtmlRenderer html={question.questionText} className="prose prose-sm dark:prose-invert max-w-none font-semibold text-text" />
+                                            </div>
+                                            <div className="pt-2 border-t border-border/50">
+                                                <p className="text-xs font-bold text-text-muted uppercase mb-2">Options</p>
+                                                <ul className="space-y-2">
+                                                    {question.options.map(opt => (
+                                                        <li key={opt.id} className={`p-2 rounded border text-sm ${opt.id === question.correctAnswerId ? 'bg-green-500/10 border-green-500/30' : 'bg-background border-border/50'}`}>
+                                                            <div className="flex items-center gap-2">
+                                                                {opt.id === question.correctAnswerId && <Icon name="check-circle" className="w-4 h-4 text-green-500" />}
+                                                                <span className={opt.id === question.correctAnswerId ? 'font-bold' : ''}>{opt.text}</span>
+                                                            </div>
+                                                            {opt.explanation && <p className="text-[10px] text-text-muted mt-1 italic pl-6">{opt.explanation}</p>}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                            {question.detailedExplanation && (
+                                                <div className="pt-2 border-t border-border/50">
+                                                    <p className="text-xs font-bold text-text-muted uppercase mb-1">Full Explanation</p>
+                                                    <DangerousHtmlRenderer html={question.detailedExplanation} className="prose prose-sm dark:prose-invert max-w-none text-text-muted" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <p className="text-base font-medium text-text break-words truncate" title={stripHtml(question.questionText)}>{stripHtml(question.questionText)}</p>
+                                    )}
+                                    <div className="mt-3 space-y-2">
+                                        <MasteryBar level={getEffectiveMasteryLevel(question)} />
+                                        <div className="flex items-center gap-4 text-xs text-text-muted">
+                                            <span className={`font-semibold ${isDue ? 'text-primary' : ''}`}>
+                                                <Icon name="zap" className="w-3 h-3 inline-block mr-1" />{dueDateText}
+                                            </span>
+                                            <span>
+                                                <Icon name="list" className="w-3 h-3 inline-block mr-1" />{(question.options || []).length} options
+                                            </span>
+                                        </div>
+                                        {question.tags && question.tags.length > 0 && (
+                                            <div className="flex flex-wrap items-center gap-1 mt-2">
+                                                {question.tags.map(tag => (
+                                                    <span key={tag} className="bg-border/50 text-text-muted text-xs px-2 py-0.5 rounded-full">{tag}</span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex-shrink-0 flex items-center gap-1" ref={menuOpenForQuestion === question.id ? menuRef : null}>
+                                <Button variant="ghost" size="sm" className="p-2 h-auto text-text-muted" onClick={() => toggleExpand(question.id)} title={isExpanded ? "Collapse" : "Expand"}>
+                                    <Icon name={isExpanded ? "minimize" : "maximize"} className="w-4 h-4" />
+                                </Button>
+                               {regeneratingId === question.id ? (
+                                    <div className="p-2"><Spinner size="sm" /></div>
+                               ) : (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="p-2 h-auto"
+                                    onClick={(e) => { e.stopPropagation(); setMenuOpenForQuestion(q => q === question.id ? null : question.id); }}
+                                    aria-label={`More options for question`}
+                                >
+                                    <Icon name="more-vertical" className="w-5 h-5" />
+                                </Button>
+                               )}
+                                {menuOpenForQuestion === question.id && (
+                                    <div
+                                        className="absolute right-0 mt-2 w-48 bg-surface rounded-md shadow-lg py-1 z-10 ring-1 ring-black ring-opacity-5 animate-fade-in"
+                                        style={{ animationDuration: '150ms' }}
+                                    >
+                                        <button type="button" onClick={(e) => { openEditModal(question, e); setMenuOpenForQuestion(null); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
+                                            <Icon name="edit" className="w-4 h-4 mr-3" />
+                                            Edit
+                                        </button>
+                                        <button type="button" onClick={() => handleRegenerate(question)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
+                                            <Icon name="zap" className="w-4 h-4 mr-3" />
+                                            Regenerate
+                                        </button>
+                                        {question.suspended ? (
+                                            <button type="button" onClick={() => handleUnsuspendQuestion(question.id)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
+                                                <Icon name="eye" className="w-4 h-4 mr-3" />
+                                                Unsuspend
+                                            </button>
+                                        ) : (
+                                            <button type="button" onClick={() => handleSuspendQuestion(question.id)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
+                                                <Icon name="eye-off" className="w-4 h-4 mr-3" />
+                                                Suspend
+                                            </button>
+                                        )}
+                                        <div className="border-t border-border my-1"></div>
+                                        <button type="button" onClick={(e) => { openConfirmDelete(question, e); setMenuOpenForQuestion(null); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                            <Icon name="trash-2" className="w-4 h-4 mr-3" />
+                                            Delete
+                                        </button>
                                     </div>
                                 )}
                             </div>
-                        </div>
-                        <div className="flex-shrink-0 relative" ref={menuOpenForQuestion === question.id ? menuRef : null}>
-                           {regeneratingId === question.id ? (
-                                <div className="p-2"><Spinner size="sm" /></div>
-                           ) : (
-                            <Button
-                                variant="ghost"
-                                className="p-2 h-auto"
-                                onClick={(e) => { e.stopPropagation(); setMenuOpenForQuestion(q => q === question.id ? null : question.id); }}
-                                aria-label={`More options for question`}
-                            >
-                                <Icon name="more-vertical" className="w-5 h-5" />
-                            </Button>
-                           )}
-                            {menuOpenForQuestion === question.id && (
-                                <div
-                                    className="absolute right-0 mt-2 w-48 bg-surface rounded-md shadow-lg py-1 z-10 ring-1 ring-black ring-opacity-5 animate-fade-in"
-                                    style={{ animationDuration: '150ms' }}
-                                >
-                                    <button type="button" onClick={(e) => { openEditModal(question, e); setMenuOpenForQuestion(null); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
-                                        <Icon name="edit" className="w-4 h-4 mr-3" />
-                                        Edit
-                                    </button>
-                                    <button type="button" onClick={() => handleRegenerate(question)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
-                                        <Icon name="zap" className="w-4 h-4 mr-3" />
-                                        Regenerate
-                                    </button>
-                                    {question.suspended ? (
-                                        <button type="button" onClick={() => handleUnsuspendQuestion(question.id)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
-                                            <Icon name="eye" className="w-4 h-4 mr-3" />
-                                            Unsuspend
-                                        </button>
-                                    ) : (
-                                        <button type="button" onClick={() => handleSuspendQuestion(question.id)} className="flex items-center w-full px-4 py-2 text-sm text-left text-text hover:bg-border/20">
-                                            <Icon name="eye-off" className="w-4 h-4 mr-3" />
-                                            Suspend
-                                        </button>
-                                    )}
-                                    <div className="border-t border-border my-1"></div>
-                                    <button type="button" onClick={(e) => { openConfirmDelete(question, e); setMenuOpenForQuestion(null); }} className="flex items-center w-full px-4 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                                        <Icon name="trash-2" className="w-4 h-4 mr-3" />
-                                        Delete
-                                    </button>
-                                </div>
-                            )}
                         </div>
                     </li>
                   );

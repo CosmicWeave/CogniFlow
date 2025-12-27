@@ -1,9 +1,12 @@
 
+// components/AIActionsMenu.tsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import Button from './ui/Button';
-import Icon, { IconName } from './ui/Icon';
+import Icon from './ui/Icon';
 import Spinner from './ui/Spinner';
-import { Deck, DeckType, FlashcardDeck, QuizDeck, LearningDeck } from '../types';
+import { Deck, DeckType } from '../types';
+import { useModal } from '../contexts/ModalContext';
 
 interface AIActionsMenuProps {
     deck: Deck;
@@ -13,6 +16,7 @@ interface AIActionsMenuProps {
     onAutoTag?: () => void;
     onHardenDistractors?: () => void;
     onGenerateAudio?: () => void;
+    onHolisticUpgrade?: (type: 'text' | 'questions', config: any) => void;
     isGenerating: boolean;
 }
 
@@ -24,10 +28,12 @@ const AIActionsMenu: React.FC<AIActionsMenuProps> = ({
     onAutoTag, 
     onHardenDistractors, 
     onGenerateAudio,
+    onHolisticUpgrade,
     isGenerating 
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const { openModal } = useModal();
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -46,6 +52,15 @@ const AIActionsMenu: React.FC<AIActionsMenuProps> = ({
         setIsOpen(false);
     };
 
+    const handleTriggerConfig = (type: 'text' | 'questions') => {
+        setIsOpen(false);
+        openModal('synthesisConfig', {
+            title: type === 'text' ? 'Holistic Course Upgrade' : 'Mass Assessment Deepening',
+            type,
+            onConfirm: (config: any) => onHolisticUpgrade?.(type, config)
+        });
+    };
+
     return (
         <div className="relative inline-block" ref={menuRef}>
             <Button 
@@ -62,7 +77,7 @@ const AIActionsMenu: React.FC<AIActionsMenuProps> = ({
             {isOpen && (
                 <div className="absolute bottom-full left-0 mb-2 w-64 bg-surface rounded-xl shadow-2xl border border-border z-50 py-2 animate-fade-in origin-bottom-left overflow-hidden">
                     <div className="px-4 py-2 border-b border-border mb-1">
-                        <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">AI Tools</span>
+                        <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Synthesis Studio</span>
                     </div>
                     
                     <button 
@@ -78,27 +93,53 @@ const AIActionsMenu: React.FC<AIActionsMenuProps> = ({
                         className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/10 transition-colors group"
                     >
                         <Icon name="refresh-ccw" className="w-4 h-4 mr-3 text-blue-500 group-hover:scale-110 transition-transform" />
-                        Rework Deck with AI
+                        Rework Entire Deck
                     </button>
+
+                    <div className="my-1 border-t border-border"></div>
+                    <div className="px-4 py-1">
+                        <span className="text-[9px] font-black text-indigo-600 uppercase tracking-tighter">Conceptual Transformers</span>
+                    </div>
+
+                    {onHolisticUpgrade && (
+                        <button 
+                            onClick={() => handleTriggerConfig('text')}
+                            className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group"
+                        >
+                            <Icon name="bot" className="w-4 h-4 mr-3 text-indigo-500 group-hover:scale-110 transition-transform" />
+                            Holistic Text Upgrade (All)
+                        </button>
+                    )}
+
+                    {onHolisticUpgrade && deck.type === DeckType.Learning && (
+                        <button 
+                            onClick={() => handleTriggerConfig('questions')}
+                            className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group"
+                        >
+                            <Icon name="layers" className="w-4 h-4 mr-3 text-indigo-500 group-hover:scale-110 transition-transform" />
+                            Deepen All Quizzes
+                        </button>
+                    )}
+
+                    <div className="my-1 border-t border-border"></div>
 
                     <button 
                         onClick={() => handleAction(onAnalyze)}
                         className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/10 transition-colors group"
                     >
                         <Icon name="save" className="w-4 h-4 mr-3 text-yellow-500 group-hover:scale-110 transition-transform" />
-                        Analyze & Improve Deck
+                        Analyze & Improve
                     </button>
 
                     {(deck.type === DeckType.Quiz || deck.type === DeckType.Learning) && (
                         <>
-                            <div className="my-1 border-t border-border"></div>
                             {onAutoTag && (
                                 <button 
                                     onClick={() => handleAction(onAutoTag)}
                                     className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/10 transition-colors group"
                                 >
                                     <Icon name="filter" className="w-4 h-4 mr-3 text-indigo-500 group-hover:scale-110 transition-transform" />
-                                    Smart-Tag All Questions
+                                    Smart-Tag Questions
                                 </button>
                             )}
                             {onHardenDistractors && (
@@ -107,23 +148,20 @@ const AIActionsMenu: React.FC<AIActionsMenuProps> = ({
                                     className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/10 transition-colors group"
                                 >
                                     <Icon name="trending-up" className="w-4 h-4 mr-3 text-red-500 group-hover:scale-110 transition-transform" />
-                                    Harden All Distractors
+                                    Harden Distractors
                                 </button>
                             )}
                         </>
                     )}
 
                     {deck.type === DeckType.Flashcard && onGenerateAudio && (
-                        <>
-                            <div className="my-1 border-t border-border"></div>
-                            <button 
-                                onClick={() => handleAction(onGenerateAudio)}
-                                className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/10 transition-colors group"
-                            >
-                                <Icon name="mic" className="w-4 h-4 mr-3 text-green-500 group-hover:scale-110 transition-transform" />
-                                Generate Audio for All
-                            </button>
-                        </>
+                        <button 
+                            onClick={() => handleAction(onGenerateAudio)}
+                            className="flex items-center w-full px-4 py-2.5 text-sm text-left text-text hover:bg-primary/10 transition-colors group"
+                        >
+                            <Icon name="mic" className="w-4 h-4 mr-3 text-green-500 group-hover:scale-110 transition-transform" />
+                            Generate Audio
+                        </button>
                     )}
                 </div>
             )}
